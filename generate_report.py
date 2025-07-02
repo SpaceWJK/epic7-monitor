@@ -27,11 +27,10 @@ def main():
     for post in posts:
         category = classify_post(post["title"])
         if category in report_data:
-            report_data[category].append(post)
+            report_data[category].append(f"[{post['source']}] {post['title']} - {post['url']}")
         seen_links.add(post["url"])
 
     send_daily_report(webhook, report_data)
-
     state["seen"] = list(seen_links)
     save_state(state)
 

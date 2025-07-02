@@ -20,7 +20,7 @@ def main():
     seen_links = set(state["seen"])
     webhook = os.getenv("DISCORD_WEBHOOK_BUG")
 
-    print("--- Playwright 실시간 버그 감시 시작 ---")
+    print("--- 실시간 버그 감시 시작 ---")
     posts = crawl_all_sites()
 
     for post in posts:
@@ -28,7 +28,7 @@ def main():
             continue
         category = classify_post(post["title"])
         if category == "bug":
-            send_bug_alert(webhook, post["title"], post["url"], post["source"])
+            send_bug_alert(webhook, f"[{post['source']}] {post['title']}", post["url"])
         seen_links.add(post["url"])
 
     state["seen"] = list(seen_links)
