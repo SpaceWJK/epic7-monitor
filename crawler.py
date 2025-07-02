@@ -1,64 +1,74 @@
+# crawler.py
 import requests
 from bs4 import BeautifulSoup
-from typing import List, Dict
+import random
+import time
+from random import uniform
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-}
+session = requests.Session()
 
-def crawl_stove(base_url: str) -> List[Dict[str, str]]:
-    """STOVE 커뮤니티의 게시글 목록을 크롤링합니다."""
-    posts = []
+# 헤더 변조를 위한 리스트
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_2 like Mac OS X)'
+]
+REFERERS = ['https://google.com', 'https://bing.com', 'https://duckduckgo.com']
+LANGUAGES = ['ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7', 'en-US,en;q=0.9', 'ja-JP,ja;q=0.9']
+
+def get_headers():
+    return {
+        'User-Agent': random.choice(USER_AGENTS),
+        'Referer': random.choice(REFERERS),
+        'Accept-Language': random.choice(LANGUAGES),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    }
+
+def fetch_posts(url, selector):
+    time.sleep(uniform(0.5, 1.5))
     try:
-        response = requests.get(base_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        post_list = soup.select('ul.list-area > li:not(.notice)')
-        for post in post_list:
-            title_element = post.select_one('a.list-title-link')
-            if title_element:
-                title = title_element.text.strip()
-                url = "https://page.onstove.com" + title_element['href']
-                posts.append({'title': title, 'url': url})
-    except requests.exceptions.RequestException as e:
-        print(f"[크롤링 에러] STOVE 접속 실패: {e}")
+        resp = session.get(url, headers=get_headers(), timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        elements = soup.select(selector)
+        posts = []
+        for el in elements:
+            title = el.get_text(strip=True)
+            link = el.get('href')
+            if link and not link.startswith("http"):
+                link = url + link
+            posts.append({'title': title, 'url': link})
+        return posts
+    except Exception as e:
+        print(f"[!] {url} 오류: {e}")
+        return []
+
+def crawl_all_sites():
+    posts = []
+    posts += fetch_posts("https://arca.live/b/epic7", "a.title")                     # 아카라이브
+    posts += fetch_posts("https://bbs.ruliweb.com/game/84925", "a.deco")             # 루리웹
+    posts += fetch_posts("https://page.onstove.com/epicseven/kr", "a.article-link")  # 스토브
+    posts += fetch_posts("https://forum.epic7.global/", "a.node-title")              # 글로벌 포럼
+    posts += fetch_posts("https://forum.gamer.com.tw/A.php?bsn=35366", "a.b-list__main__title") # 대만 바하무트
+    posts += fetch_posts("https://x.com/Epic7_jp", "title")                          # 일본 X
+    posts += fetch_posts("https://www.facebook.com/EpicSeven.tw", "title")           # 대만 페북
+    posts += fetch_posts("https://www.facebook.com/EpicSeven.Thai", "title")         # 태국 페북
+    posts += fetch_posts("https://www.taptap.cn/app/158697", "title")                # 중국 탭탭
+    posts += crawl_reddit()
     return posts
 
-def crawl_dcinside(base_url: str) -> List[Dict[str, str]]:
-    """디시인사이드 갤러리의 게시글 목록을 크롤링합니다."""
-    posts = []
+def crawl_reddit():
+    time.sleep(uniform(0.5,1.5))
     try:
-        response = requests.get(base_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        post_list = soup.select('tr.us-post')
-        for post in post_list:
-            title_element = post.select_one('td.gall_tit a:not(.icon_notice)')
-            if title_element:
-                title = title_element.text.strip()
-                url = "https://gall.dcinside.com" + title_element['href']
-                posts.append({'title': title, 'url': url})
-    except requests.exceptions.RequestException as e:
-        print(f"[크롤링 에러] DCinside 접속 실패: {e}")
-    return posts
-
-def crawl_reddit(subreddit_url: str) -> List[Dict[str, str]]:
-    """Reddit 서브레딧의 'new' 게시글 목록을 크롤링합니다."""
-    posts = []
-    try:
-        old_reddit_url = subreddit_url.replace("www.reddit.com", "old.reddit.com")
-        response = requests.get(old_reddit_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        post_list = soup.select('div.thing')
-        for post in post_list:
-            title_element = post.select_one('p.title a.title')
-            if title_element:
-                title = title_element.text.strip()
-                url = title_element['href']
-                if not url.startswith('http'):
-                    url = "https://old.reddit.com" + url
-                posts.append({'title': title, 'url': url})
-    except requests.exceptions.RequestException as e:
-        print(f"[크롤링 에러] Reddit 접속 실패: {e}")
-    return posts
+        headers = get_headers()
+        headers['User-Agent'] = 'Mozilla/5.0 RedditMonitor'
+        resp = session.get("https://www.reddit.com/r/EpicSeven/.json", headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        posts = [{"title": p["data"]["title"], "url": "https://reddit.com" + p["data"]["permalink"]}
+                 for p in data["data"]["children"]]
+        return posts
+    except Exception as e:
+        print(f"[!] reddit 오류: {e}")
+        return []

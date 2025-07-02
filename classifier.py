@@ -19,7 +19,7 @@ KEYWORDS: Dict[str, Dict[str, list]] = {
 }
 
 def classify_post(title: str) -> str:
-    """게시글 제목을 분석하여 미리 정의된 카테고리로 분류합니다."""
+    """게시글 제목을 탐색하여 사전 정의된 키워드로 카테고리를 분류"""
     lower_title = title.lower()
     for category, languages in KEYWORDS.items():
         for lang_keywords in languages.values():
