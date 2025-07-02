@@ -1,29 +1,24 @@
-from typing import Dict
+# classifier.py
 
-KEYWORDS: Dict[str, Dict[str, list]] = {
-    'bug': {
-        'ko': ['오류', '버그', '팅김', '재접', '적용 안됨', '튕김', '렉', '검은화면', '먹통', '글리치'],
-        'en': ['bug', 'glitch', 'crash', 'reconnect', 'issue', 'login crash', 'not loading', 'freeze', 'stuck', 'exploit'],
-        'jp': ['バグ', '不具合', 'エラー', '落ちる', '固まる'],
-    },
-    'negative': {
-        'ko': ['짜증', '불만', '개선', '운영', '똥겜', '노잼', '망겜', '접는다', '환불', '하향', '너프'],
-        'en': ['hate', 'screw you', 'stupid', 'broken', 'server problem', 'disappointed', 'bad', 'nerf', 'rant'],
-        'jp': ['不満', '下方修正', 'ナーフ', '改悪', '炎上', 'クソゲー', 'オワコン'],
-    },
-    'positive': {
-        'ko': ['감사', '해결', '좋아요', '덕분에', '최고', '좋다', '잘됨', '갓겜', '혜자', '추천', '만족', '상향'],
-        'en': ['helpful', 'thanks', 'managed', 'great', 'figured out', 'good', 'love', 'amazing', 'awesome', 'buff'],
-        'jp': ['神ゲー', '面白い', 'おすすめ', '満足', '上方修正', '神引き'],
-    }
-}
+BUG_KEYWORDS_KO = ['버그', '오류', '팅김', '튕김', '서버', '연결', '점검']
+BUG_KEYWORDS_EN = ['bug', 'glitch', 'crash', 'issue', 'disconnect']
 
-def classify_post(title: str) -> str:
-    """게시글 제목을 탐색하여 사전 정의된 키워드로 카테고리를 분류"""
-    lower_title = title.lower()
-    for category, languages in KEYWORDS.items():
-        for lang_keywords in languages.values():
-            for keyword in lang_keywords:
-                if keyword in lower_title:
-                    return category
-    return 'neutral'
+POSITIVE_KEYWORDS_KO = ['좋다', '좋아요', '최고', '덕분에', '잘됨', '갓겜']
+POSITIVE_KEYWORDS_EN = ['good', 'great', 'thanks', 'helpful', 'amazing']
+
+NEGATIVE_KEYWORDS_KO = ['망겜', '짜증', '불만', '개선', '운영', '노잼']
+NEGATIVE_KEYWORDS_EN = ['hate', 'broken', 'problem', 'stupid', 'bad']
+
+def is_bug_post(title):
+    title_lower = title.lower()
+    return any(kw in title_lower for kw in BUG_KEYWORDS_KO + BUG_KEYWORDS_EN)
+
+def classify_post(title):
+    title_lower = title.lower()
+    if any(kw in title_lower for kw in BUG_KEYWORDS_KO + BUG_KEYWORDS_EN):
+        return "bugs"
+    elif any(kw in title_lower for kw in POSITIVE_KEYWORDS_KO + POSITIVE_KEYWORDS_EN):
+        return "positive"
+    elif any(kw in title_lower for kw in NEGATIVE_KEYWORDS_KO + NEGATIVE_KEYWORDS_EN):
+        return "negative"
+    return None

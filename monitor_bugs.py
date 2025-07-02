@@ -1,38 +1,39 @@
-import json, os
+# monitor_bugs.py
 from crawler import crawl_all_sites
-from classifier import classify_post
 from notifier import send_bug_alert
+from classifier import is_bug_post
+from datetime import datetime
 
-STATE_FILE = "crawled_links.json"
+import time
 
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"seen": []}
-
-def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+print("--- 실시간 버그 감시 시작 ---")
 
 def main():
-    state = load_state()
-    seen_links = set(state["seen"])
-    webhook = os.getenv("DISCORD_WEBHOOK_BUG")
+    webhook = "<YOUR_DISCORD_WEBHOOK_URL>"
+    checked_urls = set()
 
-    print("--- 실시간 버그 감시 시작 ---")
-    posts = crawl_all_sites()
+    while True:
+        posts = crawl_all_sites()
+        for post in posts:
+            url = post.get("url")
+            title = post.get("title", "제목 없음")
+            source = post.get("source", "Unknown")
 
-    for post in posts:
-        if post["url"] in seen_links:
-            continue
-        category = classify_post(post["title"])
-        if category == "bug":
-            send_bug_alert(webhook, f"[{post['source']}] {post['title']}", post["url"])
-        seen_links.add(post["url"])
+            if url in checked_urls:
+                continue
 
-    state["seen"] = list(seen_links)
-    save_state(state)
+            checked_urls.add(url)
+
+            # 버그 탐지
+            if is_bug_post(title):
+                try:
+                    send_bug_alert(webhook, f"[{source}] {title}", url, source)
+                    print(f"[*] 버그 감지 및 알림: {source} - {title}")
+                except Exception as e:
+                    print(f"[!] Discord 전송 실패: {e}")
+
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] 루프 대기 중...")
+        time.sleep(60)
 
 if __name__ == "__main__":
     main()

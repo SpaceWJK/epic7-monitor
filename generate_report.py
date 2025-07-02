@@ -1,38 +1,32 @@
-import json, os
+# generate_report.py
 from crawler import crawl_all_sites
-from classifier import classify_post
 from notifier import send_daily_report
+from classifier import classify_post
+from datetime import datetime
 
-STATE_FILE = "crawled_links.json"
-
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"seen": []}
-
-def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+print("--- 일일 보고서 생성 시작 ---")
 
 def main():
-    state = load_state()
-    seen_links = set(state["seen"])
-    webhook = os.getenv("DISCORD_WEBHOOK_REPORT")
-
-    print("--- 일일 보고서 생성 시작 ---")
+    webhook = "<YOUR_DISCORD_WEBHOOK_URL>"
     posts = crawl_all_sites()
 
-    report_data = {"bug": [], "negative": [], "positive": []}
-    for post in posts:
-        category = classify_post(post["title"])
-        if category in report_data:
-            report_data[category].append(f"[{post['source']}] {post['title']} - {post['url']}")
-        seen_links.add(post["url"])
+    report_data = {"bugs": [], "positive": [], "negative": []}
 
-    send_daily_report(webhook, report_data)
-    state["seen"] = list(seen_links)
-    save_state(state)
+    for post in posts:
+        title = post.get("title", "제목 없음")
+        url = post.get("url", "")
+        source = post.get("source", "Unknown")
+
+        category = classify_post(title)
+        if category:
+            report_data[category].append({"title": title, "url": url, "source": source})
+
+    # 디스코드로 전송
+    try:
+        send_daily_report(webhook, report_data)
+        print(f"[+] 보고서 발송 완료 ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+    except Exception as e:
+        print(f"[!] Discord 전송 실패: {e}")
 
 if __name__ == "__main__":
     main()
