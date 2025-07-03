@@ -1,41 +1,55 @@
 # monitor_bugs.py
+import json
 import sys
-import time
 from crawler import crawl_arca_sites, crawl_global_sites
+from classifier import is_bug_post
 from notifier import send_bug_alert
-from classifier import classify_post
 
-WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK"  # 깃허브 Secrets에 보관한 환경변수로 불러오면 좋습니다.
+WEBHOOK_URL = "https://discord.com/api/webhooks/xxx/yyy"
+STATE_FILE = "crawled_links.json"
 
-def main():
-    print("--- 실시간 버그 감시 시작 ---")
+def load_state():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
 
-    # CLI 인자 받기
-    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
-    print(f"[INFO] 실행 모드: {mode}")
+def save_state(links):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(links, f, ensure_ascii=False, indent=2)
+
+def main(mode):
+    print(f"--- 실시간 {mode.upper()} 버그 감시 시작 ---")
+    crawled_links = load_state()
+    print(f"이미 처리된 게시글 수: {len(crawled_links)}")
 
     posts = []
-
-    # 선택적으로 모드별 크롤링
     if mode == "arca":
         posts = crawl_arca_sites()
     elif mode == "global":
         posts = crawl_global_sites()
-    else:
-        posts = crawl_arca_sites() + crawl_global_sites()
 
-    print(f"[INFO] 총 크롤링된 게시글 수: {len(posts)}")
-
-    # 게시글 순회하며 분류 및 알림
-    bug_count = 0
+    new_bugs_detected = 0
     for post in posts:
-        category = classify_post(post["title"])
-        if category == "bug":
-            send_bug_alert(WEBHOOK_URL, f"[{post['source']}] {post['title']}", post["url"])
-            bug_count += 1
+        title = post["title"]
+        url = post["url"]
+        source = post.get("source", "Unknown")
 
-    print(f"[INFO] 버그 키워드 탐지 알림 전송 건수: {bug_count}")
-    print("--- 실시간 버그 감시 종료 ---")
+        if url in crawled_links:
+            continue
+
+        if post.get("force_bug") or is_bug_post(title):
+            send_bug_alert(WEBHOOK_URL, f"[{source}] {title}", url, source)
+            new_bugs_detected += 1
+
+        crawled_links.append(url)
+
+    save_state(crawled_links)
+    print(f"이번 탐색에서 새로 감지된 버그 게시글 수: {new_bugs_detected}")
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Usage: python monitor_bugs.py [arca|global]")
+        sys.exit(1)
+    main(sys.argv[1])
