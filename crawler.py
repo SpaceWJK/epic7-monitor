@@ -34,7 +34,7 @@ def fetch_posts(url, selector, source, force_bug=False):
     :param source: 게시글 출처(커뮤니티 이름)
     :param force_bug: True면 무조건 bug로 처리
     """
-    time.sleep(uniform(0.5, 1.5))  # 랜덤 딜레이
+    time.sleep(uniform(3, 8))  # 랜덤 딜레이
     try:
         resp = session.get(url, headers=get_headers(), timeout=10)
         resp.raise_for_status()
