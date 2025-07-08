@@ -43,18 +43,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
           
-          # ChromeDriver 수동 설치
-          CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3 | cut -d'.' -f1)
+          # 새로운 Chrome for Testing API 사용
+          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
           echo "Chrome 버전: $CHROME_VERSION"
           
-          # ChromeDriver 최신 버전 다운로드
-          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}")
-          echo "ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+          # Chrome for Testing API에서 최신 안정 버전 확인
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
+          echo "ChromeDriver 안정 버전: $CHROMEDRIVER_VERSION"
           
-          wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
-          sudo unzip /tmp/chromedriver.zip -d /usr/local/bin/
+          # ChromeDriver 다운로드
+          wget -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          
+          # ChromeDriver 설치
+          sudo unzip /tmp/chromedriver.zip -d /tmp/
+          sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
           
+          # 설치 확인
           echo "설치된 ChromeDriver 버전: $(chromedriver --version)"
 
       - name: Install dependencies
