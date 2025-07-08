@@ -1,7 +1,14 @@
 import json
 import os
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 import time
 from datetime import datetime, timedelta
 import re
@@ -40,164 +47,185 @@ def save_crawled_links(link_data):
         print(f"[ERROR] 링크 저장 실패: {e}")
 
 def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링"""
+    """스토브 에픽세븐 버그 게시판 크롤링 (Selenium 버전)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
     
-    with sync_playwright() as p:
-        try:
-            # 브라우저 설정 개선
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled'
-                ]
-            )
-            
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                viewport={'width': 1920, 'height': 1080}
-            )
-            
-            page = context.new_page()
-            
-            # 스토브 버그 게시판 URL
-            url = "https://page.onstove.com/epicseven/kr/list/1012?page=1&direction=LATEST"
-            print(f"[DEBUG] 스토브 접속 중: {url}")
-            
-            # 페이지 로딩 및 대기
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            
-            # 스토브 특성상 동적 로딩 대기
-            time.sleep(5)
-            
-            # 스크롤하여 콘텐츠 로딩 유도
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(2)
-            page.evaluate("window.scrollTo(0, 0)")
-            time.sleep(2)
-            
-            html = page.content()
-            
-            # 디버깅용 HTML 저장 (매번 덮어씀)
-            with open("stove_debug.html", "w", encoding="utf-8") as f:
-                f.write(html)
-                
-            soup = BeautifulSoup(html, "html.parser")
-            
-            # 스토브 실제 구조에 맞는 셀렉터들
-            post_selectors = [
-                # 스토브 게시판의 실제 구조 기반
-                ".board-list .list-row",
-                ".post-list-wrap .post-item", 
-                ".board-item-wrap .board-item",
-                "a[href*='/epicseven/kr/view/']",
-                ".title a",
-                ".subject a",
-                "[data-href*='/view/']"
-            ]
-            
-            found_posts = []
-            for selector in post_selectors:
-                elements = soup.select(selector)
+    # Chrome 옵션 설정 (GitHub Actions 환경 최적화)
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-plugins')
+    options.add_argument('--disable-images')  # 이미지 로딩 비활성화로 속도 향상
+    options.add_argument('--disable-javascript-harmony-shipping')
+    options.add_argument('--disable-background-timer-throttling')
+    options.add_argument('--disable-backgrounding-occluded-windows')
+    options.add_argument('--disable-renderer-backgrounding')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
+    
+    # 추가 성능 최적화
+    prefs = {
+        'profile.default_content_setting_values': {
+            'images': 2,  # 이미지 차단
+            'plugins': 2,  # 플러그인 차단
+            'popups': 2,   # 팝업 차단
+            'geolocation': 2,  # 위치 정보 차단
+            'notifications': 2,  # 알림 차단
+            'media_stream': 2,  # 미디어 스트림 차단
+        }
+    }
+    options.add_experimental_option('prefs', prefs)
+    
+    driver = None
+    try:
+        print("[DEBUG] Chrome 드라이버 초기화 중...")
+        # ChromeDriver 자동 관리
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        # 페이지 로드 타임아웃 설정
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(10)
+        
+        url = "https://page.onstove.com/epicseven/kr/list/1012?page=1&direction=LATEST"
+        print(f"[DEBUG] 스토브 접속 중: {url}")
+        
+        # 페이지 로딩
+        driver.get(url)
+        
+        # 동적 콘텐츠 로딩 대기
+        print("[DEBUG] 페이지 로딩 대기 중...")
+        time.sleep(5)
+        
+        # 스크롤하여 콘텐츠 로딩 유도
+        print("[DEBUG] 스크롤로 콘텐츠 로딩 유도 중...")
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(2)
+        
+        # 디버깅용 HTML 저장
+        html_content = driver.page_source
+        with open("stove_debug_selenium.html", "w", encoding="utf-8") as f:
+            f.write(html_content)
+        
+        print("[DEBUG] 게시글 링크 탐색 중...")
+        
+        # 다양한 셀렉터로 게시글 찾기
+        selectors = [
+            "a[href*='/epicseven/kr/view/']",
+            ".board-list .list-row a",
+            ".post-list-wrap .post-item a", 
+            ".board-item-wrap .board-item a",
+            ".title a",
+            ".subject a",
+            "[data-href*='/view/']"
+        ]
+        
+        found_elements = []
+        for selector in selectors:
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elements:
                     print(f"[DEBUG] '{selector}'로 {len(elements)}개 요소 발견")
-                    found_posts = elements
+                    found_elements = elements
                     break
-            
-            if not found_posts:
-                print("[ERROR] 게시글을 찾을 수 없습니다.")
-                print("[DEBUG] HTML 구조 확인을 위해 stove_debug.html 파일을 확인하세요")
+            except Exception as e:
+                print(f"[DEBUG] '{selector}' 시도 중 오류: {e}")
+                continue
+        
+        # 대안: 모든 링크에서 view 패턴 찾기
+        if not found_elements:
+            print("[DEBUG] 대안 방법으로 모든 링크 탐색 중...")
+            all_links = driver.find_elements(By.TAG_NAME, "a")
+            found_elements = [link for link in all_links if '/epicseven/kr/view/' in (link.get_attribute('href') or '')]
+            print(f"[DEBUG] 대안 방법으로 {len(found_elements)}개 게시글 링크 발견")
+        
+        if not found_elements:
+            print("[ERROR] 게시글을 찾을 수 없습니다.")
+            print("[DEBUG] HTML 구조 확인을 위해 stove_debug_selenium.html 파일을 확인하세요")
+            return posts
+        
+        # 게시글 정보 추출
+        for i, element in enumerate(found_elements[:15]):  # 최신 15개 체크
+            try:
+                href = element.get_attribute('href')
+                if not href:
+                    continue
                 
-                # 대안: 모든 링크에서 view 패턴 찾기
-                all_links = soup.find_all('a', href=True)
-                view_links = [link for link in all_links if '/epicseven/kr/view/' in link.get('href', '')]
+                if not href.startswith('http'):
+                    href = "https://page.onstove.com" + href
                 
-                if view_links:
-                    print(f"[DEBUG] 대안 방법으로 {len(view_links)}개 게시글 링크 발견")
-                    found_posts = view_links
-                else:
-                    return posts
-            
-            # 게시글 정보 추출
-            for i, element in enumerate(found_posts[:15]):  # 최신 15개 체크
-                try:
-                    # 링크 추출
-                    href = ""
-                    if element.name == 'a':
-                        href = element.get('href', '')
-                    else:
-                        link_elem = element.find('a', href=True)
-                        if link_elem:
-                            href = link_elem.get('href', '')
-                    
-                    if not href:
-                        continue
-                        
-                    if not href.startswith('http'):
-                        href = "https://page.onstove.com" + href
-                    
-                    # 이미 처리된 링크인지 확인
-                    if href in crawled_links:
-                        continue
-                    
-                    # 제목 추출 (다양한 방법 시도)
-                    title = ""
-                    
-                    # 방법 1: 링크 텍스트 직접
-                    if element.name == 'a' and element.get_text(strip=True):
-                        title = element.get_text(strip=True)
-                    
-                    # 방법 2: 제목 관련 클래스 찾기
-                    if not title:
+                # 이미 처리된 링크인지 확인
+                if href in crawled_links:
+                    continue
+                
+                # 제목 추출
+                title = ""
+                
+                # 방법 1: 링크 텍스트 직접
+                link_text = element.text.strip()
+                if link_text and len(link_text) > 3:
+                    title = link_text
+                
+                # 방법 2: 부모 요소에서 제목 찾기
+                if not title:
+                    try:
+                        parent = element.find_element(By.XPATH, "..")
+                        parent_text = parent.text.strip()
+                        if parent_text and len(parent_text) > 3:
+                            title = parent_text
+                    except:
+                        pass
+                
+                # 방법 3: 제목 관련 요소 찾기
+                if not title:
+                    try:
                         title_selectors = ['.title', '.subject', '.post-title', '.board-title']
                         for sel in title_selectors:
-                            title_elem = element.select_one(sel)
+                            title_elem = element.find_element(By.CSS_SELECTOR, sel)
                             if title_elem:
-                                title = title_elem.get_text(strip=True)
+                                title = title_elem.text.strip()
                                 break
-                    
-                    # 방법 3: 부모 요소에서 제목 찾기
-                    if not title:
-                        parent = element if element.name != 'a' else element.find_parent()
-                        if parent:
-                            # 텍스트가 있는 첫 번째 요소 찾기
-                            text_elements = parent.find_all(string=True)
-                            for text in text_elements:
-                                clean_text = text.strip()
-                                if clean_text and len(clean_text) > 3 and not clean_text.isdigit():
-                                    title = clean_text
-                                    break
-                    
-                    # 제목 정리
-                    if title:
-                        title = re.sub(r'\s+', ' ', title).strip()  # 공백 정리
-                        title = title[:200]  # 길이 제한
-                    
-                    if title and href and len(title) > 3:
-                        post_data = {
-                            "title": title,
-                            "url": href,
-                            "timestamp": datetime.now().isoformat(),
-                            "source": "stove_bug"
-                        }
-                        posts.append(post_data)
-                        crawled_links.append(href)
-                        print(f"[NEW] 새 게시글 발견 ({i+1}): {title[:50]}...")
+                    except:
+                        pass
                 
-                except Exception as e:
-                    print(f"[ERROR] 게시글 {i+1} 파싱 중 오류: {e}")
-                    continue
-            
-            browser.close()
-            
-        except Exception as e:
-            print(f"[ERROR] 스토브 크롤링 중 오류 발생: {e}")
-            if 'browser' in locals():
-                browser.close()
+                # 제목 정리
+                if title:
+                    title = re.sub(r'\s+', ' ', title).strip()  # 공백 정리
+                    title = title[:200]  # 길이 제한
+                
+                if title and href and len(title) > 3:
+                    post_data = {
+                        "title": title,
+                        "url": href,
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "stove_bug"
+                    }
+                    posts.append(post_data)
+                    crawled_links.append(href)
+                    print(f"[NEW] 새 게시글 발견 ({i+1}): {title[:50]}...")
+                
+            except Exception as e:
+                print(f"[ERROR] 게시글 {i+1} 파싱 중 오류: {e}")
+                continue
+        
+    except TimeoutException:
+        print("[ERROR] 페이지 로딩 타임아웃")
+    except WebDriverException as e:
+        print(f"[ERROR] WebDriver 오류: {e}")
+    except Exception as e:
+        print(f"[ERROR] 스토브 크롤링 중 오류 발생: {e}")
+        
+    finally:
+        if driver:
+            print("[DEBUG] Chrome 드라이버 종료 중...")
+            driver.quit()
     
     # 중복 방지 링크 저장
     link_data["links"] = crawled_links

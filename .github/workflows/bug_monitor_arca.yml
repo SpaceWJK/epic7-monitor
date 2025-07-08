@@ -1,74 +1,38 @@
-name: Epic Seven ARCA Bug Monitor
-
+name: Bug Monitor ARCA
 on:
   schedule:
-    - cron: "*/15 * * * *"  # 15분마다 실행
-  workflow_dispatch:
+    - cron: '*/15 * * * *'
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    
-    # 타임존 설정
-    env:
-      TZ: Asia/Seoul
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          # Git 히스토리 유지 (중복 방지 파일 관리용)
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # Playwright 브라우저 및 시스템 의존성 설치
-          playwright install chromium
-          playwright install-deps
-
-      - name: Run ARCA bug monitor
-        env:
-          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-        run: python monitor_bugs.py --mode arca
-
-      - name: Upload debug artifacts
-        if: always()  # 실패해도 디버그 파일 업로드
-        uses: actions/upload-artifact@v4
-        with:
-          name: arca-debug-${{ github.run_number }}
-          path: |
-            stove_debug.html
-            crawled_links.json
-          retention-days: 7
-
-      - name: Commit and push crawled links
-        run: |
-          git config --local user.email "epic7-monitor@github.com"
-          git config --local user.name "Epic7 Monitor Bot"
-          
-          # 변경사항이 있는 경우에만 커밋
-          if [[ -n $(git status --porcelain) ]]; then
-            git add crawled_links.json
-            git commit -m "📊 Update crawled links - ARCA [$(date '+%Y-%m-%d %H:%M:%S KST')]"
-            git push
-            echo "✅ Changes committed and pushed"
-          else
-            echo "ℹ️ No changes to commit"
-          fi
-
-      - name: Monitor execution summary
-        run: |
-          echo "🎯 ARCA 모니터링 완료 - $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "📁 Debug files uploaded as artifacts"
-          if [[ -f crawled_links.json ]]; then
-            echo "📊 Crawled links count: $(jq length crawled_links.json)"
-          fi
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Python dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run monitor
+      run: python monitor_bugs.py --mode arca
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+    
+    - name: Commit and push if changed
+      run: |
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+        git add .
+        git diff --staged --quiet || git commit -m "Update crawled links"
+        git push
