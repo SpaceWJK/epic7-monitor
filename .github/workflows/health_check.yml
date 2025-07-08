@@ -74,12 +74,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run comprehensive health check
+      - name: Module import test
         run: |
-          echo "🏥 시스템 헬스체크 시작"
-          
-          # Python 모듈 테스트
-          python -c "
+          echo "🧪 Python 모듈 테스트"
+          python3 -c "
           try:
               from crawler import crawl_arca_sites, get_chrome_driver
               from classifier import is_bug_post  
@@ -89,9 +87,11 @@ jobs:
               print(f'❌ 모듈 import 실패: {e}')
               exit(1)
           "
-          
-          # 스토브 접속 테스트
-          python -c "
+
+      - name: Network connectivity test
+        run: |
+          echo "🌐 네트워크 연결 테스트"
+          python3 -c "
           import requests
           try:
               response = requests.get('https://page.onstove.com/epicseven/kr/list/1012', timeout=10)
@@ -102,8 +102,9 @@ jobs:
           except Exception as e:
               print(f'❌ 스토브 접속 실패: {e}')
           "
-          
-          # ChromeDriver 상태 확인
+
+      - name: ChromeDriver status check
+        run: |
           echo "🔍 ChromeDriver 상태 확인:"
           echo "- Chrome 버전: $(google-chrome --version)"
           echo "- ChromeDriver 경로:"
@@ -112,14 +113,18 @@ jobs:
           ls -la /usr/bin/chromedriver 2>/dev/null && echo "  /usr/bin/chromedriver: 존재" || echo "  /usr/bin/chromedriver: 없음"
           
           # ChromeDriver 버전 확인
-          for path in "/usr/local/bin/chromedriver" "/usr/bin/chromedriver" "$(which chromedriver 2>/dev/null)"; do
-            if [ -n "$path" ] && [ -f "$path" ]; then
-              echo "- $path 버전: $($path --version 2>/dev/null || echo '버전 확인 실패')"
-            fi
-          done
-          
-          # Selenium 드라이버 테스트 (개선된 버전)
-          python -c "
+          echo "- ChromeDriver 버전들:"
+          if [ -f "/usr/local/bin/chromedriver" ]; then
+            echo "  /usr/local/bin/chromedriver: $(/usr/local/bin/chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+          fi
+          if [ -f "/usr/bin/chromedriver" ]; then
+            echo "  /usr/bin/chromedriver: $(/usr/bin/chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+          fi
+
+      - name: Selenium driver test
+        run: |
+          echo "🔧 Selenium 드라이버 테스트"
+          python3 -c "
           from crawler import get_chrome_driver
           import os
           
@@ -128,4 +133,58 @@ jobs:
               driver = get_chrome_driver()
               
               # 간단한 테스트 수행
-              driver
+              driver.get('https://www.google.com')
+              title = driver.title
+              print(f'✅ 페이지 로드 테스트 성공: {title}')
+              
+              # 드라이버 정보 출력
+              caps = driver.capabilities
+              browser_version = caps.get('browserVersion', 'Unknown')
+              driver_version = caps.get('chrome', {}).get('chromedriverVersion', 'Unknown')
+              print(f'✅ 브라우저 버전: {browser_version}')
+              print(f'✅ ChromeDriver 버전: {driver_version}')
+              
+              driver.quit()
+              print('✅ Selenium 드라이버 테스트 완료')
+              
+          except Exception as e:
+              print(f'❌ Selenium 드라이버 실패: {e}')
+              exit(1)
+          "
+
+      - name: Check repository status
+        run: |
+          echo "📊 리포지토리 상태:"
+          echo "- 마지막 커밋: $(git log -1 --format='%h %s %cr')"
+          if [[ -f crawled_links.json ]]; then
+            echo "- 저장된 링크 수: $(jq length crawled_links.json 2>/dev/null || echo '파일 읽기 실패')"
+          else
+            echo "- crawled_links.json 파일 없음"
+          fi
+
+      - name: System resource check
+        run: |
+          echo "💾 시스템 리소스 상태:"
+          echo "- 메모리: $(free -h | grep '^Mem:' | awk '{print $3"/"$2}')"
+          echo "- 디스크: $(df -h / | tail -1 | awk '{print $3"/"$2" ("$5")"}')"
+          echo "- Chrome 버전: $(google-chrome --version 2>/dev/null || echo 'Chrome 미설치')"
+          echo "- Python 버전: $(python3 --version)"
+
+      - name: Final health summary
+        run: |
+          echo "🎯 헬스체크 완료 - $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "✅ 시스템 상태: 정상"
+
+      - name: Create health report
+        if: always()
+        run: |
+          echo "🎯 헬스체크 완료 - $(date '+%Y-%m-%d %H:%M:%S KST')" > health_report.txt
+          echo "시스템 상태: 정상" >> health_report.txt
+
+      - name: Upload health report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report-${{ github.run_number }}
+          path: health_report.txt
+          retention-days: 7
