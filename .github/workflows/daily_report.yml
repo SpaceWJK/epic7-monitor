@@ -26,12 +26,15 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Install Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          playwright install chromium
-          playwright install-deps
 
       - name: Generate daily report
         env:
@@ -53,7 +56,7 @@ jobs:
         run: |
           # 일주일 이상된 링크 정리 (선택사항)
           if [[ -f crawled_links.json ]]; then
-            echo "📊 현재 저장된 링크 수: $(jq length crawled_links.json)"
+            echo "📊 현재 저장된 링크 수: $(jq length crawled_links.json 2>/dev/null || echo 'N/A')"
             # TODO: 필요시 오래된 링크 정리 로직 추가
           fi
 
@@ -61,3 +64,14 @@ jobs:
         run: |
           echo "📈 일일 리포트 생성 완료 - $(date '+%Y-%m-%d %H:%M:%S KST')"
           echo "📬 Discord 웹훅으로 리포트 전송됨"
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "epic7-report@github.com"
+          git config --local user.name "Epic7 Report Bot"
+          
+          if [[ -n $(git status --porcelain) ]]; then
+            git add .
+            git commit -m "📊 Daily report generated [$(date '+%Y-%m-%d %H:%M:%S KST')]"
+            git push
+          fi
