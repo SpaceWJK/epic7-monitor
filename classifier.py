@@ -13,3 +13,12 @@ def classify_post(post):
     elif any(k in title for k in NEG_KEYWORDS):
         return "negative"
     return "neutral"
+
+def is_bug_post(title):
+    return any(k in title.lower() for k in BUG_KEYWORDS)
+
+def is_positive_post(title):
+    return any(k in title.lower() for k in POS_KEYWORDS)
+
+def is_negative_post(title):
+    return any(k in title.lower() for k in NEG_KEYWORDS)
