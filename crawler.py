@@ -4,13 +4,14 @@ from bs4 import BeautifulSoup
 def fetch_posts(url, container_selector, title_selector, link_selector, source, force_bug=False):
     posts = []
     try:
-        response = requests.get(url, timeout=10)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
             print(f"[ERROR] Failed to fetch {source}: HTTP {response.status_code}")
             return posts
         soup = BeautifulSoup(response.text, "html.parser")
         containers = soup.select(container_selector)
-        print(f"[DEBUG] Fetched {len(containers)} elements from {source}")
+        print(f"[DEBUG] {source} fetched {len(containers)} elements.")
         for container in containers:
             title_elem = container.select_one(title_selector)
             link_elem = container.select_one(link_selector)
@@ -29,6 +30,7 @@ def fetch_posts(url, container_selector, title_selector, link_selector, source, 
 
 def crawl_arca_sites():
     posts = []
+    # 아카라이브
     posts += fetch_posts(
         "https://arca.live/b/epic7",
         "div.title",
@@ -36,6 +38,7 @@ def crawl_arca_sites():
         "span > a",
         "아카라이브"
     )
+    # 루리웹
     posts += fetch_posts(
         "https://bbs.ruliweb.com/game/85238",
         "div.board_main div.table_body",
@@ -43,10 +46,11 @@ def crawl_arca_sites():
         "td.subject a",
         "루리웹"
     )
+    # 스토브 버그 게시판 (force_bug)
     posts += fetch_posts(
         "https://page.onstove.com/epicseven/kr/list/1012",
         "div.s-detail-header",
-        "p.s-detail-header-title",
+        "a.s-detail-header-link",  # 직통 selector로 수정
         "a.s-detail-header-link",
         "스토브 버그 게시판",
         force_bug=True
