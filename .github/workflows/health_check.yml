@@ -19,40 +19,69 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Chrome and ChromeDriver
+      - name: Install Chrome and ChromeDriver (Compatible Version)
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
           
-          # 새로운 Chrome for Testing API 사용
+          # Chrome 버전 정확히 추출
           CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-          echo "Chrome 버전: $CHROME_VERSION"
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
+          echo "🌟 Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
           
-          # Chrome for Testing API에서 최신 안정 버전 확인
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
-          echo "ChromeDriver 안정 버전: $CHROMEDRIVER_VERSION"
+          # 기존 ChromeDriver 제거 (버전 충돌 방지)
+          sudo rm -f /usr/local/bin/chromedriver
           
-          # ChromeDriver 다운로드
-          wget -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          # 정확히 매칭되는 ChromeDriver 버전 찾기
+          echo "🔍 ChromeDriver 버전 탐색 중..."
           
-          # ChromeDriver 설치
-          sudo unzip /tmp/chromedriver.zip -d /tmp/
-          sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
+          # 방법 1: 정확한 Chrome 버전과 매칭되는 ChromeDriver
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
+          
+          # 방법 2: 정확한 버전이 없으면 안정 버전 사용
+          if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
+            echo "⚠️ 정확한 버전을 찾을 수 없어 안정 버전 사용"
+            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
+          fi
+          
+          # 방법 3: 최후 수단으로 하드코딩된 안정 버전
+          if [ -z "$CHROMEDRIVER_VERSION" ]; then
+            CHROMEDRIVER_VERSION="119.0.6045.105"  # 알려진 안정 버전
+            echo "⚠️ 모든 API 실패, 하드코딩된 안정 버전 사용: $CHROMEDRIVER_VERSION"
+          fi
+          
+          echo "✅ 선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+          
+          # ChromeDriver 다운로드 및 설치
+          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          echo "📥 다운로드 URL: $DOWNLOAD_URL"
+          
+          # 다운로드 시도
+          if wget -q --spider "$DOWNLOAD_URL"; then
+            wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+            sudo unzip /tmp/chromedriver.zip -d /tmp/
+            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
+            sudo chmod +x /usr/local/bin/chromedriver
+            echo "✅ ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+          else
+            echo "❌ 다운로드 실패, 우분투 패키지 사용"
+            sudo apt-get install -y chromium-chromedriver
+            sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+          fi
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run health check
+      - name: Run comprehensive health check
         run: |
           echo "🏥 시스템 헬스체크 시작"
           
           # Python 모듈 테스트
           python -c "
           try:
-              from crawler import crawl_arca_sites
+              from crawler import crawl_arca_sites, get_chrome_driver
               from classifier import is_bug_post  
               from notifier import send_bug_alert
               print('✅ 모든 모듈 import 성공')
@@ -74,92 +103,29 @@ jobs:
               print(f'❌ 스토브 접속 실패: {e}')
           "
           
-          # ChromeDriver 경로 확인
-          echo "🔍 ChromeDriver 확인:"
-          which chromedriver && echo "ChromeDriver 경로: $(which chromedriver)"
-          chromedriver --version 2>/dev/null && echo "ChromeDriver 버전 확인 성공" || echo "ChromeDriver 버전 확인 실패"
+          # ChromeDriver 상태 확인
+          echo "🔍 ChromeDriver 상태 확인:"
+          echo "- Chrome 버전: $(google-chrome --version)"
+          echo "- ChromeDriver 경로:"
+          which chromedriver && echo "  System PATH: $(which chromedriver)" || echo "  System PATH: 없음"
+          ls -la /usr/local/bin/chromedriver 2>/dev/null && echo "  /usr/local/bin/chromedriver: 존재" || echo "  /usr/local/bin/chromedriver: 없음"
+          ls -la /usr/bin/chromedriver 2>/dev/null && echo "  /usr/bin/chromedriver: 존재" || echo "  /usr/bin/chromedriver: 없음"
           
-          # Selenium 드라이버 테스트
+          # ChromeDriver 버전 확인
+          for path in "/usr/local/bin/chromedriver" "/usr/bin/chromedriver" "$(which chromedriver 2>/dev/null)"; do
+            if [ -n "$path" ] && [ -f "$path" ]; then
+              echo "- $path 버전: $($path --version 2>/dev/null || echo '버전 확인 실패')"
+            fi
+          done
+          
+          # Selenium 드라이버 테스트 (개선된 버전)
           python -c "
-          from selenium import webdriver
-          from selenium.webdriver.chrome.options import Options
-          from selenium.webdriver.chrome.service import Service
+          from crawler import get_chrome_driver
           import os
           
           try:
-              options = Options()
-              options.add_argument('--headless')
-              options.add_argument('--no-sandbox')
-              options.add_argument('--disable-dev-shm-usage')
+              print('🔧 Selenium 드라이버 테스트 시작')
+              driver = get_chrome_driver()
               
-              driver = None
-              
-              # 방법 1: 시스템 ChromeDriver 사용
-              try:
-                  driver = webdriver.Chrome(options=options)
-                  print('✅ Selenium 드라이버 정상 작동 (시스템 경로)')
-              except Exception as e1:
-                  print(f'⚠️ 시스템 ChromeDriver 실패: {e1}')
-                  
-                  # 방법 2: 수동 경로 시도
-                  paths = ['/usr/local/bin/chromedriver', '/usr/bin/chromedriver']
-                  for path in paths:
-                      if os.path.exists(path):
-                          try:
-                              service = Service(path)
-                              driver = webdriver.Chrome(service=service, options=options)
-                              print(f'✅ Selenium 드라이버 정상 작동 (경로: {path})')
-                              break
-                          except Exception as e2:
-                              print(f'⚠️ 경로 {path} 실패: {e2}')
-                  
-                  if not driver:
-                      print('❌ 모든 ChromeDriver 초기화 방법 실패')
-                      exit(1)
-              
-              # 간단한 테스트
-              driver.get('https://www.google.com')
-              title = driver.title
-              print(f'✅ 페이지 로드 테스트 성공: {title}')
-              
-          except Exception as e:
-              print(f'❌ Selenium 드라이버 실패: {e}')
-              exit(1)
-          finally:
-              if 'driver' in locals() and driver:
-                  driver.quit()
-          "
-          
-          echo "🏥 헬스체크 완료"
-
-      - name: Check repository status
-        run: |
-          echo "📊 리포지토리 상태:"
-          echo "- 마지막 커밋: $(git log -1 --format='%h %s %cr')"
-          if [[ -f crawled_links.json ]]; then
-            echo "- 저장된 링크 수: $(jq length crawled_links.json 2>/dev/null || echo '파일 읽기 실패')"
-          else
-            echo "- crawled_links.json 파일 없음"
-          fi
-
-      - name: System resource check
-        run: |
-          echo "💾 시스템 리소스 상태:"
-          echo "- 메모리: $(free -h | grep '^Mem:' | awk '{print $3"/"$2}')"
-          echo "- 디스크: $(df -h / | tail -1 | awk '{print $3"/"$2" ("$5")"}')"
-          echo "- Chrome 버전: $(google-chrome --version 2>/dev/null || echo 'Chrome 미설치')"
-          echo "- Python 버전: $(python --version)"
-
-      - name: Create health report
-        if: always()
-        run: |
-          echo "🎯 헬스체크 완료 - $(date '+%Y-%m-%d %H:%M:%S KST')" > health_report.txt
-          echo "시스템 상태: 정상" >> health_report.txt
-
-      - name: Upload health report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: health-report-${{ github.run_number }}
-          path: health_report.txt
-          retention-days: 7
+              # 간단한 테스트 수행
+              driver

@@ -46,7 +46,7 @@ def save_crawled_links(link_data):
         print(f"[ERROR] 링크 저장 실패: {e}")
 
 def get_chrome_driver():
-    """Chrome 드라이버 초기화 (여러 방법 시도)"""
+    """Chrome 드라이버 초기화 (버전 호환성 우선)"""
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -77,41 +77,45 @@ def get_chrome_driver():
     
     driver = None
     
-    # 방법 1: 시스템 ChromeDriver 직접 사용
-    try:
-        driver = webdriver.Chrome(options=options)
-        print("[DEBUG] 시스템 ChromeDriver로 초기화 성공")
-        return driver
-    except Exception as e1:
-        print(f"[DEBUG] 시스템 ChromeDriver 실패: {e1}")
-    
-    # 방법 2: 수동 경로 지정
+    # 호환 가능한 ChromeDriver 경로들 (버전별 우선순위)
     possible_paths = [
-        '/usr/local/bin/chromedriver',
-        '/usr/bin/chromedriver',
-        '/snap/bin/chromium.chromedriver'
+        '/usr/bin/chromedriver',  # 우분투 패키지 (가장 호환성 좋음)
+        '/usr/local/bin/chromedriver',  # 수동 설치
+        '/snap/bin/chromium.chromedriver'  # Snap 패키지
     ]
     
+    # 방법 1: 수동 경로별 시도 (버전 호환성 우선)
     for path in possible_paths:
         try:
             if os.path.exists(path):
+                print(f"[DEBUG] ChromeDriver 시도: {path}")
                 service = Service(path)
                 driver = webdriver.Chrome(service=service, options=options)
-                print(f"[DEBUG] 수동 경로에서 ChromeDriver 로드 성공: {path}")
+                print(f"[DEBUG] ChromeDriver 성공: {path}")
                 return driver
         except Exception as e:
-            print(f"[DEBUG] 경로 {path} 실패: {e}")
+            print(f"[DEBUG] ChromeDriver 실패 {path}: {str(e)[:100]}...")
             continue
     
-    # 방법 3: WebDriver Manager 사용 (백업)
+    # 방법 2: 시스템 기본 ChromeDriver
     try:
+        print("[DEBUG] 시스템 기본 ChromeDriver 시도")
+        driver = webdriver.Chrome(options=options)
+        print("[DEBUG] 시스템 기본 ChromeDriver 성공")
+        return driver
+    except Exception as e:
+        print(f"[DEBUG] 시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
+    
+    # 방법 3: WebDriver Manager (최후 수단)
+    try:
+        print("[DEBUG] WebDriver Manager 시도")
         from webdriver_manager.chrome import ChromeDriverManager
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
-        print("[DEBUG] WebDriver Manager로 초기화 성공")
+        print("[DEBUG] WebDriver Manager 성공")
         return driver
-    except Exception as e3:
-        print(f"[DEBUG] WebDriver Manager 실패: {e3}")
+    except Exception as e:
+        print(f"[DEBUG] WebDriver Manager 실패: {str(e)[:100]}...")
     
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
 
@@ -120,6 +124,8 @@ def fetch_stove_bug_board():
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
+    
+    print(f"[DEBUG] 현재 저장된 링크 수: {len(crawled_links)}")
     
     driver = None
     try:
@@ -189,35 +195,45 @@ def fetch_stove_bug_board():
             print("[DEBUG] HTML 구조 확인을 위해 stove_debug_selenium.html 파일을 확인하세요")
             return posts
         
-        # 게시글 정보 추출
+        # 게시글 정보 추출 (상세 디버깅)
         for i, element in enumerate(found_elements[:15]):  # 최신 15개 체크
             try:
                 href = element.get_attribute('href')
                 if not href:
+                    print(f"[DEBUG] 요소 {i+1}: href 없음")
                     continue
                 
                 if not href.startswith('http'):
                     href = "https://page.onstove.com" + href
                 
+                print(f"[DEBUG] 요소 {i+1}: URL = {href[-50:]}")  # URL 끝부분만 표시
+                
                 # 이미 처리된 링크인지 확인
                 if href in crawled_links:
+                    print(f"[DEBUG] 요소 {i+1}: 이미 크롤링된 링크")
                     continue
                 
-                # 제목 추출
+                # 제목 추출 (다양한 방법 시도)
                 title = ""
                 
                 # 방법 1: 링크 텍스트 직접
                 link_text = element.text.strip()
-                if link_text and len(link_text) > 3:
+                if link_text and len(link_text) > 3 and not link_text.isdigit():
                     title = link_text
+                    print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (직접텍스트) = {title[:30]}...")
                 
                 # 방법 2: 부모 요소에서 제목 찾기
                 if not title:
                     try:
                         parent = element.find_element(By.XPATH, "..")
                         parent_text = parent.text.strip()
-                        if parent_text and len(parent_text) > 3:
-                            title = parent_text
+                        # 부모 텍스트에서 의미있는 제목 추출
+                        lines = [line.strip() for line in parent_text.split('\n') if line.strip()]
+                        for line in lines:
+                            if len(line) > 5 and not line.isdigit() and '조회' not in line and '등록일' not in line:
+                                title = line
+                                print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (부모요소) = {title[:30]}...")
+                                break
                     except:
                         pass
                 
@@ -229,9 +245,15 @@ def fetch_stove_bug_board():
                             title_elem = element.find_element(By.CSS_SELECTOR, sel)
                             if title_elem:
                                 title = title_elem.text.strip()
-                                break
+                                if title and len(title) > 3:
+                                    print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 ({sel}) = {title[:30]}...")
+                                    break
                     except:
                         pass
+                
+                if not title:
+                    print(f"[DEBUG] 요소 {i+1}: 제목 추출 실패 - 링크 텍스트: '{link_text[:50]}'")
+                    continue
                 
                 # 제목 정리
                 if title:
@@ -248,10 +270,14 @@ def fetch_stove_bug_board():
                     posts.append(post_data)
                     crawled_links.append(href)
                     print(f"[NEW] 새 게시글 발견 ({i+1}): {title[:50]}...")
+                else:
+                    print(f"[DEBUG] 요소 {i+1}: 조건 미충족 - title_len={len(title) if title else 0}")
                 
             except Exception as e:
                 print(f"[ERROR] 게시글 {i+1} 파싱 중 오류: {e}")
                 continue
+        
+        print(f"[DEBUG] 처리 결과: 전체 {len(found_elements)}개 중 새 게시글 {len(posts)}개 발견")
         
     except TimeoutException:
         print("[ERROR] 페이지 로딩 타임아웃")

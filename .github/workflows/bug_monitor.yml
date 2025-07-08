@@ -38,29 +38,61 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Chrome and ChromeDriver
+      - name: Install Chrome and ChromeDriver (Compatible Version)
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
           
-          # 새로운 Chrome for Testing API 사용
+          # Chrome 버전 정확히 추출
           CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-          echo "Chrome 버전: $CHROME_VERSION"
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
+          echo "🌟 Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
           
-          # Chrome for Testing API에서 최신 안정 버전 확인
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE")
-          echo "ChromeDriver 안정 버전: $CHROMEDRIVER_VERSION"
+          # 기존 ChromeDriver 제거 (버전 충돌 방지)
+          sudo rm -f /usr/local/bin/chromedriver
           
-          # ChromeDriver 다운로드
-          wget -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          # 정확히 매칭되는 ChromeDriver 버전 찾기
+          echo "🔍 ChromeDriver 버전 탐색 중..."
           
-          # ChromeDriver 설치
-          sudo unzip /tmp/chromedriver.zip -d /tmp/
-          sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
+          # 방법 1: 정확한 Chrome 버전과 매칭되는 ChromeDriver
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
+          
+          # 방법 2: 정확한 버전이 없으면 안정 버전 사용
+          if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
+            echo "⚠️ 정확한 버전을 찾을 수 없어 안정 버전 사용"
+            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
+          fi
+          
+          # 방법 3: 최후 수단으로 하드코딩된 안정 버전
+          if [ -z "$CHROMEDRIVER_VERSION" ]; then
+            CHROMEDRIVER_VERSION="119.0.6045.105"  # 알려진 안정 버전
+            echo "⚠️ 모든 API 실패, 하드코딩된 안정 버전 사용: $CHROMEDRIVER_VERSION"
+          fi
+          
+          echo "✅ 선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+          
+          # ChromeDriver 다운로드 및 설치
+          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          echo "📥 다운로드 URL: $DOWNLOAD_URL"
+          
+          # 다운로드 시도
+          if wget -q --spider "$DOWNLOAD_URL"; then
+            wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+            sudo unzip /tmp/chromedriver.zip -d /tmp/
+            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
+            sudo chmod +x /usr/local/bin/chromedriver
+            echo "✅ ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+          else
+            echo "❌ 다운로드 실패, 우분투 패키지 사용"
+            sudo apt-get install -y chromium-chromedriver
+            sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+          fi
           
           # 설치 확인
-          echo "설치된 ChromeDriver 버전: $(chromedriver --version)"
+          echo "🔍 설치된 ChromeDriver 경로:"
+          which chromedriver || echo "PATH에서 찾을 수 없음"
+          ls -la /usr/local/bin/chromedriver 2>/dev/null || echo "/usr/local/bin/chromedriver 없음"
+          ls -la /usr/bin/chromedriver 2>/dev/null || echo "/usr/bin/chromedriver 없음"
 
       - name: Install dependencies
         run: |
