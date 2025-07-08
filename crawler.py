@@ -1,85 +1,61 @@
-# crawler.py
 import requests
 from bs4 import BeautifulSoup
-import random
-import time
-from random import uniform
 
-session = requests.Session()
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'
-]
-REFERERS = ['https://google.com', 'https://bing.com', 'https://duckduckgo.com']
-LANGUAGES = ['ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7', 'en-US,en;q=0.9']
-
-def get_headers():
-    return {
-        'User-Agent': random.choice(USER_AGENTS),
-        'Referer': random.choice(REFERERS),
-        'Accept-Language': random.choice(LANGUAGES),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-    }
-
-def fetch_posts(url, selector, source, force_bug=False):
-    time.sleep(uniform(0.5, 1.5))
+def fetch_posts(url, selector, title_selector, link_selector, source, force_bug=False):
+    print(f"[DEBUG] Fetching from {source} ({url})")
     try:
-        resp = session.get(url, headers=get_headers(), timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        elements = soup.select(selector)
-        posts = []
-        for el in elements:
-            title = el.get_text(strip=True)
-            link = el.get('href')
-            if link and not link.startswith("http"):
-                link = url + link
-            post_data = {'title': title, 'url': link, 'source': source}
-            if force_bug:
-                post_data['force_bug'] = True
-            posts.append(post_data)
-        return posts
+        html = requests.get(url, headers=HEADERS, timeout=5).text
+        soup = BeautifulSoup(html, "html.parser")
     except Exception as e:
-        print(f"[!] {source} 오류: {e}")
+        print(f"[ERROR] Failed to fetch {source}: {e}")
         return []
-
-def crawl_arca_sites():
     posts = []
-    posts += fetch_posts("https://arca.live/b/epic7", "a.title", "아카라이브")
-    posts += fetch_posts("https://bbs.ruliweb.com/game/84925", "a.deco", "루리웹")
-    posts += fetch_posts("https://page.onstove.com/epicseven/kr", "a.article-link", "스토브")
-    posts += fetch_posts(
-        "https://page.onstove.com/epicseven/kr/list/1012",
-        "a.article-link",
-        "스토브 버그 게시판",
+    elements = soup.select(selector)
+    print(f"[DEBUG] {len(elements)} elements found in {source}")
+    for el in elements:
+        try:
+            title_tag = el.select_one(title_selector)
+            link_tag = el.select_one(link_selector)
+            if not title_tag or not link_tag:
+                continue
+            post_data = {
+                "title": title_tag.get_text(strip=True),
+                "url": link_tag.get("href"),
+                "source": source
+            }
+            if force_bug:
+                post_data["force_bug"] = True
+            posts.append(post_data)
+        except Exception as ex:
+            print(f"[WARN] Skipping element due to error: {ex}")
+    print(f"[DEBUG] {len(posts)} posts prepared from {source}")
+    return posts
+
+def crawl_all_sites():
+    all_posts = []
+    all_posts += fetch_posts(
+        "https://arca.live/b/epic7", 
+        "div.title-area", 
+        "span.title", 
+        "a", 
+        "아카라이브"
+    )
+    all_posts += fetch_posts(
+        "https://bbs.ruliweb.com/family/493/board/179940", 
+        "td.subject", 
+        "a.deco", 
+        "a.deco", 
+        "루리웹"
+    )
+    all_posts += fetch_posts(
+        "https://page.onstove.com/epicseven/kr/list/1012", 
+        "div.s-detail-header", 
+        "p.s-detail-header-title", 
+        "a.s-detail-header-link", 
+        "스토브 버그 게시판", 
         force_bug=True
     )
-    return posts
-
-def crawl_global_sites():
-    posts = []
-    posts += fetch_posts("https://forum.epic7.global/", "a.node-title", "글로벌 포럼")
-    posts += fetch_posts("https://forum.gamer.com.tw/A.php?bsn=35366", "a.b-list__main__title", "바하무트")
-    posts += crawl_reddit()
-    return posts
-
-def crawl_reddit():
-    time.sleep(uniform(0.5, 1.5))
-    try:
-        headers = get_headers()
-        headers['User-Agent'] = 'Mozilla/5.0 RedditMonitor'
-        resp = session.get("https://www.reddit.com/r/EpicSeven/.json", headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        posts = []
-        for p in data["data"]["children"]:
-            posts.append({
-                "title": p["data"]["title"],
-                "url": "https://reddit.com" + p["data"]["permalink"],
-                "source": "Reddit"
-            })
-        return posts
-    except Exception as e:
-        print(f"[!] reddit 오류: {e}")
-        return []
+    # 글로벌 Reddit, Forum도 동일 로직으로 확장 가능
+    return all_posts

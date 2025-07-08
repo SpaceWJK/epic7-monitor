@@ -1,13 +1,15 @@
-# classifier.py
-POSITIVE_KEYWORDS = ['감사', '좋다', '최고', '좋아요', '재밌다', '혜자', 'great', 'thanks', 'hope', 'helpful']
-NEGATIVE_KEYWORDS = ['짜증', '불만', '망겜', 'broken', 'stupid', 'hate', 'problem']
-BUG_KEYWORDS = ['버그', '오류', '팅김', '튕김', 'crash', 'bug', 'issue']
+BUG_KEYWORDS = ["에러", "버그", "오류", "튕김", "죽음", "깨짐", "멈춤", "먹통"]
+POS_KEYWORDS = ["좋다", "만족", "추천"]
+NEG_KEYWORDS = ["별로", "실망", "불만"]
 
-def is_positive_post(title):
-    return any(keyword.lower() in title.lower() for keyword in POSITIVE_KEYWORDS)
-
-def is_negative_post(title):
-    return any(keyword.lower() in title.lower() for keyword in NEGATIVE_KEYWORDS)
-
-def is_bug_post(title):
-    return any(keyword.lower() in title.lower() for keyword in BUG_KEYWORDS)
+def classify_post(post):
+    title = post.get("title", "").lower()
+    if post.get("force_bug"):
+        return "bug"
+    if any(k in title for k in BUG_KEYWORDS):
+        return "bug"
+    elif any(k in title for k in POS_KEYWORDS):
+        return "positive"
+    elif any(k in title for k in NEG_KEYWORDS):
+        return "negative"
+    return "neutral"

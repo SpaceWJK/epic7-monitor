@@ -2,7 +2,7 @@ name: Epic Seven GLOBAL Bug Monitor
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,17 +10,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Checkout
+        uses: actions/checkout@v3
         with:
-          python-version: '3.10'
-      - run: |
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - run: python monitor_bugs.py global
-      - run: |
+
+      - name: Run GLOBAL bug monitor
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          python monitor_bugs.py global || exit 1
+          echo "::notice ::GLOBAL bug monitor run completed at $(date)"
+
+      - name: Commit & Push updated state
+        run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase
           git add crawled_links.json
           git commit -m "Update crawled_links.json" || echo "Nothing to commit"
           git push
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: global-bug-monitor-artifacts
+          path: |
+            crawled_links.json
+            last_run.log

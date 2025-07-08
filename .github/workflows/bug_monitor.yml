@@ -27,12 +27,23 @@ jobs:
       - name: Run bug monitor
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-        run: python monitor_bugs.py
+        run: |
+          python monitor_bugs.py || exit 1
+          echo "::notice ::Bug monitor run completed at $(date)"
 
       - name: Commit & Push updated state
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase
           git add crawled_links.json
           git commit -m "Update crawled_links.json" || echo "Nothing to commit"
           git push
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: bug-monitor-artifacts
+          path: |
+            crawled_links.json
+            last_run.log

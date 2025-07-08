@@ -8,6 +8,7 @@ on:
 jobs:
   daily-report:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -27,12 +28,23 @@ jobs:
       - name: Run daily report
         env:
           DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-        run: python generate_report.py
+        run: |
+          python generate_report.py || exit 1
+          echo "::notice ::Daily report completed at $(date)"
 
       - name: Commit & Push updated state
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase
           git add crawled_links.json
           git commit -m "Update crawled_links.json" || echo "Nothing to commit"
           git push
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: daily-report-artifacts
+          path: |
+            crawled_links.json
+            last_run.log
