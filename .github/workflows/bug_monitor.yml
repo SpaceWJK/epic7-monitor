@@ -38,10 +38,24 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Chrome
+      - name: Install Chrome and ChromeDriver
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
+          
+          # ChromeDriver 수동 설치
+          CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3 | cut -d'.' -f1)
+          echo "Chrome 버전: $CHROME_VERSION"
+          
+          # ChromeDriver 최신 버전 다운로드
+          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}")
+          echo "ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+          
+          wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
+          sudo unzip /tmp/chromedriver.zip -d /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+          
+          echo "설치된 ChromeDriver 버전: $(chromedriver --version)"
 
       - name: Install dependencies
         run: |

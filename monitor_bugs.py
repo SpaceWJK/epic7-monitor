@@ -27,13 +27,21 @@ def main():
         print(f"[INFO] Discord 웹훅 설정됨: {'Yes' if WEBHOOK_URL else 'No'}")
         
         # 모드별 크롤링
+        posts = []
         if mode == "arca":
             posts = crawl_arca_sites()
         elif mode == "global":
             posts = crawl_global_sites()
+        elif mode == "all":
+            # all 모드: arca와 global 모두 실행
+            print("[INFO] 전체 모드: ARCA + GLOBAL 동시 실행")
+            arca_posts = crawl_arca_sites()
+            global_posts = crawl_global_sites()
+            posts = arca_posts + global_posts
+            print(f"[INFO] ARCA: {len(arca_posts)}개, GLOBAL: {len(global_posts)}개 게시글")
         else:
             print(f"[ERROR] 알 수 없는 모드: {mode}")
-            print("[INFO] 지원되는 모드: arca, global")
+            print("[INFO] 지원되는 모드: arca, global, all")
             return
         
         # 새로 발견된 게시글 확인

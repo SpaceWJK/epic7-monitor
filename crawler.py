@@ -8,7 +8,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 from datetime import datetime, timedelta
 import re
@@ -46,13 +45,8 @@ def save_crawled_links(link_data):
     except Exception as e:
         print(f"[ERROR] 링크 저장 실패: {e}")
 
-def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링 (Selenium 버전)"""
-    posts = []
-    link_data = load_crawled_links()
-    crawled_links = link_data["links"]
-    
-    # Chrome 옵션 설정 (GitHub Actions 환경 최적화)
+def get_chrome_driver():
+    """Chrome 드라이버 초기화 (여러 방법 시도)"""
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -60,7 +54,7 @@ def fetch_stove_bug_board():
     options.add_argument('--disable-gpu')
     options.add_argument('--disable-extensions')
     options.add_argument('--disable-plugins')
-    options.add_argument('--disable-images')  # 이미지 로딩 비활성화로 속도 향상
+    options.add_argument('--disable-images')
     options.add_argument('--disable-javascript-harmony-shipping')
     options.add_argument('--disable-background-timer-throttling')
     options.add_argument('--disable-backgrounding-occluded-windows')
@@ -71,22 +65,66 @@ def fetch_stove_bug_board():
     # 추가 성능 최적화
     prefs = {
         'profile.default_content_setting_values': {
-            'images': 2,  # 이미지 차단
-            'plugins': 2,  # 플러그인 차단
-            'popups': 2,   # 팝업 차단
-            'geolocation': 2,  # 위치 정보 차단
-            'notifications': 2,  # 알림 차단
-            'media_stream': 2,  # 미디어 스트림 차단
+            'images': 2,
+            'plugins': 2,
+            'popups': 2,
+            'geolocation': 2,
+            'notifications': 2,
+            'media_stream': 2,
         }
     }
     options.add_experimental_option('prefs', prefs)
     
     driver = None
+    
+    # 방법 1: 시스템 ChromeDriver 직접 사용
     try:
-        print("[DEBUG] Chrome 드라이버 초기화 중...")
-        # ChromeDriver 자동 관리
+        driver = webdriver.Chrome(options=options)
+        print("[DEBUG] 시스템 ChromeDriver로 초기화 성공")
+        return driver
+    except Exception as e1:
+        print(f"[DEBUG] 시스템 ChromeDriver 실패: {e1}")
+    
+    # 방법 2: 수동 경로 지정
+    possible_paths = [
+        '/usr/local/bin/chromedriver',
+        '/usr/bin/chromedriver',
+        '/snap/bin/chromium.chromedriver'
+    ]
+    
+    for path in possible_paths:
+        try:
+            if os.path.exists(path):
+                service = Service(path)
+                driver = webdriver.Chrome(service=service, options=options)
+                print(f"[DEBUG] 수동 경로에서 ChromeDriver 로드 성공: {path}")
+                return driver
+        except Exception as e:
+            print(f"[DEBUG] 경로 {path} 실패: {e}")
+            continue
+    
+    # 방법 3: WebDriver Manager 사용 (백업)
+    try:
+        from webdriver_manager.chrome import ChromeDriverManager
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
+        print("[DEBUG] WebDriver Manager로 초기화 성공")
+        return driver
+    except Exception as e3:
+        print(f"[DEBUG] WebDriver Manager 실패: {e3}")
+    
+    raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
+
+def fetch_stove_bug_board():
+    """스토브 에픽세븐 버그 게시판 크롤링 (Selenium 버전)"""
+    posts = []
+    link_data = load_crawled_links()
+    crawled_links = link_data["links"]
+    
+    driver = None
+    try:
+        print("[DEBUG] Chrome 드라이버 초기화 중...")
+        driver = get_chrome_driver()
         
         # 페이지 로드 타임아웃 설정
         driver.set_page_load_timeout(30)

@@ -19,10 +19,21 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Chrome
+      - name: Install Chrome and ChromeDriver
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
+          
+          # ChromeDriver 수동 설치
+          CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3 | cut -d'.' -f1)
+          echo "Chrome 버전: $CHROME_VERSION"
+          
+          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}")
+          echo "ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+          
+          wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
+          sudo unzip /tmp/chromedriver.zip -d /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
 
       - name: Install dependencies
         run: |
@@ -45,7 +56,7 @@ jobs:
               exit(1)
           "
           
-          # 크롤링 테스트 (실제 실행하지 않고 구문만 확인)
+          # 스토브 접속 테스트
           python -c "
           import requests
           try:
@@ -58,12 +69,17 @@ jobs:
               print(f'❌ 스토브 접속 실패: {e}')
           "
           
-          # Selenium 드라이버 테스트
+          # ChromeDriver 경로 확인
+          echo "🔍 ChromeDriver 경로 확인:"
+          which chromedriver || echo "시스템 PATH에 chromedriver 없음"
+          ls -la /usr/local/bin/chromedriver || echo "/usr/local/bin/chromedriver 없음"
+          
+          # Selenium 드라이버 테스트 (개선된 버전)
           python -c "
           from selenium import webdriver
           from selenium.webdriver.chrome.options import Options
-          from webdriver_manager.chrome import ChromeDriverManager
           from selenium.webdriver.chrome.service import Service
+          import os
           
           try:
               options = Options()
@@ -71,13 +87,42 @@ jobs:
               options.add_argument('--no-sandbox')
               options.add_argument('--disable-dev-shm-usage')
               
-              service = Service(ChromeDriverManager().install())
-              driver = webdriver.Chrome(service=service, options=options)
+              driver = None
+              
+              # 방법 1: 시스템 ChromeDriver 사용
+              try:
+                  driver = webdriver.Chrome(options=options)
+                  print('✅ Selenium 드라이버 정상 작동 (시스템 경로)')
+              except Exception as e1:
+                  print(f'⚠️ 시스템 ChromeDriver 실패: {e1}')
+                  
+                  # 방법 2: 수동 경로 시도
+                  paths = ['/usr/local/bin/chromedriver', '/usr/bin/chromedriver']
+                  for path in paths:
+                      if os.path.exists(path):
+                          try:
+                              service = Service(path)
+                              driver = webdriver.Chrome(service=service, options=options)
+                              print(f'✅ Selenium 드라이버 정상 작동 (경로: {path})')
+                              break
+                          except Exception as e2:
+                              print(f'⚠️ 경로 {path} 실패: {e2}')
+                  
+                  if not driver:
+                      print('❌ 모든 ChromeDriver 초기화 방법 실패')
+                      exit(1)
+              
+              # 간단한 테스트
               driver.get('https://www.google.com')
-              print('✅ Selenium 드라이버 정상 작동')
-              driver.quit()
+              title = driver.title
+              print(f'✅ 페이지 로드 테스트 성공: {title}')
+              
           except Exception as e:
               print(f'❌ Selenium 드라이버 실패: {e}')
+              exit(1)
+          finally:
+              if 'driver' in locals() and driver:
+                  driver.quit()
           "
           
           echo "🏥 헬스체크 완료"
