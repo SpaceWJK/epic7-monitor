@@ -1,0 +1,68 @@
+# health_check.yml
+name: Epic Seven Monitor Health Check
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"  # 6시간마다
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Run health check
+        run: |
+          echo "🏥 시스템 헬스체크 시작"
+          
+          # Python 모듈 테스트
+          python -c "
+          try:
+              from crawler import crawl_arca_sites
+              from classifier import is_bug_post  
+              from notifier import send_bug_alert
+              print('✅ 모든 모듈 import 성공')
+          except Exception as e:
+              print(f'❌ 모듈 import 실패: {e}')
+              exit(1)
+          "
+          
+          # 크롤링 테스트 (실제 실행하지 않고 구문만 확인)
+          python -c "
+          import requests
+          try:
+              response = requests.get('https://page.onstove.com/epicseven/kr/list/1012', timeout=10)
+              if response.status_code == 200:
+                  print('✅ 스토브 접속 가능')
+              else:
+                  print(f'⚠️ 스토브 응답 코드: {response.status_code}')
+          except Exception as e:
+              print(f'❌ 스토브 접속 실패: {e}')
+          "
+          
+          echo "🏥 헬스체크 완료"
+
+      - name: Check repository status
+        run: |
+          echo "📊 리포지토리 상태:"
+          echo "- 마지막 커밋: $(git log -1 --format='%h %s %cr')"
+          if [[ -f crawled_links.json ]]; then
+            echo "- 저장된 링크 수: $(jq length crawled_links.json 2>/dev/null || echo '파일 읽기 실패')"
+          else
+            echo "- crawled_links.json 파일 없음"
+          fi

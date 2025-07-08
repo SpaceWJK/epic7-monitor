@@ -1,32 +1,73 @@
-name: Epic Seven Bug Monitor
+# bug_monitor_unified.yml
+name: Epic Seven Unified Bug Monitor
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *"  # 15분마다
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Monitor mode (arca/global/all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - arca
+        - global
+        - all
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        mode: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.mode)) || '["arca", "global"]' }}
+    
+    env:
+      TZ: Asia/Seoul
+    
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          python-version: '3.10'
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: |
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install chromium
+          playwright install-deps
 
-      - run: python monitor_bugs.py
+      - name: Run bug monitor - ${{ matrix.mode }}
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: python monitor_bugs.py --mode ${{ matrix.mode }}
 
-      - name: Upload debug HTML
+      - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stove-debug-html
-          path: stove_debug.html
+          name: monitor-${{ matrix.mode }}-${{ github.run_number }}
+          path: |
+            *.html
+            crawled_links.json
+          retention-days: 7
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "epic7-monitor@github.com"
+          git config --local user.name "Epic7 Monitor Bot"
+          
+          if [[ -n $(git status --porcelain) ]]; then
+            git add crawled_links.json
+            git commit -m "🔍 Update crawled links - ${{ matrix.mode }} [$(date '+%Y-%m-%d %H:%M:%S KST')]"
+            git push
+          fi
