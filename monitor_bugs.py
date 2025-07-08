@@ -1,22 +1,22 @@
 from crawler import crawl_all_sites
-from classifier import classify_post
+from classifier import is_positive_post, is_negative_post, is_bug_post
 from notifier import send_bug_alert
+import os
 
-def monitor():
+WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_BUG")
+
+def main():
     posts = crawl_all_sites()
-    print(f"[DEBUG] Total fetched posts: {len(posts)}")
-    if not posts:
-        print("[WARN] No posts fetched. Possibly selector issue.")
-    bug_posts = []
+    print("[DEBUG] 전체 크롤링 결과:", posts)
+    bugs = []
     for post in posts:
-        category = classify_post(post)
-        if category == "bug":
-            bug_posts.append(post)
-    print(f"[DEBUG] Total bugs detected: {len(bug_posts)}")
-    if bug_posts:
-        send_bug_alert(bug_posts)
+        if post.get("force_bug") or is_bug_post(post["title"]):
+            bugs.append(post)
+    print(f"[DEBUG] Total bugs detected: {len(bugs)}")
+    if bugs:
+        send_bug_alert(WEBHOOK_URL, bugs)
     else:
         print("[INFO] No bug posts to alert.")
-        
+
 if __name__ == "__main__":
-    monitor()
+    main()

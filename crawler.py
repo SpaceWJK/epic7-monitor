@@ -1,79 +1,38 @@
-import requests
+from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
-def fetch_posts(url, container_selector, title_selector, link_selector, source, force_bug=False):
+def fetch_stove_bug_board():
     posts = []
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            print(f"[ERROR] Failed to fetch {source}: HTTP {response.status_code}")
-            return posts
-        soup = BeautifulSoup(response.text, "html.parser")
-        containers = soup.select(container_selector)
-        print(f"[DEBUG] {source} fetched {len(containers)} elements.")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto("https://page.onstove.com/epicseven/kr/list/1012")
+        html = page.content()
+        soup = BeautifulSoup(html, "html.parser")
+        containers = soup.select("div.s-detail-header")
+        print(f"[DEBUG] 스토브 버그 게시판 fetched {len(containers)} elements.")
         for container in containers:
-            title_elem = container.select_one(title_selector)
-            link_elem = container.select_one(link_selector)
-            if title_elem and link_elem:
+            title_elem = container.select_one("a.s-detail-header-link")
+            if title_elem:
                 title = title_elem.text.strip()
-                link = link_elem['href']
+                link = title_elem['href']
                 posts.append({
                     "title": title,
                     "url": link if link.startswith("http") else f"https://page.onstove.com{link}",
-                    "source": source,
-                    "force_bug": force_bug
+                    "source": "스토브 버그 게시판",
+                    "force_bug": True
                 })
-    except Exception as e:
-        print(f"[ERROR] {source} failed: {e}")
+        browser.close()
     return posts
 
 def crawl_arca_sites():
     posts = []
-    # 아카라이브
-    posts += fetch_posts(
-        "https://arca.live/b/epic7",
-        "div.title",
-        "span > a",
-        "span > a",
-        "아카라이브"
-    )
-    # 루리웹
-    posts += fetch_posts(
-        "https://bbs.ruliweb.com/game/85238",
-        "div.board_main div.table_body",
-        "td.subject a",
-        "td.subject a",
-        "루리웹"
-    )
-    # 스토브 버그 게시판 (force_bug)
-    posts += fetch_posts(
-        "https://page.onstove.com/epicseven/kr/list/1012",
-        "div.s-detail-header",
-        "a.s-detail-header-link",  # 직통 selector로 수정
-        "a.s-detail-header-link",
-        "스토브 버그 게시판",
-        force_bug=True
-    )
+    posts += fetch_stove_bug_board()
     return posts
 
 def crawl_global_sites():
-    posts = []
-    posts += fetch_posts(
-        "https://www.reddit.com/r/EpicSeven/",
-        "div.Post",
-        "h3",
-        "a[data-click-id='body']",
-        "레딧"
-    )
-    posts += fetch_posts(
-        "https://forum.global.epic7.com/",
-        "div.board_main",
-        "span > a",
-        "span > a",
-        "글로벌 포럼"
-    )
-    return posts
+    # 필요시 추가
+    return []
 
 def crawl_all_sites():
     return crawl_arca_sites() + crawl_global_sites()
