@@ -120,7 +120,7 @@ def get_chrome_driver():
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
 
 def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링 (Selenium 버전)"""
+    """스토브 에픽세븐 버그 게시판 크롤링 (수정된 버전 - 실제 유저 게시글 영역 타겟)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -142,15 +142,21 @@ def fetch_stove_bug_board():
         # 페이지 로딩
         driver.get(url)
         
-        # 동적 콘텐츠 로딩 대기
+        # 동적 콘텐츠 로딩 대기 (더 충분히)
         print("[DEBUG] 페이지 로딩 대기 중...")
-        time.sleep(5)
+        time.sleep(8)  # 더 길게 대기
         
         # 스크롤하여 콘텐츠 로딩 유도
         print("[DEBUG] 스크롤로 콘텐츠 로딩 유도 중...")
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
+        time.sleep(3)
         driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(3)
+        
+        # 추가 스크롤로 더 많은 콘텐츠 로드
+        driver.execute_script("window.scrollTo(0, 500);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 1000);")
         time.sleep(2)
         
         # 디버깅용 HTML 저장
@@ -160,15 +166,19 @@ def fetch_stove_bug_board():
         
         print("[DEBUG] 게시글 링크 탐색 중...")
         
-        # 다양한 셀렉터로 게시글 찾기
+        # 수정된 셀렉터들 - 실제 유저 게시글 영역 타겟
         selectors = [
-            "a[href*='/epicseven/kr/view/']",
-            ".board-list .list-row a",
-            ".post-list-wrap .post-item a", 
-            ".board-item-wrap .board-item a",
-            ".title a",
-            ".subject a",
-            "[data-href*='/view/']"
+            # 우선순위 1: 유저 게시글 영역의 링크들
+            "div[class*='board'] a[href*='/epicseven/kr/view/']",
+            "div[class*='list'] a[href*='/epicseven/kr/view/']",
+            "div[class*='post'] a[href*='/epicseven/kr/view/']",
+            "div[class*='item'] a[href*='/epicseven/kr/view/']",
+            # 우선순위 2: 더 구체적인 게시글 영역
+            ".post-list a[href*='/epicseven/kr/view/']",
+            ".board-list a[href*='/epicseven/kr/view/']",
+            ".community-list a[href*='/epicseven/kr/view/']",
+            # 우선순위 3: 일반적인 링크 (공지 제외)
+            "a[href*='/epicseven/kr/view/']"
         ]
         
         found_elements = []
@@ -177,25 +187,106 @@ def fetch_stove_bug_board():
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elements:
                     print(f"[DEBUG] '{selector}'로 {len(elements)}개 요소 발견")
-                    found_elements = elements
-                    break
+                    
+                    # 공지 게시글 필터링 (제목이나 URL로 구분)
+                    filtered_elements = []
+                    for element in elements:
+                        try:
+                            href = element.get_attribute('href')
+                            if not href:
+                                continue
+                                
+                            # 공지 게시글 ID 필터링 (알려진 공지 ID들)
+                            exclude_ids = [
+                                '10518001',  # PC 클라이언트 설치 가이드
+                                '10855687',  # Epic Day 이벤트
+                                '10855562',  # 데일리 루틴 이벤트
+                                '10855132'   # NOTICE
+                            ]
+                            
+                            # URL에서 게시글 ID 추출
+                            import re
+                            id_match = re.search(r'/view/(\d+)', href)
+                            if id_match:
+                                post_id = id_match.group(1)
+                                if post_id not in exclude_ids:
+                                    filtered_elements.append(element)
+                                else:
+                                    print(f"[DEBUG] 공지 게시글 제외: {post_id}")
+                            else:
+                                filtered_elements.append(element)
+                                
+                        except Exception as e:
+                            print(f"[DEBUG] 요소 필터링 중 오류: {e}")
+                            continue
+                    
+                    if filtered_elements:
+                        found_elements = filtered_elements
+                        print(f"[DEBUG] 필터링 후 {len(found_elements)}개 유저 게시글 발견")
+                        break
+                    
             except Exception as e:
                 print(f"[DEBUG] '{selector}' 시도 중 오류: {e}")
                 continue
         
-        # 대안: 모든 링크에서 view 패턴 찾기
+        # 대안: JavaScript로 더 정확한 게시글 영역 탐색
         if not found_elements:
-            print("[DEBUG] 대안 방법으로 모든 링크 탐색 중...")
-            all_links = driver.find_elements(By.TAG_NAME, "a")
-            found_elements = [link for link in all_links if '/epicseven/kr/view/' in (link.get_attribute('href') or '')]
-            print(f"[DEBUG] 대안 방법으로 {len(found_elements)}개 게시글 링크 발견")
+            print("[DEBUG] JavaScript로 게시글 영역 재탐색 중...")
+            try:
+                # JavaScript로 실제 게시글 영역 찾기
+                js_links = driver.execute_script("""
+                    var links = [];
+                    var allLinks = document.querySelectorAll('a[href*="/epicseven/kr/view/"]');
+                    
+                    // 공지 제외 ID들
+                    var excludeIds = ['10518001', '10855687', '10855562', '10855132'];
+                    
+                    for (var i = 0; i < allLinks.length; i++) {
+                        var link = allLinks[i];
+                        var href = link.href;
+                        var match = href.match(/\/view\/(\d+)/);
+                        
+                        if (match) {
+                            var postId = match[1];
+                            // 공지가 아닌 게시글만 선택
+                            if (excludeIds.indexOf(postId) === -1) {
+                                // 부모 요소가 실제 게시글 영역인지 확인
+                                var parent = link.closest('[class*="list"], [class*="board"], [class*="post"], [class*="item"]');
+                                if (parent) {
+                                    links.push({
+                                        href: href,
+                                        text: link.innerText.trim(),
+                                        id: postId
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    
+                    return links.slice(0, 15); // 최신 15개만
+                """)
+                
+                if js_links:
+                    print(f"[DEBUG] JavaScript로 {len(js_links)}개 게시글 발견")
+                    # JavaScript 결과를 found_elements 형태로 변환
+                    found_elements = []
+                    for link_info in js_links:
+                        # 실제 element 찾기
+                        try:
+                            element = driver.find_element(By.XPATH, f"//a[@href='{link_info['href']}']")
+                            found_elements.append(element)
+                        except:
+                            continue
+                            
+            except Exception as e:
+                print(f"[DEBUG] JavaScript 탐색 실패: {e}")
         
         if not found_elements:
-            print("[ERROR] 게시글을 찾을 수 없습니다.")
+            print("[ERROR] 유저 게시글을 찾을 수 없습니다.")
             print("[DEBUG] HTML 구조 확인을 위해 stove_debug_selenium.html 파일을 확인하세요")
             return posts
         
-        # 게시글 정보 추출 (상세 디버깅)
+        # 게시글 정보 추출
         for i, element in enumerate(found_elements[:15]):  # 최신 15개 체크
             try:
                 href = element.get_attribute('href')
@@ -203,17 +294,20 @@ def fetch_stove_bug_board():
                     print(f"[DEBUG] 요소 {i+1}: href 없음")
                     continue
                 
-                if not href.startswith('http'):
+                # URL 수정 (h 빠진 문제 해결)
+                if href.startswith('ttps://'):
+                    href = 'h' + href
+                elif not href.startswith('http'):
                     href = "https://page.onstove.com" + href
                 
-                print(f"[DEBUG] 요소 {i+1}: URL = {href[-50:]}")  # URL 끝부분만 표시
+                print(f"[DEBUG] 요소 {i+1}: URL = {href[-50:]}")
                 
                 # 이미 처리된 링크인지 확인
                 if href in crawled_links:
                     print(f"[DEBUG] 요소 {i+1}: 이미 크롤링된 링크")
                     continue
                 
-                # 제목 추출 (다양한 방법 시도)
+                # 제목 추출 (강화된 로직)
                 title = ""
                 
                 # 방법 1: 링크 텍스트 직접
@@ -222,43 +316,78 @@ def fetch_stove_bug_board():
                     title = link_text
                     print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (직접텍스트) = {title[:30]}...")
                 
-                # 방법 2: 부모 요소에서 제목 찾기
+                # 방법 2: 부모 요소에서 제목 찾기 (개선)
                 if not title:
                     try:
-                        parent = element.find_element(By.XPATH, "..")
-                        parent_text = parent.text.strip()
-                        # 부모 텍스트에서 의미있는 제목 추출
-                        lines = [line.strip() for line in parent_text.split('\n') if line.strip()]
-                        for line in lines:
-                            if len(line) > 5 and not line.isdigit() and '조회' not in line and '등록일' not in line:
-                                title = line
-                                print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (부모요소) = {title[:30]}...")
+                        current_element = element
+                        for level in range(5):  # 최대 5레벨까지
+                            parent = current_element.find_element(By.XPATH, "..")
+                            parent_text = parent.text.strip()
+                            
+                            if parent_text:
+                                lines = [line.strip() for line in parent_text.split('\n') if line.strip()]
+                                for line in lines:
+                                    if (len(line) > 5 and 
+                                        not line.isdigit() and 
+                                        '조회' not in line and 
+                                        '등록일' not in line and
+                                        '추천' not in line and
+                                        '댓글' not in line and
+                                        'OFFICIAL' not in line and
+                                        'GM' not in line and
+                                        not re.match(r'^\d{4}[./]\d{2}[./]\d{2}', line) and
+                                        not re.match(r'^\d+$', line)):
+                                        title = line
+                                        print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (부모{level+1}) = {title[:30]}...")
+                                        break
+                            
+                            if title:
                                 break
-                    except:
-                        pass
+                            current_element = parent
+                            
+                    except Exception as e:
+                        print(f"[DEBUG] 요소 {i+1}: 부모 요소 탐색 실패 = {e}")
                 
-                # 방법 3: 제목 관련 요소 찾기
+                # 방법 3: JavaScript로 제목 추출
                 if not title:
                     try:
-                        title_selectors = ['.title', '.subject', '.post-title', '.board-title']
-                        for sel in title_selectors:
-                            title_elem = element.find_element(By.CSS_SELECTOR, sel)
-                            if title_elem:
-                                title = title_elem.text.strip()
-                                if title and len(title) > 3:
-                                    print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 ({sel}) = {title[:30]}...")
-                                    break
-                    except:
-                        pass
+                        js_title = driver.execute_script("""
+                            var element = arguments[0];
+                            var href = element.href;
+                            
+                            // 같은 href를 가진 모든 요소 찾기
+                            var sameLinks = document.querySelectorAll('a[href="' + href + '"]');
+                            
+                            for (var i = 0; i < sameLinks.length; i++) {
+                                var link = sameLinks[i];
+                                var text = link.innerText.trim();
+                                
+                                // 유효한 제목인지 확인
+                                if (text && text.length > 3 && !text.match(/^\d+$/) && 
+                                    !text.includes('조회') && !text.includes('등록일') &&
+                                    !text.includes('OFFICIAL') && !text.includes('GM')) {
+                                    return text;
+                                }
+                            }
+                            
+                            return '';
+                        """, element)
+                        
+                        if js_title and len(js_title.strip()) > 3:
+                            title = js_title.strip()
+                            print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (JavaScript) = {title[:30]}...")
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] 요소 {i+1}: JavaScript 탐색 실패 = {e}")
                 
                 if not title:
-                    print(f"[DEBUG] 요소 {i+1}: 제목 추출 실패 - 링크 텍스트: '{link_text[:50]}'")
+                    print(f"[DEBUG] 요소 {i+1}: 모든 제목 추출 방법 실패")
                     continue
                 
                 # 제목 정리
                 if title:
-                    title = re.sub(r'\s+', ' ', title).strip()  # 공백 정리
-                    title = title[:200]  # 길이 제한
+                    title = re.sub(r'\s+', ' ', title).strip()
+                    title = title[:200]
                 
                 if title and href and len(title) > 3:
                     post_data = {
