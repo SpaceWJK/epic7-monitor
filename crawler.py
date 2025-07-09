@@ -120,7 +120,7 @@ def get_chrome_driver():
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
 
 def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링 (실제 유저 게시글 영역 타겟)"""
+    """스토브 에픽세븐 버그 게시판 크롤링 (실제 유저 게시글 영역 타겟) - 수정된 제목 추출"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -162,153 +162,73 @@ def fetch_stove_bug_board():
         
         print("[DEBUG] 실제 유저 게시글 영역 탐색 중...")
         
-        # JavaScript로 공지 영역과 유저 게시글 영역 구분
+        # 🔧 수정된 JavaScript - 간단한 CSS 선택자 사용
         user_posts = driver.execute_script("""
             var userPosts = [];
             
-            // 모든 게시글 링크 찾기
-            var allLinks = document.querySelectorAll('a[href*="/epicseven/kr/view/"]');
-            console.log('전체 링크 수:', allLinks.length);
-            
-            // 공지 영역의 특징: OFFICIAL, GM, 이벤트 태그 등
-            var officialKeywords = ['OFFICIAL', 'GM', '이벤트', 'EVENT', '공지', 'NOTICE', 'ADMIN'];
+            // 🔧 수정된 CSS 선택자로 모든 게시글 섹션 찾기
+            var sections = document.querySelectorAll('section.s-board-item');
+            console.log('전체 게시글 섹션 수:', sections.length);
             
             // 알려진 공지 게시글 ID들
             var officialIds = ['10518001', '10855687', '10855562', '10855132'];
             
-            for (var i = 0; i < allLinks.length; i++) {
-                var link = allLinks[i];
-                var href = link.href;
-                var linkText = link.innerText.trim();
+            for (var i = 0; i < sections.length; i++) {
+                var section = sections[i];
                 
-                // 게시글 ID 추출
-                var idMatch = href.match(/\/view\/(\d+)/);
-                if (!idMatch) continue;
-                var postId = idMatch[1];
-                
-                // 공지 게시글 ID 제외
-                if (officialIds.includes(postId)) {
-                    console.log('공지 ID 제외:', postId);
-                    continue;
-                }
-                
-                // 부모 요소들 검사하여 공지 영역인지 판단
-                var isInOfficialArea = false;
-                var current = link;
-                
-                // 최대 5레벨까지 부모 요소 검사
-                for (var level = 0; level < 5; level++) {
-                    if (!current || !current.parentElement) break;
-                    current = current.parentElement;
+                try {
+                    // 🔧 수정된 CSS 선택자로 링크 찾기
+                    var linkElement = section.querySelector('a.s-board-link');
+                    if (!linkElement) continue;
                     
-                    var classList = current.classList ? Array.from(current.classList).join(' ') : '';
-                    var elementText = current.innerText || '';
+                    var href = linkElement.href;
+                    if (!href) continue;
                     
-                    // 클래스명에서 공지 영역 탐지
-                    if (classList.includes('notice') || 
-                        classList.includes('official') || 
-                        classList.includes('event') ||
-                        classList.includes('admin') ||
-                        classList.includes('top')) {
-                        isInOfficialArea = true;
-                        break;
+                    // 게시글 ID 추출
+                    var idMatch = href.match(/\/view\/(\d+)/);
+                    if (!idMatch) continue;
+                    var postId = idMatch[1];
+                    
+                    // 공지 게시글 ID 제외
+                    if (officialIds.includes(postId)) {
+                        console.log('공지 ID 제외:', postId);
+                        continue;
                     }
                     
-                    // 텍스트에서 공지 키워드 탐지
-                    for (var j = 0; j < officialKeywords.length; j++) {
-                        if (elementText.includes(officialKeywords[j])) {
-                            isInOfficialArea = true;
-                            break;
-                        }
+                    // 🔧 수정된 CSS 선택자로 공지사항/이벤트 필터링
+                    var isNotice = section.querySelector('i.element-badge__s.notice');
+                    var isEvent = section.querySelector('i.element-badge__s.event');
+                    var isOfficial = section.querySelector('span.s-profile-staff-official');
+                    
+                    if (isNotice || isEvent || isOfficial) {
+                        console.log('공지/이벤트 제외:', postId);
+                        continue;
                     }
                     
-                    if (isInOfficialArea) break;
-                }
-                
-                if (isInOfficialArea) {
-                    console.log('공지 영역 제외:', linkText.substring(0, 30));
-                    continue;
-                }
-                
-                // 링크 텍스트 자체에서 공지 키워드 확인
-                var hasOfficialKeyword = false;
-                for (var k = 0; k < officialKeywords.length; k++) {
-                    if (linkText.includes(officialKeywords[k])) {
-                        hasOfficialKeyword = true;
-                        break;
+                    // 🔧 수정된 CSS 선택자로 제목 추출
+                    var titleElement = section.querySelector('h3.s-board-title span.s-board-title-text');
+                    if (!titleElement) {
+                        console.log('제목 요소 없음:', postId);
+                        continue;
                     }
-                }
-                
-                if (hasOfficialKeyword) {
-                    console.log('공지 키워드 제외:', linkText.substring(0, 30));
-                    continue;
-                }
-                
-                // 실제 제목 추출 (더 정교하게)
-                var title = '';
-                
-                // 방법 1: 링크 자체 텍스트
-                if (linkText && linkText.length > 3 && !linkText.match(/^\d+$/)) {
-                    title = linkText;
-                }
-                
-                // 방법 2: 부모 요소에서 제목 찾기
-                if (!title) {
-                    var titleCurrent = link;
-                    for (var level = 0; level < 4; level++) {
-                        titleCurrent = titleCurrent.parentElement;
-                        if (!titleCurrent) break;
-                        
-                        var allText = titleCurrent.innerText || '';
-                        var lines = allText.split('\\n');
-                        
-                        for (var m = 0; m < lines.length; m++) {
-                            var line = lines[m].trim();
-                            if (line.length > 5 && 
-                                line.length < 200 &&
-                                !line.match(/^\d+$/) && 
-                                !line.includes('조회') && 
-                                !line.includes('추천') && 
-                                !line.includes('댓글') &&
-                                !line.includes('등록일') &&
-                                !line.includes('작성자') &&
-                                !line.match(/^\d{4}[./]\d{2}[./]\d{2}/) &&
-                                !officialKeywords.some(keyword => line.includes(keyword))) {
-                                title = line;
-                                break;
-                            }
-                        }
-                        if (title) break;
+                    
+                    var title = titleElement.innerText.trim();
+                    if (!title || title.length < 3) {
+                        console.log('제목 없음 또는 너무 짧음:', postId);
+                        continue;
                     }
-                }
-                
-                // 방법 3: 인근 요소에서 제목 찾기
-                if (!title) {
-                    var siblings = link.parentElement ? link.parentElement.children : [];
-                    for (var n = 0; n < siblings.length; n++) {
-                        var sibling = siblings[n];
-                        var siblingText = sibling.innerText ? sibling.innerText.trim() : '';
-                        
-                        if (siblingText && 
-                            siblingText.length > 5 && 
-                            siblingText.length < 200 &&
-                            !siblingText.match(/^\d+$/) &&
-                            !siblingText.includes('조회') &&
-                            !siblingText.includes('등록일') &&
-                            !officialKeywords.some(keyword => siblingText.includes(keyword))) {
-                            title = siblingText;
-                            break;
-                        }
-                    }
-                }
-                
-                if (title && title.length > 3) {
+                    
                     userPosts.push({
                         title: title.substring(0, 200).trim(),
                         href: href,
                         id: postId
                     });
+                    
                     console.log('유저 게시글 추가:', title.substring(0, 30));
+                    
+                } catch (e) {
+                    console.log('게시글 처리 오류:', e.message);
+                    continue;
                 }
             }
             
