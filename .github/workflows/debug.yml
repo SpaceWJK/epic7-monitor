@@ -14,6 +14,50 @@ jobs:
       with:
         python-version: '3.11'
     
+    - name: Install Chrome and ChromeDriver
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        
+        # Chrome 버전 확인
+        CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
+        echo "Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
+        
+        # 기존 ChromeDriver 제거
+        sudo rm -f /usr/local/bin/chromedriver
+        
+        # ChromeDriver 설치
+        CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
+        if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
+        fi
+        if [ -z "$CHROMEDRIVER_VERSION" ]; then
+          CHROMEDRIVER_VERSION="119.0.6045.105"
+        fi
+        
+        echo "선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+        
+        # ChromeDriver 다운로드 및 설치
+        DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+        if wget -q --spider "$DOWNLOAD_URL"; then
+          wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+          sudo unzip /tmp/chromedriver.zip -d /tmp/
+          sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+          echo "ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+        else
+          echo "다운로드 실패, 우분투 패키지 사용"
+          sudo apt-get install -y chromium-chromedriver
+          sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+        fi
+        
+        # 설치 확인
+        echo "ChromeDriver 경로 확인:"
+        which chromedriver || echo "PATH에서 찾을 수 없음"
+        ls -la /usr/local/bin/chromedriver 2>/dev/null || echo "/usr/local/bin/chromedriver 없음"
+        ls -la /usr/bin/chromedriver 2>/dev/null || echo "/usr/bin/chromedriver 없음"
+    
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
@@ -65,3 +109,132 @@ jobs:
         else:
             print('Discord 웹훅이 설정되지 않음')
         "
+    
+    - name: Crawling Test (Force New Posts Detection)
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      run: |
+        echo "================================================"
+        echo "🕷️ 크롤링 테스트 - 강제 새 게시글 탐지"
+        echo "================================================"
+        
+        echo "1. 현재 crawled_links.json 상태 확인:"
+        python -c "
+        import json
+        try:
+            with open('crawled_links.json', 'r') as f:
+                data = json.load(f)
+            links = data.get('links', []) if isinstance(data, dict) else data
+            print(f'현재 저장된 링크 수: {len(links)}')
+            if links:
+                print('최근 3개 링크:')
+                for i, link in enumerate(links[-3:], 1):
+                    print(f'  {i}. {link[-50:]}')
+        except Exception as e:
+            print(f'파일 읽기 오류: {e}')
+        "
+        
+        echo ""
+        echo "2. 백업 생성 및 빈 링크 파일로 교체..."
+        cp crawled_links.json crawled_links.backup.json
+        echo '{"links": [], "last_updated": "2025-01-01T00:00:00"}' > crawled_links.json
+        
+        echo "3. 교체 후 상태 확인:"
+        python -c "
+        import json
+        with open('crawled_links.json', 'r') as f:
+            data = json.load(f)
+        print(f'교체 후 링크 수: {len(data[\"links\"])}')
+        "
+        
+        echo ""
+        echo "4. 크롤링 실행 (모든 게시글이 새 게시글로 인식됨):"
+        echo "================================================"
+        python monitor_bugs.py --mode arca
+        echo "================================================"
+        
+        echo ""
+        echo "5. 크롤링 후 상태 확인:"
+        python -c "
+        import json
+        try:
+            with open('crawled_links.json', 'r') as f:
+                data = json.load(f)
+            links = data.get('links', []) if isinstance(data, dict) else data
+            print(f'크롤링 후 링크 수: {len(links)}')
+            if links:
+                print('새로 추가된 최근 5개 링크:')
+                for i, link in enumerate(links[-5:], 1):
+                    print(f'  {i}. {link[-50:]}')
+        except Exception as e:
+            print(f'파일 읽기 오류: {e}')
+        "
+        
+        echo ""
+        echo "6. 백업 복원..."
+        mv crawled_links.backup.json crawled_links.json
+        
+        echo "7. 복원 후 상태 확인:"
+        python -c "
+        import json
+        with open('crawled_links.json', 'r') as f:
+            data = json.load(f)
+        links = data.get('links', []) if isinstance(data, dict) else data
+        print(f'복원 후 링크 수: {len(links)}')
+        "
+        
+        echo ""
+        echo "✅ 크롤링 테스트 완료!"
+        echo "📧 Discord 채널에서 알림이 왔는지 확인해주세요!"
+    
+    - name: ChromeDriver Status Check
+      run: |
+        echo "================================================"
+        echo "🔧 ChromeDriver 상태 최종 확인"
+        echo "================================================"
+        
+        echo "Chrome 버전: $(google-chrome --version)"
+        echo "ChromeDriver 경로들:"
+        for path in "/usr/local/bin/chromedriver" "/usr/bin/chromedriver"; do
+          if [ -f "$path" ]; then
+            echo "  $path: $($path --version 2>/dev/null || echo '버전 확인 실패')"
+          else
+            echo "  $path: 파일 없음"
+          fi
+        done
+        
+        echo ""
+        echo "PATH에서 chromedriver:"
+        which chromedriver && chromedriver --version || echo "PATH에서 찾을 수 없음"
+    
+    - name: Final Summary
+      run: |
+        echo "================================================"
+        echo "📋 최종 요약"
+        echo "================================================"
+        
+        echo "✅ 테스트 완료 항목:"
+        echo "  1. 환경변수 설정 확인"
+        echo "  2. 모듈 import 테스트"
+        echo "  3. 분류기 로직 테스트"
+        echo "  4. Discord 웹훅 테스트"
+        echo "  5. ChromeDriver 설치 및 설정"
+        echo "  6. 강제 크롤링 테스트 (새 게시글 탐지)"
+        echo ""
+        echo "🔍 확인 사항:"
+        echo "  - Discord 채널에서 테스트 알림과 실제 크롤링 알림을 확인하세요"
+        echo "  - 크롤링 로그에서 [NEW], [ALERT-STOVE] 메시지를 확인하세요"
+        echo "  - 제목 추출 실패 메시지가 있는지 확인하세요"
+        echo ""
+        echo "📧 Discord 알림이 오지 않는다면 위의 로그를 확인해주세요!"
+    
+    - name: Upload artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-artifacts-${{ github.run_number }}
+        path: |
+          *.html
+          *.json
+          *.log
+        retention-days: 7
