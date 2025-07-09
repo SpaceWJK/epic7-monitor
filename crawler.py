@@ -120,7 +120,7 @@ def get_chrome_driver():
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
 
 def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링 (수정된 버전 - 실제 유저 게시글 영역 타겟)"""
+    """스토브 에픽세븐 버그 게시판 크롤링 (실제 유저 게시글 영역 타겟)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -132,31 +132,27 @@ def fetch_stove_bug_board():
         print("[DEBUG] Chrome 드라이버 초기화 중...")
         driver = get_chrome_driver()
         
-        # 페이지 로드 타임아웃 설정
         driver.set_page_load_timeout(30)
         driver.implicitly_wait(10)
         
         url = "https://page.onstove.com/epicseven/kr/list/1012?page=1&direction=LATEST"
         print(f"[DEBUG] 스토브 접속 중: {url}")
         
-        # 페이지 로딩
         driver.get(url)
         
-        # 동적 콘텐츠 로딩 대기 (더 충분히)
+        # 충분한 로딩 대기
         print("[DEBUG] 페이지 로딩 대기 중...")
-        time.sleep(8)  # 더 길게 대기
+        time.sleep(8)
         
-        # 스크롤하여 콘텐츠 로딩 유도
-        print("[DEBUG] 스크롤로 콘텐츠 로딩 유도 중...")
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        # 스크롤하여 실제 유저 게시글 영역까지 로딩
+        print("[DEBUG] 유저 게시글 영역까지 스크롤...")
+        driver.execute_script("window.scrollTo(0, 500);")  # 공지 영역 넘어서
         time.sleep(3)
-        driver.execute_script("window.scrollTo(0, 0);")
+        driver.execute_script("window.scrollTo(0, 800);")  # 유저 게시글 영역
         time.sleep(3)
-        
-        # 추가 스크롤로 더 많은 콘텐츠 로드
-        driver.execute_script("window.scrollTo(0, 500);")
-        time.sleep(2)
-        driver.execute_script("window.scrollTo(0, 1000);")
+        driver.execute_script("window.scrollTo(0, 1200);") # 더 많은 게시글 로드
+        time.sleep(3)
+        driver.execute_script("window.scrollTo(0, 0);")    # 맨 위로 돌아가기
         time.sleep(2)
         
         # 디버깅용 HTML 저장
@@ -164,230 +160,202 @@ def fetch_stove_bug_board():
         with open("stove_debug_selenium.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         
-        print("[DEBUG] 게시글 링크 탐색 중...")
+        print("[DEBUG] 실제 유저 게시글 영역 탐색 중...")
         
-        # 수정된 셀렉터들 - 실제 유저 게시글 영역 타겟
-        selectors = [
-            # 우선순위 1: 유저 게시글 영역의 링크들
-            "div[class*='board'] a[href*='/epicseven/kr/view/']",
-            "div[class*='list'] a[href*='/epicseven/kr/view/']",
-            "div[class*='post'] a[href*='/epicseven/kr/view/']",
-            "div[class*='item'] a[href*='/epicseven/kr/view/']",
-            # 우선순위 2: 더 구체적인 게시글 영역
-            ".post-list a[href*='/epicseven/kr/view/']",
-            ".board-list a[href*='/epicseven/kr/view/']",
-            ".community-list a[href*='/epicseven/kr/view/']",
-            # 우선순위 3: 일반적인 링크 (공지 제외)
-            "a[href*='/epicseven/kr/view/']"
-        ]
-        
-        found_elements = []
-        for selector in selectors:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                if elements:
-                    print(f"[DEBUG] '{selector}'로 {len(elements)}개 요소 발견")
+        # JavaScript로 공지 영역과 유저 게시글 영역 구분
+        user_posts = driver.execute_script("""
+            var userPosts = [];
+            
+            // 모든 게시글 링크 찾기
+            var allLinks = document.querySelectorAll('a[href*="/epicseven/kr/view/"]');
+            console.log('전체 링크 수:', allLinks.length);
+            
+            // 공지 영역의 특징: OFFICIAL, GM, 이벤트 태그 등
+            var officialKeywords = ['OFFICIAL', 'GM', '이벤트', 'EVENT', '공지', 'NOTICE', 'ADMIN'];
+            
+            // 알려진 공지 게시글 ID들
+            var officialIds = ['10518001', '10855687', '10855562', '10855132'];
+            
+            for (var i = 0; i < allLinks.length; i++) {
+                var link = allLinks[i];
+                var href = link.href;
+                var linkText = link.innerText.trim();
+                
+                // 게시글 ID 추출
+                var idMatch = href.match(/\/view\/(\d+)/);
+                if (!idMatch) continue;
+                var postId = idMatch[1];
+                
+                // 공지 게시글 ID 제외
+                if (officialIds.includes(postId)) {
+                    console.log('공지 ID 제외:', postId);
+                    continue;
+                }
+                
+                // 부모 요소들 검사하여 공지 영역인지 판단
+                var isInOfficialArea = false;
+                var current = link;
+                
+                // 최대 5레벨까지 부모 요소 검사
+                for (var level = 0; level < 5; level++) {
+                    if (!current || !current.parentElement) break;
+                    current = current.parentElement;
                     
-                    # 공지 게시글 필터링 (제목이나 URL로 구분)
-                    filtered_elements = []
-                    for element in elements:
-                        try:
-                            href = element.get_attribute('href')
-                            if not href:
-                                continue
-                                
-                            # 공지 게시글 ID 필터링 (알려진 공지 ID들)
-                            exclude_ids = [
-                                '10518001',  # PC 클라이언트 설치 가이드
-                                '10855687',  # Epic Day 이벤트
-                                '10855562',  # 데일리 루틴 이벤트
-                                '10855132'   # NOTICE
-                            ]
-                            
-                            # URL에서 게시글 ID 추출
-                            import re
-                            id_match = re.search(r'/view/(\d+)', href)
-                            if id_match:
-                                post_id = id_match.group(1)
-                                if post_id not in exclude_ids:
-                                    filtered_elements.append(element)
-                                else:
-                                    print(f"[DEBUG] 공지 게시글 제외: {post_id}")
-                            else:
-                                filtered_elements.append(element)
-                                
-                        except Exception as e:
-                            print(f"[DEBUG] 요소 필터링 중 오류: {e}")
-                            continue
+                    var classList = current.classList ? Array.from(current.classList).join(' ') : '';
+                    var elementText = current.innerText || '';
                     
-                    if filtered_elements:
-                        found_elements = filtered_elements
-                        print(f"[DEBUG] 필터링 후 {len(found_elements)}개 유저 게시글 발견")
-                        break
+                    // 클래스명에서 공지 영역 탐지
+                    if (classList.includes('notice') || 
+                        classList.includes('official') || 
+                        classList.includes('event') ||
+                        classList.includes('admin') ||
+                        classList.includes('top')) {
+                        isInOfficialArea = true;
+                        break;
+                    }
                     
-            except Exception as e:
-                print(f"[DEBUG] '{selector}' 시도 중 오류: {e}")
-                continue
-        
-        # 대안: JavaScript로 더 정확한 게시글 영역 탐색
-        if not found_elements:
-            print("[DEBUG] JavaScript로 게시글 영역 재탐색 중...")
-            try:
-                # JavaScript로 실제 게시글 영역 찾기
-                js_links = driver.execute_script("""
-                    var links = [];
-                    var allLinks = document.querySelectorAll('a[href*="/epicseven/kr/view/"]');
-                    
-                    // 공지 제외 ID들
-                    var excludeIds = ['10518001', '10855687', '10855562', '10855132'];
-                    
-                    for (var i = 0; i < allLinks.length; i++) {
-                        var link = allLinks[i];
-                        var href = link.href;
-                        var match = href.match(/\/view\/(\d+)/);
-                        
-                        if (match) {
-                            var postId = match[1];
-                            // 공지가 아닌 게시글만 선택
-                            if (excludeIds.indexOf(postId) === -1) {
-                                // 부모 요소가 실제 게시글 영역인지 확인
-                                var parent = link.closest('[class*="list"], [class*="board"], [class*="post"], [class*="item"]');
-                                if (parent) {
-                                    links.push({
-                                        href: href,
-                                        text: link.innerText.trim(),
-                                        id: postId
-                                    });
-                                }
-                            }
+                    // 텍스트에서 공지 키워드 탐지
+                    for (var j = 0; j < officialKeywords.length; j++) {
+                        if (elementText.includes(officialKeywords[j])) {
+                            isInOfficialArea = true;
+                            break;
                         }
                     }
                     
-                    return links.slice(0, 15); // 최신 15개만
-                """)
+                    if (isInOfficialArea) break;
+                }
                 
-                if js_links:
-                    print(f"[DEBUG] JavaScript로 {len(js_links)}개 게시글 발견")
-                    # JavaScript 결과를 found_elements 형태로 변환
-                    found_elements = []
-                    for link_info in js_links:
-                        # 실제 element 찾기
-                        try:
-                            element = driver.find_element(By.XPATH, f"//a[@href='{link_info['href']}']")
-                            found_elements.append(element)
-                        except:
-                            continue
-                            
-            except Exception as e:
-                print(f"[DEBUG] JavaScript 탐색 실패: {e}")
+                if (isInOfficialArea) {
+                    console.log('공지 영역 제외:', linkText.substring(0, 30));
+                    continue;
+                }
+                
+                // 링크 텍스트 자체에서 공지 키워드 확인
+                var hasOfficialKeyword = false;
+                for (var k = 0; k < officialKeywords.length; k++) {
+                    if (linkText.includes(officialKeywords[k])) {
+                        hasOfficialKeyword = true;
+                        break;
+                    }
+                }
+                
+                if (hasOfficialKeyword) {
+                    console.log('공지 키워드 제외:', linkText.substring(0, 30));
+                    continue;
+                }
+                
+                // 실제 제목 추출 (더 정교하게)
+                var title = '';
+                
+                // 방법 1: 링크 자체 텍스트
+                if (linkText && linkText.length > 3 && !linkText.match(/^\d+$/)) {
+                    title = linkText;
+                }
+                
+                // 방법 2: 부모 요소에서 제목 찾기
+                if (!title) {
+                    var titleCurrent = link;
+                    for (var level = 0; level < 4; level++) {
+                        titleCurrent = titleCurrent.parentElement;
+                        if (!titleCurrent) break;
+                        
+                        var allText = titleCurrent.innerText || '';
+                        var lines = allText.split('\\n');
+                        
+                        for (var m = 0; m < lines.length; m++) {
+                            var line = lines[m].trim();
+                            if (line.length > 5 && 
+                                line.length < 200 &&
+                                !line.match(/^\d+$/) && 
+                                !line.includes('조회') && 
+                                !line.includes('추천') && 
+                                !line.includes('댓글') &&
+                                !line.includes('등록일') &&
+                                !line.includes('작성자') &&
+                                !line.match(/^\d{4}[./]\d{2}[./]\d{2}/) &&
+                                !officialKeywords.some(keyword => line.includes(keyword))) {
+                                title = line;
+                                break;
+                            }
+                        }
+                        if (title) break;
+                    }
+                }
+                
+                // 방법 3: 인근 요소에서 제목 찾기
+                if (!title) {
+                    var siblings = link.parentElement ? link.parentElement.children : [];
+                    for (var n = 0; n < siblings.length; n++) {
+                        var sibling = siblings[n];
+                        var siblingText = sibling.innerText ? sibling.innerText.trim() : '';
+                        
+                        if (siblingText && 
+                            siblingText.length > 5 && 
+                            siblingText.length < 200 &&
+                            !siblingText.match(/^\d+$/) &&
+                            !siblingText.includes('조회') &&
+                            !siblingText.includes('등록일') &&
+                            !officialKeywords.some(keyword => siblingText.includes(keyword))) {
+                            title = siblingText;
+                            break;
+                        }
+                    }
+                }
+                
+                if (title && title.length > 3) {
+                    userPosts.push({
+                        title: title.substring(0, 200).trim(),
+                        href: href,
+                        id: postId
+                    });
+                    console.log('유저 게시글 추가:', title.substring(0, 30));
+                }
+            }
+            
+            console.log('최종 발견된 유저 게시글 수:', userPosts.length);
+            return userPosts.slice(0, 15); // 최신 15개만
+        """)
         
-        if not found_elements:
-            print("[ERROR] 유저 게시글을 찾을 수 없습니다.")
+        print(f"[DEBUG] JavaScript로 {len(user_posts)}개 유저 게시글 발견")
+        
+        if not user_posts:
+            print("[WARNING] 유저 게시글을 찾을 수 없습니다.")
             print("[DEBUG] HTML 구조 확인을 위해 stove_debug_selenium.html 파일을 확인하세요")
+            
+            # 대안: 기본 방법으로 모든 링크 수집 (공지 필터링 없이)
+            print("[DEBUG] 대안 방법으로 모든 게시글 수집...")
+            all_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/epicseven/kr/view/']")
+            
+            for i, element in enumerate(all_links[:20]):  # 상위 20개 확인
+                try:
+                    href = element.get_attribute('href')
+                    text = element.text.strip()
+                    if href and text:
+                        print(f"[DEBUG] 대안 {i+1}: {text[:40]}... = {href[-20:]}")
+                except:
+                    continue
+            
             return posts
         
-        # 게시글 정보 추출
-        for i, element in enumerate(found_elements[:15]):  # 최신 15개 체크
+        # 유저 게시글 처리
+        for i, post_info in enumerate(user_posts, 1):
             try:
-                href = element.get_attribute('href')
-                if not href:
-                    print(f"[DEBUG] 요소 {i+1}: href 없음")
-                    continue
+                href = post_info['href']
+                title = post_info['title']
                 
-                # URL 수정 (h 빠진 문제 해결)
+                # URL 수정
                 if href.startswith('ttps://'):
                     href = 'h' + href
                 elif not href.startswith('http'):
                     href = "https://page.onstove.com" + href
                 
-                print(f"[DEBUG] 요소 {i+1}: URL = {href[-50:]}")
+                print(f"[DEBUG] 유저 게시글 {i}: URL = {href[-50:]}")
+                print(f"[DEBUG] 유저 게시글 {i}: 제목 = {title[:50]}...")
                 
                 # 이미 처리된 링크인지 확인
                 if href in crawled_links:
-                    print(f"[DEBUG] 요소 {i+1}: 이미 크롤링된 링크")
+                    print(f"[DEBUG] 유저 게시글 {i}: 이미 크롤링된 링크")
                     continue
-                
-                # 제목 추출 (강화된 로직)
-                title = ""
-                
-                # 방법 1: 링크 텍스트 직접
-                link_text = element.text.strip()
-                if link_text and len(link_text) > 3 and not link_text.isdigit():
-                    title = link_text
-                    print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (직접텍스트) = {title[:30]}...")
-                
-                # 방법 2: 부모 요소에서 제목 찾기 (개선)
-                if not title:
-                    try:
-                        current_element = element
-                        for level in range(5):  # 최대 5레벨까지
-                            parent = current_element.find_element(By.XPATH, "..")
-                            parent_text = parent.text.strip()
-                            
-                            if parent_text:
-                                lines = [line.strip() for line in parent_text.split('\n') if line.strip()]
-                                for line in lines:
-                                    if (len(line) > 5 and 
-                                        not line.isdigit() and 
-                                        '조회' not in line and 
-                                        '등록일' not in line and
-                                        '추천' not in line and
-                                        '댓글' not in line and
-                                        'OFFICIAL' not in line and
-                                        'GM' not in line and
-                                        not re.match(r'^\d{4}[./]\d{2}[./]\d{2}', line) and
-                                        not re.match(r'^\d+$', line)):
-                                        title = line
-                                        print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (부모{level+1}) = {title[:30]}...")
-                                        break
-                            
-                            if title:
-                                break
-                            current_element = parent
-                            
-                    except Exception as e:
-                        print(f"[DEBUG] 요소 {i+1}: 부모 요소 탐색 실패 = {e}")
-                
-                # 방법 3: JavaScript로 제목 추출
-                if not title:
-                    try:
-                        js_title = driver.execute_script("""
-                            var element = arguments[0];
-                            var href = element.href;
-                            
-                            // 같은 href를 가진 모든 요소 찾기
-                            var sameLinks = document.querySelectorAll('a[href="' + href + '"]');
-                            
-                            for (var i = 0; i < sameLinks.length; i++) {
-                                var link = sameLinks[i];
-                                var text = link.innerText.trim();
-                                
-                                // 유효한 제목인지 확인
-                                if (text && text.length > 3 && !text.match(/^\d+$/) && 
-                                    !text.includes('조회') && !text.includes('등록일') &&
-                                    !text.includes('OFFICIAL') && !text.includes('GM')) {
-                                    return text;
-                                }
-                            }
-                            
-                            return '';
-                        """, element)
-                        
-                        if js_title and len(js_title.strip()) > 3:
-                            title = js_title.strip()
-                            print(f"[DEBUG] 요소 {i+1}: 제목 추출 성공 (JavaScript) = {title[:30]}...")
-                        
-                    except Exception as e:
-                        print(f"[DEBUG] 요소 {i+1}: JavaScript 탐색 실패 = {e}")
-                
-                if not title:
-                    print(f"[DEBUG] 요소 {i+1}: 모든 제목 추출 방법 실패")
-                    continue
-                
-                # 제목 정리
-                if title:
-                    title = re.sub(r'\s+', ' ', title).strip()
-                    title = title[:200]
                 
                 if title and href and len(title) > 3:
                     post_data = {
@@ -398,15 +366,15 @@ def fetch_stove_bug_board():
                     }
                     posts.append(post_data)
                     crawled_links.append(href)
-                    print(f"[NEW] 새 게시글 발견 ({i+1}): {title[:50]}...")
+                    print(f"[NEW] 새 유저 게시글 발견 ({i}): {title[:50]}...")
                 else:
-                    print(f"[DEBUG] 요소 {i+1}: 조건 미충족 - title_len={len(title) if title else 0}")
+                    print(f"[DEBUG] 유저 게시글 {i}: 조건 미충족 - title_len={len(title) if title else 0}")
                 
             except Exception as e:
-                print(f"[ERROR] 게시글 {i+1} 파싱 중 오류: {e}")
+                print(f"[ERROR] 유저 게시글 {i} 처리 중 오류: {e}")
                 continue
         
-        print(f"[DEBUG] 처리 결과: 전체 {len(found_elements)}개 중 새 게시글 {len(posts)}개 발견")
+        print(f"[DEBUG] 처리 결과: 전체 {len(user_posts)}개 중 새 유저 게시글 {len(posts)}개 발견")
         
     except TimeoutException:
         print("[ERROR] 페이지 로딩 타임아웃")
@@ -424,7 +392,7 @@ def fetch_stove_bug_board():
     link_data["links"] = crawled_links
     save_crawled_links(link_data)
     
-    print(f"[DEBUG] 스토브 버그 게시판에서 {len(posts)}개 새 게시글 발견")
+    print(f"[DEBUG] 스토브 버그 게시판에서 {len(posts)}개 새 유저 게시글 발견")
     return posts
 
 def fetch_stove_general_board():
