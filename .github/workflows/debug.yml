@@ -1,0 +1,424 @@
+name: Epic7 Monitor Debug
+on:
+  workflow_dispatch:  # 수동 실행
+    inputs:
+      test_mode:
+        description: '테스트 모드'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full        # 전체 테스트
+        - quick       # 빠른 테스트
+        - discord     # Discord만 테스트
+        - crawler     # 크롤링만 테스트
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Chrome and ChromeDriver
+      if: github.event.inputs.test_mode == 'full' || github.event.inputs.test_mode == 'crawler'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        
+        CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
+        echo "Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
+        
+        sudo rm -f /usr/local/bin/chromedriver
+        
+        CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
+        if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
+        fi
+        if [ -z "$CHROMEDRIVER_VERSION" ]; then
+          CHROMEDRIVER_VERSION="119.0.6045.105"
+        fi
+        
+        echo "선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+        
+        DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+        if wget -q --spider "$DOWNLOAD_URL"; then
+          wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+          sudo unzip /tmp/chromedriver.zip -d /tmp/
+          sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+          echo "ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+        else
+          echo "다운로드 실패, 우분투 패키지 사용"
+          sudo apt-get install -y chromium-chromedriver
+          sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+        fi
+    
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: "🔍 Step 1: Environment Variables Check"
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+      run: |
+        echo "================================================"
+        echo "🔍 STEP 1: 환경변수 확인"
+        echo "================================================"
+        
+        echo "환경변수 상태:"
+        if [ -n "$DISCORD_WEBHOOK_BUG" ]; then
+          echo "✅ DISCORD_WEBHOOK_BUG: 설정됨 (길이: ${#DISCORD_WEBHOOK_BUG})"
+          echo "   시작: ${DISCORD_WEBHOOK_BUG:0:30}..."
+        else
+          echo "❌ DISCORD_WEBHOOK_BUG: 설정되지 않음"
+        fi
+        
+        if [ -n "$DISCORD_WEBHOOK_REPORT" ]; then
+          echo "✅ DISCORD_WEBHOOK_REPORT: 설정됨 (길이: ${#DISCORD_WEBHOOK_REPORT})"
+        else
+          echo "❌ DISCORD_WEBHOOK_REPORT: 설정되지 않음"
+        fi
+        
+        echo ""
+        echo "Python에서 확인:"
+        python3 -c "
+import os
+webhook_bug = os.environ.get('DISCORD_WEBHOOK_BUG')
+webhook_report = os.environ.get('DISCORD_WEBHOOK_REPORT')
+print(f'DISCORD_WEBHOOK_BUG: {\"설정됨\" if webhook_bug else \"없음\"}')
+print(f'DISCORD_WEBHOOK_REPORT: {\"설정됨\" if webhook_report else \"없음\"}')
+if webhook_bug:
+    print(f'웹훅 URL 형식 확인: {\"올바름\" if webhook_bug.startswith(\"https://discord.com/api/webhooks/\") else \"의심됨\"}')
+        "
+    
+    - name: "📊 Step 2: Repository Status Check"
+      run: |
+        echo "================================================"
+        echo "📊 STEP 2: 리포지토리 상태 확인"
+        echo "================================================"
+        
+        echo "파일 존재 확인:"
+        for file in crawler.py monitor_bugs.py classifier.py notifier.py generate_report.py requirements.txt crawled_links.json; do
+          if [ -f "$file" ]; then
+            echo "✅ $file 존재"
+          else
+            echo "❌ $file 없음"
+          fi
+        done
+        
+        echo ""
+        echo "crawled_links.json 분석:"
+        if [ -f "crawled_links.json" ]; then
+          python3 -c "
+import json
+try:
+    with open('crawled_links.json', 'r') as f:
+        data = json.load(f)
+    links = data.get('links', []) if isinstance(data, dict) else data
+    print(f'총 저장된 링크 수: {len(links)}')
+    print(f'마지막 업데이트: {data.get(\"last_updated\", \"N/A\") if isinstance(data, dict) else \"N/A\"}')
+    if links:
+        print('최근 5개 링크:')
+        for i, link in enumerate(links[-5:], 1):
+            print(f'  {i}. {link[-50:]}')
+    else:
+        print('저장된 링크가 없음')
+except Exception as e:
+    print(f'파일 읽기 오류: {e}')
+          "
+        else
+          echo "❌ crawled_links.json 파일이 없음"
+        fi
+        
+        echo ""
+        echo "Git 상태:"
+        echo "- 마지막 커밋: $(git log -1 --format='%h %s %cr')"
+        echo "- 현재 브랜치: $(git branch --show-current)"
+    
+    - name: "🧪 Step 3: Module Import Test"
+      run: |
+        echo "================================================"
+        echo "🧪 STEP 3: 모듈 import 테스트"
+        echo "================================================"
+        
+        python3 -c "
+import sys
+modules_to_test = [
+    ('crawler', ['crawl_arca_sites', 'crawl_global_sites', 'get_chrome_driver', 'fetch_stove_bug_board']),
+    ('classifier', ['is_bug_post', 'is_positive_post', 'is_negative_post', 'classify_post']),
+    ('notifier', ['send_bug_alert', 'send_daily_report']),
+    ('monitor_bugs', ['main']),
+    ('generate_report', ['main'])
+]
+
+all_success = True
+for module_name, functions in modules_to_test:
+    try:
+        module = __import__(module_name)
+        print(f'✅ {module_name} 모듈 import 성공')
+        
+        for func_name in functions:
+            if hasattr(module, func_name):
+                print(f'  ✅ {func_name} 함수 존재')
+            else:
+                print(f'  ❌ {func_name} 함수 없음')
+                all_success = False
+                
+    except Exception as e:
+        print(f'❌ {module_name} 모듈 import 실패: {e}')
+        all_success = False
+
+if not all_success:
+    print('\\n❌ 일부 모듈 또는 함수에 문제가 있습니다.')
+    sys.exit(1)
+else:
+    print('\\n✅ 모든 모듈과 함수가 정상입니다.')
+        "
+    
+    - name: "🌐 Step 4: Network Connectivity Test"
+      run: |
+        echo "================================================"
+        echo "🌐 STEP 4: 네트워크 연결 테스트"
+        echo "================================================"
+        
+        python3 -c "
+import requests
+import time
+
+urls_to_test = [
+    ('스토브 메인', 'https://page.onstove.com'),
+    ('스토브 Epic7', 'https://page.onstove.com/epicseven'),
+    ('스토브 버그게시판', 'https://page.onstove.com/epicseven/kr/list/1012'),
+    ('Discord API', 'https://discord.com/api/v10/gateway')
+]
+
+for name, url in urls_to_test:
+    try:
+        start_time = time.time()
+        response = requests.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        elapsed = time.time() - start_time
+        
+        if response.status_code == 200:
+            print(f'✅ {name}: 정상 (응답시간: {elapsed:.2f}초)')
+        else:
+            print(f'⚠️ {name}: 응답코드 {response.status_code} (응답시간: {elapsed:.2f}초)')
+            
+    except Exception as e:
+        print(f'❌ {name}: 연결 실패 - {e}')
+        "
+    
+    - name: "🔧 Step 5: Classifier Logic Test"
+      run: |
+        echo "================================================"
+        echo "🔧 STEP 5: 분류기 로직 테스트"
+        echo "================================================"
+        
+        python3 -c "
+from classifier import is_bug_post, is_positive_post, is_negative_post, classify_post
+
+test_cases = [
+    ('버그 발생했어요', True, False, False, '버그'),
+    ('오류가 있네요', True, False, False, '버그'),
+    ('에러가 나요', True, False, False, '버그'),
+    ('문제 있음', True, False, False, '버그'),
+    ('좋은 업데이트입니다', False, True, False, '긍정'),
+    ('감사합니다', False, True, False, '긍정'),
+    ('최고에요', False, True, False, '긍정'),
+    ('실망이에요', False, False, True, '부정'),
+    ('최악입니다', False, False, True, '부정'),
+    ('일반 게시글입니다', False, False, False, '기타'),
+    ('안녕하세요', False, False, False, '기타')
+]
+
+print('분류기 테스트 결과:')
+all_correct = True
+for title, expected_bug, expected_pos, expected_neg, expected_class in test_cases:
+    actual_bug = is_bug_post(title)
+    actual_pos = is_positive_post(title)
+    actual_neg = is_negative_post(title)
+    actual_class = classify_post(title)
+    
+    bug_ok = actual_bug == expected_bug
+    pos_ok = actual_pos == expected_pos
+    neg_ok = actual_neg == expected_neg
+    class_ok = actual_class == expected_class
+    
+    status = '✅' if (bug_ok and pos_ok and neg_ok and class_ok) else '❌'
+    print(f'{status} \"{title}\"')
+    print(f'    버그: {actual_bug} (예상: {expected_bug}) {\"✅\" if bug_ok else \"❌\"}')
+    print(f'    긍정: {actual_pos} (예상: {expected_pos}) {\"✅\" if pos_ok else \"❌\"}')
+    print(f'    부정: {actual_neg} (예상: {expected_neg}) {\"✅\" if neg_ok else \"❌\"}')
+    print(f'    분류: {actual_class} (예상: {expected_class}) {\"✅\" if class_ok else \"❌\"}')
+    print()
+    
+    if not (bug_ok and pos_ok and neg_ok and class_ok):
+        all_correct = False
+
+if all_correct:
+    print('✅ 모든 분류기 테스트 통과')
+else:
+    print('❌ 일부 분류기 테스트 실패')
+        "
+    
+    - name: "🤖 Step 6: Discord Test (Dry Run)"
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      run: |
+        echo "================================================"
+        echo "🤖 STEP 6: Discord 테스트 (실제 전송 없음)"
+        echo "================================================"
+        
+        python3 -c "
+import os
+import requests
+import json
+
+webhook_url = os.environ.get('DISCORD_WEBHOOK_BUG')
+
+if not webhook_url:
+    print('❌ DISCORD_WEBHOOK_BUG 환경변수가 설정되지 않음')
+    exit(1)
+
+print(f'✅ 웹훅 URL 확인됨: {webhook_url[:50]}...')
+
+# 웹훅 URL 형식 검증
+if not webhook_url.startswith('https://discord.com/api/webhooks/'):
+    print('⚠️ 웹훅 URL 형식이 올바르지 않을 수 있습니다')
+else:
+    print('✅ 웹훅 URL 형식이 올바릅니다')
+
+# Discord API 연결 테스트 (실제 메시지 전송 없음)
+try:
+    # 웹훅 정보만 확인 (GET 요청)
+    response = requests.get(webhook_url, timeout=10)
+    if response.status_code == 200:
+        webhook_info = response.json()
+        print(f'✅ 웹훅 연결 성공')
+        print(f'   서버: {webhook_info.get(\"guild_id\", \"N/A\")}')
+        print(f'   채널: {webhook_info.get(\"channel_id\", \"N/A\")}')
+        print(f'   이름: {webhook_info.get(\"name\", \"N/A\")}')
+    else:
+        print(f'⚠️ 웹훅 응답 코드: {response.status_code}')
+        
+except Exception as e:
+    print(f'❌ 웹훅 연결 실패: {e}')
+        "
+    
+    - name: "🕷️ Step 7: Crawler Test (if requested)"
+      if: github.event.inputs.test_mode == 'full' || github.event.inputs.test_mode == 'crawler'
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      run: |
+        echo "================================================"
+        echo "🕷️ STEP 7: 크롤러 테스트"
+        echo "================================================"
+        
+        echo "현재 crawled_links.json 백업 중..."
+        cp crawled_links.json crawled_links.backup.json
+        
+        echo "빈 링크 파일로 교체하여 모든 게시글을 새 게시글로 인식..."
+        echo '{"links": [], "last_updated": "2025-01-01T00:00:00"}' > crawled_links.json
+        
+        echo "크롤링 테스트 실행..."
+        python3 monitor_bugs.py --mode arca
+        
+        echo "백업 복원..."
+        mv crawled_links.backup.json crawled_links.json
+        
+        echo "✅ 크롤링 테스트 완료"
+    
+    - name: "📨 Step 8: Discord Webhook Live Test (if requested)"
+      if: github.event.inputs.test_mode == 'full' || github.event.inputs.test_mode == 'discord'
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      run: |
+        echo "================================================"
+        echo "📨 STEP 8: Discord 웹훅 실제 전송 테스트"
+        echo "================================================"
+        
+        python3 -c "
+import os
+from notifier import send_bug_alert
+from datetime import datetime
+
+webhook_url = os.environ.get('DISCORD_WEBHOOK_BUG')
+
+if not webhook_url:
+    print('❌ DISCORD_WEBHOOK_BUG 환경변수가 설정되지 않음')
+    exit(1)
+
+print('📨 테스트 알림 전송 중...')
+
+test_alerts = [
+    {
+        'title': '🧪 테스트 알림 - 스토브 버그게시판',
+        'url': 'https://github.com/actions/run/test',
+        'timestamp': datetime.now().isoformat(),
+        'source': 'stove_bug'
+    },
+    {
+        'title': '🔍 테스트 알림 - 키워드 감지',
+        'url': 'https://github.com/actions/run/test',
+        'timestamp': datetime.now().isoformat(),
+        'source': 'keyword'
+    }
+]
+
+try:
+    send_bug_alert(webhook_url, test_alerts)
+    print('✅ 테스트 알림 전송 완료')
+    print('Discord 채널을 확인해주세요!')
+except Exception as e:
+    print(f'❌ 테스트 알림 전송 실패: {e}')
+    import traceback
+    traceback.print_exc()
+        "
+    
+    - name: "📋 Step 9: Final Summary"
+      run: |
+        echo "================================================"
+        echo "📋 STEP 9: 최종 요약"
+        echo "================================================"
+        
+        echo "🎯 디버그 테스트 완료!"
+        echo ""
+        echo "확인 사항:"
+        echo "1. ✅ 환경변수 설정 상태 확인됨"
+        echo "2. ✅ 리포지토리 파일 상태 확인됨"
+        echo "3. ✅ 모듈 import 테스트 완료"
+        echo "4. ✅ 네트워크 연결 테스트 완료"
+        echo "5. ✅ 분류기 로직 테스트 완료"
+        echo "6. ✅ Discord 웹훅 검증 완료"
+        if [ "${{ github.event.inputs.test_mode }}" = "full" ] || [ "${{ github.event.inputs.test_mode }}" = "crawler" ]; then
+          echo "7. ✅ 크롤링 기능 테스트 완료"
+        fi
+        if [ "${{ github.event.inputs.test_mode }}" = "full" ] || [ "${{ github.event.inputs.test_mode }}" = "discord" ]; then
+          echo "8. ✅ Discord 실제 전송 테스트 완료"
+        fi
+        
+        echo ""
+        echo "📧 Discord 채널에서 테스트 메시지를 확인해주세요!"
+        echo "🔍 각 단계의 로그를 확인하여 문제점을 파악할 수 있습니다."
+    
+    - name: Upload debug artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-logs-${{ github.run_number }}
+        path: |
+          *.html
+          *.json
+          *.log
+        retention-days: 7
