@@ -1,0 +1,147 @@
+name: Bug Monitor Korean Sites (Ruliweb + Stove)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # 15분마다 실행
+  workflow_dispatch:        # 수동 실행 가능
+    inputs:
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+        type: boolean
+      test_mode:
+        description: 'Enable test mode'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  monitor-korean-sites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+    
+    - name: 🌐 Install Chrome (Optimized)
+      run: |
+        echo "=== Chrome 설치 시작 ==="
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        echo "Chrome 설치 완료: $(google-chrome --version)"
+    
+    - name: 📦 Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        echo "Python 패키지 설치 완료"
+    
+    - name: 🔍 Run Korean Sites Monitoring
+      run: |
+        echo "=== 한국 사이트 모니터링 시작 ==="
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+        echo "디버그 모드: ${{ github.event.inputs.debug_mode || 'false' }}"
+        echo "테스트 모드: ${{ github.event.inputs.test_mode || 'false' }}"
+        
+        ARGS="--mode korean"
+        
+        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+          ARGS="$ARGS --debug"
+          echo "🐛 디버그 모드로 실행"
+        fi
+        
+        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
+          ARGS="$ARGS --test"
+          echo "🧪 테스트 모드로 실행"
+        fi
+        
+        python monitor_bugs.py $ARGS
+        
+        echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
+      env:
+        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        PYTHONUNBUFFERED: 1
+    
+    - name: 📊 Upload Debug Files
+      if: always() && (github.event.inputs.debug_mode == 'true' || github.event.inputs.test_mode == 'true')
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-files-${{ github.run_number }}
+        path: |
+          *_debug_selenium.html
+          *_error_debug.html
+          *.log
+        retention-days: 7
+    
+    - name: 📈 System Status Report
+      if: always()
+      run: |
+        echo "=== 시스템 상태 보고 ==="
+        echo "작업 상태: ${{ job.status }}"
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+        echo "워크플로우 번호: ${{ github.run_number }}"
+        echo "실행 ID: ${{ github.run_id }}"
+        
+        if [ -f "crawled_links.json" ]; then
+          LINK_COUNT=$(cat crawled_links.json | jq '.links | length' 2>/dev/null || echo "0")
+          LAST_UPDATE=$(cat crawled_links.json | jq -r '.last_updated' 2>/dev/null || echo "Unknown")
+          echo "저장된 링크 수: $LINK_COUNT"
+          echo "마지막 업데이트: $LAST_UPDATE"
+        fi
+        
+        # 디버그 파일 카운트
+        DEBUG_COUNT=$(ls -la *_debug_selenium.html *_error_debug.html *.log 2>/dev/null | wc -l || echo "0")
+        echo "생성된 디버그 파일 수: $DEBUG_COUNT"
+        
+        # 메모리 사용량 체크
+        echo "최종 메모리 사용량:"
+        free -h
+        
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ 워크플로우 성공적으로 완료"
+        else
+          echo "❌ 워크플로우 실행 중 오류 발생"
+        fi
+    
+    - name: 💾 Commit and push changes
+      if: success()
+      run: |
+        echo "=== Git 변경사항 처리 ==="
+        
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action Bot"
+        
+        # 변경된 파일 확인
+        git add -A
+        
+        if git diff --staged --quiet; then
+          echo "변경 사항 없음"
+        else
+          echo "변경 사항 발견, 커밋 진행"
+          git status --porcelain
+          
+          # 커밋 메시지 생성
+          COMMIT_MSG="🔄 [KOREAN] 크롤링 상태 업데이트 - $(date '+%Y-%m-%d %H:%M KST')"
+          
+          # 모드별 메시지 추가
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            COMMIT_MSG="$COMMIT_MSG (DEBUG)"
+          fi
+          
+          if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
+            COMMIT_MSG="$COMMIT_MSG (TEST)"
+          fi
+          
+          git commit -m "$COMMIT_MSG"
+          git push
+          echo "Git 푸시 완료"
+        fi

@@ -1,115 +1,155 @@
-name: Epic Seven Daily Report
+name: Epic Seven Daily Report (Optimized)
 
 on:
   schedule:
     # 매일 오전 9시 KST (UTC 0시)
     - cron: "0 0 * * *"
   workflow_dispatch:
+    inputs:
+      force_report:
+        description: 'Force generate report even if no posts'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   daily-report:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     
     env:
       TZ: Asia/Seoul
+      PYTHONUNBUFFERED: 1
     
     steps:
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
-      - name: Install Chrome and ChromeDriver (Compatible Version)
+      - name: 🌐 Install Chrome (Simplified)
         run: |
+          echo "=== Chrome 설치 시작 ==="
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
-          
-          # Chrome 버전 정확히 추출
-          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
-          echo "Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
-          
-          # 기존 ChromeDriver 제거
-          sudo rm -f /usr/local/bin/chromedriver
-          
-          # 정확히 매칭되는 ChromeDriver 버전 찾기
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
-          
-          if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
-            echo "정확한 버전을 찾을 수 없어 안정 버전 사용"
-            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
-          fi
-          
-          if [ -z "$CHROMEDRIVER_VERSION" ]; then
-            CHROMEDRIVER_VERSION="119.0.6045.105"
-            echo "모든 API 실패, 하드코딩된 안정 버전 사용: $CHROMEDRIVER_VERSION"
-          fi
-          
-          echo "선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
-          
-          # ChromeDriver 다운로드 및 설치
-          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
-          
-          if wget -q --spider "$DOWNLOAD_URL"; then
-            wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-            sudo unzip /tmp/chromedriver.zip -d /tmp/
-            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
-            sudo chmod +x /usr/local/bin/chromedriver
-            echo "ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
-          else
-            echo "다운로드 실패, 우분투 패키지 사용"
-            sudo apt-get install -y chromium-chromedriver
-            sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
-          fi
+          echo "Chrome 버전: $(google-chrome --version)"
+          echo "Chrome 설치 완료"
 
-      - name: Install dependencies
+      - name: 📦 Install Python dependencies
         run: |
+          echo "=== Python 의존성 설치 ==="
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          echo "의존성 설치 완료"
 
-      - name: Generate daily report
+      - name: 🔍 Generate daily report
+        run: |
+          echo "=== 일일 리포트 생성 시작 ==="
+          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "강제 실행 모드: ${{ github.event.inputs.force_report }}"
+          
+          if [ "${{ github.event.inputs.force_report }}" = "true" ]; then
+            echo "🔄 강제 리포트 생성 모드"
+            python generate_report.py --force
+          else
+            python generate_report.py
+          fi
+          
+          echo "리포트 생성 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
         env:
           DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-        run: python generate_report.py
 
-      - name: Upload report artifacts
+      - name: 📊 Upload report artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: daily-report-${{ github.run_number }}
           path: |
-            *.html
+            *_debug_*.html
             *.json
             *.log
-          retention-days: 30  # 리포트는 더 오래 보관
+          retention-days: 7
 
-      - name: Archive old crawled links
+      - name: 🗂️ Archive and cleanup
         run: |
-          # 일주일 이상된 링크 정리 (선택사항)
+          echo "=== 파일 정리 및 보관 ==="
+          
+          # 저장된 링크 수 확인
           if [[ -f crawled_links.json ]]; then
-            echo "📊 현재 저장된 링크 수: $(jq length crawled_links.json 2>/dev/null || echo 'N/A')"
-            # TODO: 필요시 오래된 링크 정리 로직 추가
+            LINK_COUNT=$(jq length crawled_links.json 2>/dev/null || echo "0")
+            echo "📊 현재 저장된 링크 수: $LINK_COUNT"
+            
+            # 1000개 이상이면 최신 800개만 유지
+            if [[ $LINK_COUNT -gt 1000 ]]; then
+              echo "🔄 링크 개수 최적화: $LINK_COUNT → 800개"
+              jq '.links |= .[-800:]' crawled_links.json > temp.json && mv temp.json crawled_links.json
+              echo "링크 정리 완료"
+            fi
+          fi
+          
+          # 메모리 사용량 확인
+          echo "💾 메모리 사용량:"
+          free -h
+
+      - name: 📈 Daily report summary
+        run: |
+          echo "=== 일일 리포트 실행 요약 ==="
+          echo "📅 생성 날짜: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "🔄 워크플로우 ID: ${{ github.run_number }}"
+          echo "📬 Discord 웹훅: ${{ secrets.DISCORD_WEBHOOK_REPORT && '설정됨' || '미설정' }}"
+          
+          # 디버그 파일 확인
+          DEBUG_FILES=$(find . -name "*_debug_*.html" -type f | wc -l)
+          echo "🔍 생성된 디버그 파일: ${DEBUG_FILES}개"
+          
+          # 결과 파일 확인
+          if [[ -f crawled_links.json ]]; then
+            FINAL_LINK_COUNT=$(jq length crawled_links.json 2>/dev/null || echo "0")
+            echo "📊 최종 저장된 링크 수: $FINAL_LINK_COUNT"
           fi
 
-      - name: Daily report summary
+      - name: 💾 Commit changes
         run: |
-          echo "📈 일일 리포트 생성 완료 - $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "📬 Discord 웹훅으로 리포트 전송됨"
-
-      - name: Commit changes
-        run: |
+          echo "=== Git 변경사항 처리 ==="
+          
           git config --local user.email "epic7-report@github.com"
           git config --local user.name "Epic7 Report Bot"
           
-          if [[ -n $(git status --porcelain) ]]; then
-            git add .
-            git commit -m "📊 Daily report generated [$(date '+%Y-%m-%d %H:%M:%S KST')]"
+          # 변경된 파일 확인
+          git add -A
+          
+          if git diff --staged --quiet; then
+            echo "변경 사항 없음"
+          else
+            echo "변경 사항 발견, 커밋 진행"
+            git status --porcelain
+            
+            # 커밋 메시지 생성
+            COMMIT_MSG="📊 일일 리포트 생성 - $(date '+%Y-%m-%d %H:%M KST')"
+            
+            git commit -m "$COMMIT_MSG"
             git push
+            echo "Git 커밋 및 푸시 완료"
+          fi
+
+      - name: 🔔 Report completion status
+        if: always()
+        run: |
+          echo "=== 최종 실행 상태 ==="
+          echo "작업 상태: ${{ job.status }}"
+          echo "완료 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ 일일 리포트 생성 성공"
+          else
+            echo "❌ 일일 리포트 생성 실패"
+            echo "로그를 확인하여 문제를 파악하세요."
           fi
