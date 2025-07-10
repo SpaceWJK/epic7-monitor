@@ -8,9 +8,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 import time
 from datetime import datetime, timedelta
 import re
+import random
+import requests
 
 # 중복 방지를 위한 링크 저장 파일
 CRAWLED_LINKS_FILE = "crawled_links.json"
@@ -60,7 +64,19 @@ def get_chrome_driver():
     options.add_argument('--disable-backgrounding-occluded-windows')
     options.add_argument('--disable-renderer-backgrounding')
     options.add_argument('--window-size=1920,1080')
-    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
+    
+    # 🔧 봇 탐지 우회 설정 추가
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # 🔧 랜덤 User-Agent
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    ]
+    options.add_argument(f'--user-agent={random.choice(user_agents)}')
     
     # 추가 성능 최적화
     prefs = {
@@ -119,17 +135,287 @@ def get_chrome_driver():
     
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
 
-def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링 (실제 유저 게시글 영역 타겟) - 수정된 제목 추출"""
+def fetch_arca_epic7_board():
+    """아카라이브 에픽세븐 채널 크롤링 (Cloudflare 우회)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] 현재 저장된 링크 수: {len(crawled_links)}")
+    print(f"[DEBUG] 아카라이브 크롤링 시작 - 저장된 링크 수: {len(crawled_links)}")
     
     driver = None
     try:
-        print("[DEBUG] Chrome 드라이버 초기화 중...")
+        print("[DEBUG] 아카라이브용 Chrome 드라이버 초기화 중...")
+        driver = get_chrome_driver()
+        
+        # 🔧 봇 탐지 우회 스크립트
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        driver.execute_script("delete window.chrome")
+        
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(15)
+        
+        url = "https://arca.live/b/epic7"
+        print(f"[DEBUG] 아카라이브 접속 시도: {url}")
+        
+        driver.get(url)
+        
+        # 🔧 Cloudflare 검증 대기
+        print("[DEBUG] Cloudflare 검증 및 페이지 로딩 대기 중...")
+        time.sleep(random.uniform(10, 15))
+        
+        # 페이지 상태 확인
+        page_title = driver.title
+        page_source_preview = driver.page_source[:500]
+        print(f"[DEBUG] 페이지 제목: {page_title}")
+        
+        if "Verifying" in page_title or "security" in page_title.lower() or "Ray ID" in page_source_preview:
+            print("[WARNING] Cloudflare 검증 감지, 추가 대기...")
+            time.sleep(random.uniform(15, 20))
+        
+        # 🔧 다양한 방법으로 게시글 추출 시도
+        print("[DEBUG] 게시글 목록 검색 중...")
+        
+        # 방법 1: 일반적인 선택자들
+        selectors = [
+            "a[href*='/b/epic7/'][href*='?p=']",  # 게시글 링크 패턴
+            ".vrow .title a",                     # 기본 선택자
+            ".article-wrapper .title a",          # 대체 선택자 1
+            ".list-table .title a",               # 대체 선택자 2
+            ".article-list .title a",             # 대체 선택자 3
+            "a[title][href*='/b/epic7/']"         # title 속성이 있는 링크
+        ]
+        
+        articles = []
+        for selector in selectors:
+            try:
+                WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                )
+                articles = driver.find_elements(By.CSS_SELECTOR, selector)
+                if articles:
+                    print(f"[DEBUG] 선택자 성공: {selector} ({len(articles)}개)")
+                    break
+            except TimeoutException:
+                continue
+        
+        # 방법 2: JavaScript로 동적 검색
+        if not articles:
+            print("[DEBUG] JavaScript로 게시글 동적 검색...")
+            articles_js = driver.execute_script("""
+                var articles = [];
+                var links = document.querySelectorAll('a');
+                
+                for (var i = 0; i < links.length; i++) {
+                    var link = links[i];
+                    var href = link.href;
+                    var text = link.innerText || link.textContent || link.title || '';
+                    
+                    if (href && href.includes('/b/epic7/') && 
+                        text.length > 3 && 
+                        !text.includes('공지') && 
+                        !text.includes('필독') &&
+                        !text.includes('이벤트')) {
+                        articles.push({
+                            title: text.trim(),
+                            href: href
+                        });
+                    }
+                }
+                
+                return articles.slice(0, 20);
+            """)
+            
+            if articles_js:
+                print(f"[DEBUG] JavaScript로 {len(articles_js)}개 게시글 발견")
+                for item in articles_js:
+                    if item['href'] not in crawled_links:
+                        post_data = {
+                            "title": item['title'],
+                            "url": item['href'],
+                            "timestamp": datetime.now().isoformat(),
+                            "source": "arca_epic7"
+                        }
+                        posts.append(post_data)
+                        crawled_links.append(item['href'])
+                        print(f"[NEW] 아카라이브 새 게시글: {item['title'][:50]}...")
+        
+        # 방법 3: 일반적인 요소 처리
+        else:
+            for i, article in enumerate(articles[:20]):
+                try:
+                    title = article.text.strip() if hasattr(article, 'text') else article.get_attribute('title')
+                    link = article.get_attribute('href') if hasattr(article, 'get_attribute') else None
+                    
+                    if not title or not link or len(title) < 3:
+                        continue
+                    
+                    # 공지사항 필터링
+                    if any(keyword in title for keyword in ['공지', '필독', '이벤트', '안내', '규칙']):
+                        continue
+                    
+                    # URL 정규화
+                    if link.startswith('/'):
+                        link = 'https://arca.live' + link
+                    
+                    if link not in crawled_links:
+                        post_data = {
+                            "title": title,
+                            "url": link,
+                            "timestamp": datetime.now().isoformat(),
+                            "source": "arca_epic7"
+                        }
+                        posts.append(post_data)
+                        crawled_links.append(link)
+                        print(f"[NEW] 아카라이브 새 게시글 ({i+1}): {title[:50]}...")
+                        
+                        time.sleep(random.uniform(0.5, 1.0))
+                
+                except Exception as e:
+                    print(f"[ERROR] 아카라이브 게시글 {i+1} 처리 오류: {e}")
+                    continue
+        
+        # 디버깅용 HTML 저장
+        if not posts:
+            with open("arca_debug_selenium.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            print("[DEBUG] 디버깅용 HTML 저장: arca_debug_selenium.html")
+        
+        print(f"[DEBUG] 아카라이브 크롤링 완료: {len(posts)}개 새 게시글")
+        
+    except Exception as e:
+        print(f"[ERROR] 아카라이브 크롤링 실패: {e}")
+        if driver:
+            try:
+                with open("arca_error_debug.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+            except:
+                pass
+    
+    finally:
+        if driver:
+            driver.quit()
+    
+    # 링크 저장
+    link_data["links"] = crawled_links
+    save_crawled_links(link_data)
+    
+    return posts
+
+def fetch_ruliweb_epic7_board():
+    """루리웹 에픽세븐 게시판 크롤링"""
+    posts = []
+    link_data = load_crawled_links()
+    crawled_links = link_data["links"]
+    
+    print(f"[DEBUG] 루리웹 크롤링 시작 - 저장된 링크 수: {len(crawled_links)}")
+    
+    driver = None
+    try:
+        print("[DEBUG] 루리웹용 Chrome 드라이버 초기화 중...")
+        driver = get_chrome_driver()
+        
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(10)
+        
+        url = "https://bbs.ruliweb.com/game/84834"
+        print(f"[DEBUG] 루리웹 접속 중: {url}")
+        
+        driver.get(url)
+        time.sleep(5)
+        
+        print("[DEBUG] 루리웹 게시글 목록 검색 중...")
+        
+        # 🔧 루리웹 게시글 추출 (스크린샷 기반)
+        selectors = [
+            ".subject_link",                  # 주제 링크 (기본)
+            ".table_body .subject a",         # 테이블 내 주제 링크
+            "td.subject a",                   # 테이블 셀 내 링크
+            "a[href*='/read/']",              # 게시글 읽기 링크 패턴
+            ".board_list_table .subject_link", # 게시판 목록 테이블
+            "table tr td a[href*='read']"     # 테이블 기반 링크
+        ]
+        
+        articles = []
+        for selector in selectors:
+            try:
+                articles = driver.find_elements(By.CSS_SELECTOR, selector)
+                if articles:
+                    print(f"[DEBUG] 루리웹 선택자 성공: {selector} ({len(articles)}개)")
+                    break
+            except NoSuchElementException:
+                continue
+        
+        if not articles:
+            print("[WARNING] 루리웹 게시글을 찾을 수 없음. HTML 저장...")
+            with open("ruliweb_debug_selenium.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            return posts
+        
+        # 🔧 게시글 정보 추출
+        for i, article in enumerate(articles[:15]):
+            try:
+                title = article.text.strip()
+                link = article.get_attribute("href")
+                
+                if not title or not link or len(title) < 3:
+                    continue
+                
+                # 공지사항 및 추천글 필터링
+                if any(keyword in title for keyword in ['공지', '필독', '이벤트', '추천', '베스트', '공지사항']):
+                    continue
+                
+                # URL 정규화
+                if link.startswith('/'):
+                    link = 'https://bbs.ruliweb.com' + link
+                
+                if link not in crawled_links:
+                    post_data = {
+                        "title": title,
+                        "url": link,
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "ruliweb_epic7"
+                    }
+                    posts.append(post_data)
+                    crawled_links.append(link)
+                    print(f"[NEW] 루리웹 새 게시글 ({i+1}): {title[:50]}...")
+                
+            except Exception as e:
+                print(f"[ERROR] 루리웹 게시글 {i+1} 처리 오류: {e}")
+                continue
+        
+        print(f"[DEBUG] 루리웹 크롤링 완료: {len(posts)}개 새 게시글")
+        
+    except Exception as e:
+        print(f"[ERROR] 루리웹 크롤링 실패: {e}")
+        if driver:
+            try:
+                with open("ruliweb_error_debug.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+            except:
+                pass
+    
+    finally:
+        if driver:
+            driver.quit()
+    
+    # 링크 저장
+    link_data["links"] = crawled_links
+    save_crawled_links(link_data)
+    
+    return posts
+
+def fetch_stove_bug_board():
+    """스토브 에픽세븐 버그 게시판 크롤링 (기존 로직 유지)"""
+    posts = []
+    link_data = load_crawled_links()
+    crawled_links = link_data["links"]
+    
+    print(f"[DEBUG] 스토브 크롤링 시작 - 저장된 링크 수: {len(crawled_links)}")
+    
+    driver = None
+    try:
+        print("[DEBUG] 스토브용 Chrome 드라이버 초기화 중...")
         driver = get_chrome_driver()
         
         driver.set_page_load_timeout(30)
@@ -140,19 +426,18 @@ def fetch_stove_bug_board():
         
         driver.get(url)
         
-        # 충분한 로딩 대기
-        print("[DEBUG] 페이지 로딩 대기 중...")
+        print("[DEBUG] 스토브 페이지 로딩 대기 중...")
         time.sleep(8)
         
         # 스크롤하여 실제 유저 게시글 영역까지 로딩
         print("[DEBUG] 유저 게시글 영역까지 스크롤...")
-        driver.execute_script("window.scrollTo(0, 500);")  # 공지 영역 넘어서
+        driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(3)
-        driver.execute_script("window.scrollTo(0, 800);")  # 유저 게시글 영역
+        driver.execute_script("window.scrollTo(0, 800);")
         time.sleep(3)
-        driver.execute_script("window.scrollTo(0, 1200);") # 더 많은 게시글 로드
+        driver.execute_script("window.scrollTo(0, 1200);")
         time.sleep(3)
-        driver.execute_script("window.scrollTo(0, 0);")    # 맨 위로 돌아가기
+        driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(2)
         
         # 디버깅용 HTML 저장
@@ -162,40 +447,34 @@ def fetch_stove_bug_board():
         
         print("[DEBUG] 실제 유저 게시글 영역 탐색 중...")
         
-        # 🔧 수정된 JavaScript - 간단한 CSS 선택자 사용
+        # 🔧 기존 JavaScript 로직 사용
         user_posts = driver.execute_script("""
             var userPosts = [];
             
-            // 🔧 수정된 CSS 선택자로 모든 게시글 섹션 찾기
             var sections = document.querySelectorAll('section.s-board-item');
             console.log('전체 게시글 섹션 수:', sections.length);
             
-            // 알려진 공지 게시글 ID들
             var officialIds = ['10518001', '10855687', '10855562', '10855132'];
             
             for (var i = 0; i < sections.length; i++) {
                 var section = sections[i];
                 
                 try {
-                    // 🔧 수정된 CSS 선택자로 링크 찾기
                     var linkElement = section.querySelector('a.s-board-link');
                     if (!linkElement) continue;
                     
                     var href = linkElement.href;
                     if (!href) continue;
                     
-                    // 게시글 ID 추출
                     var idMatch = href.match(/\/view\/(\d+)/);
                     if (!idMatch) continue;
                     var postId = idMatch[1];
                     
-                    // 공지 게시글 ID 제외
                     if (officialIds.includes(postId)) {
                         console.log('공지 ID 제외:', postId);
                         continue;
                     }
                     
-                    // 🔧 수정된 CSS 선택자로 공지사항/이벤트 필터링
                     var isNotice = section.querySelector('i.element-badge__s.notice');
                     var isEvent = section.querySelector('i.element-badge__s.event');
                     var isOfficial = section.querySelector('span.s-profile-staff-official');
@@ -205,7 +484,6 @@ def fetch_stove_bug_board():
                         continue;
                     }
                     
-                    // 🔧 수정된 CSS 선택자로 제목 추출
                     var titleElement = section.querySelector('h3.s-board-title span.s-board-title-text');
                     if (!titleElement) {
                         console.log('제목 요소 없음:', postId);
@@ -233,29 +511,10 @@ def fetch_stove_bug_board():
             }
             
             console.log('최종 발견된 유저 게시글 수:', userPosts.length);
-            return userPosts.slice(0, 15); // 최신 15개만
+            return userPosts.slice(0, 15);
         """)
         
         print(f"[DEBUG] JavaScript로 {len(user_posts)}개 유저 게시글 발견")
-        
-        if not user_posts:
-            print("[WARNING] 유저 게시글을 찾을 수 없습니다.")
-            print("[DEBUG] HTML 구조 확인을 위해 stove_debug_selenium.html 파일을 확인하세요")
-            
-            # 대안: 기본 방법으로 모든 링크 수집 (공지 필터링 없이)
-            print("[DEBUG] 대안 방법으로 모든 게시글 수집...")
-            all_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='/epicseven/kr/view/']")
-            
-            for i, element in enumerate(all_links[:20]):  # 상위 20개 확인
-                try:
-                    href = element.get_attribute('href')
-                    text = element.text.strip()
-                    if href and text:
-                        print(f"[DEBUG] 대안 {i+1}: {text[:40]}... = {href[-20:]}")
-                except:
-                    continue
-            
-            return posts
         
         # 유저 게시글 처리
         for i, post_info in enumerate(user_posts, 1):
@@ -269,12 +528,11 @@ def fetch_stove_bug_board():
                 elif not href.startswith('http'):
                     href = "https://page.onstove.com" + href
                 
-                print(f"[DEBUG] 유저 게시글 {i}: URL = {href[-50:]}")
-                print(f"[DEBUG] 유저 게시글 {i}: 제목 = {title[:50]}...")
+                print(f"[DEBUG] 스토브 게시글 {i}: URL = {href[-50:]}")
+                print(f"[DEBUG] 스토브 게시글 {i}: 제목 = {title[:50]}...")
                 
-                # 이미 처리된 링크인지 확인
                 if href in crawled_links:
-                    print(f"[DEBUG] 유저 게시글 {i}: 이미 크롤링된 링크")
+                    print(f"[DEBUG] 스토브 게시글 {i}: 이미 크롤링된 링크")
                     continue
                 
                 if title and href and len(title) > 3:
@@ -286,71 +544,99 @@ def fetch_stove_bug_board():
                     }
                     posts.append(post_data)
                     crawled_links.append(href)
-                    print(f"[NEW] 새 유저 게시글 발견 ({i}): {title[:50]}...")
+                    print(f"[NEW] 스토브 새 게시글 발견 ({i}): {title[:50]}...")
                 else:
-                    print(f"[DEBUG] 유저 게시글 {i}: 조건 미충족 - title_len={len(title) if title else 0}")
+                    print(f"[DEBUG] 스토브 게시글 {i}: 조건 미충족")
                 
             except Exception as e:
-                print(f"[ERROR] 유저 게시글 {i} 처리 중 오류: {e}")
+                print(f"[ERROR] 스토브 게시글 {i} 처리 중 오류: {e}")
                 continue
         
-        print(f"[DEBUG] 처리 결과: 전체 {len(user_posts)}개 중 새 유저 게시글 {len(posts)}개 발견")
+        print(f"[DEBUG] 스토브 처리 결과: {len(user_posts)}개 중 새 게시글 {len(posts)}개 발견")
         
-    except TimeoutException:
-        print("[ERROR] 페이지 로딩 타임아웃")
-    except WebDriverException as e:
-        print(f"[ERROR] WebDriver 오류: {e}")
     except Exception as e:
         print(f"[ERROR] 스토브 크롤링 중 오류 발생: {e}")
         
     finally:
         if driver:
-            print("[DEBUG] Chrome 드라이버 종료 중...")
+            print("[DEBUG] 스토브 Chrome 드라이버 종료 중...")
             driver.quit()
     
     # 중복 방지 링크 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data)
     
-    print(f"[DEBUG] 스토브 버그 게시판에서 {len(posts)}개 새 유저 게시글 발견")
+    print(f"[DEBUG] 스토브 버그 게시판에서 {len(posts)}개 새 게시글 발견")
     return posts
 
-def fetch_stove_general_board():
-    """스토브 에픽세븐 일반 게시판 크롤링"""
-    # TODO: 필요시 구현
-    print("[DEBUG] 일반 게시판 크롤링은 아직 구현되지 않음")
-    return []
-
 def crawl_arca_sites():
-    """국내 사이트들 크롤링"""
+    """국내 사이트들 크롤링 (아카라이브 + 루리웹 + 스토브)"""
     all_posts = []
     
     try:
-        # 스토브 버그 게시판
-        print("[INFO] 스토브 버그 게시판 크롤링 시작")
-        stove_bug_posts = fetch_stove_bug_board()
-        all_posts.extend(stove_bug_posts)
+        print("[INFO] === 국내 사이트 크롤링 시작 ===")
         
-        # TODO: 추가 사이트들
-        # stove_general_posts = fetch_stove_general_board()
-        # all_posts.extend(stove_general_posts)
+        # 1. 아카라이브 크롤링
+        print("[INFO] 1/3 아카라이브 에픽세븐 채널 크롤링")
+        arca_posts = fetch_arca_epic7_board()
+        all_posts.extend(arca_posts)
+        print(f"[INFO] 아카라이브: {len(arca_posts)}개 새 게시글")
+        
+        # 크롤링 간 지연 (서버 부하 방지)
+        time.sleep(random.uniform(5, 8))
+        
+        # 2. 루리웹 크롤링
+        print("[INFO] 2/3 루리웹 에픽세븐 게시판 크롤링")
+        ruliweb_posts = fetch_ruliweb_epic7_board()
+        all_posts.extend(ruliweb_posts)
+        print(f"[INFO] 루리웹: {len(ruliweb_posts)}개 새 게시글")
+        
+        # 크롤링 간 지연
+        time.sleep(random.uniform(5, 8))
+        
+        # 3. 스토브 크롤링
+        print("[INFO] 3/3 스토브 버그 게시판 크롤링")
+        stove_posts = fetch_stove_bug_board()
+        all_posts.extend(stove_posts)
+        print(f"[INFO] 스토브: {len(stove_posts)}개 새 게시글")
         
     except Exception as e:
-        print(f"[ERROR] ARCA 사이트 크롤링 실패: {e}")
+        print(f"[ERROR] 국내 사이트 크롤링 실패: {e}")
     
-    print(f"[INFO] ARCA 크롤링 완료: {len(all_posts)}개 새 게시글")
+    print(f"[INFO] === 국내 사이트 크롤링 완료: 총 {len(all_posts)}개 새 게시글 ===")
     return all_posts
 
 def crawl_global_sites():
-    """글로벌 사이트들 크롤링"""
+    """글로벌 사이트들 크롤링 (추후 구현)"""
     print("[DEBUG] 글로벌 사이트 크롤링은 아직 구현되지 않음")
     return []
 
 def get_all_posts_for_report():
     """일일 리포트용 - 새 게시글만이 아닌 최근 24시간 게시글"""
-    # daily report는 새 게시글이 아닌 최근 게시글들을 분석
     print("[INFO] 일일 리포트용 게시글 수집 중...")
-    
-    # 임시로 현재 크롤링 결과 반환
-    # TODO: 실제로는 최근 24시간 게시글을 별도 수집해야 함
     return crawl_arca_sites() + crawl_global_sites()
+
+# 🔧 테스트 함수
+def test_all_crawling():
+    """전체 크롤링 테스트"""
+    print("=== 전체 크롤링 테스트 ===")
+    
+    print("\n1. 아카라이브 테스트:")
+    arca_posts = fetch_arca_epic7_board()
+    
+    print("\n2. 루리웹 테스트:")
+    ruliweb_posts = fetch_ruliweb_epic7_board()
+    
+    print("\n3. 스토브 테스트:")
+    stove_posts = fetch_stove_bug_board()
+    
+    print(f"\n=== 테스트 결과 ===")
+    print(f"아카라이브: {len(arca_posts)}개")
+    print(f"루리웹: {len(ruliweb_posts)}개")
+    print(f"스토브: {len(stove_posts)}개")
+    print(f"총 합계: {len(arca_posts) + len(ruliweb_posts) + len(stove_posts)}개")
+    
+    return arca_posts + ruliweb_posts + stove_posts
+
+if __name__ == "__main__":
+    test_all_crawling()

@@ -1,76 +1,154 @@
-name: Bug Monitor ARCA
+name: Bug Monitor ARCA + RULIWEB + STOVE (Enhanced)
+
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/15 * * * *'  # 15분마다 실행
+  workflow_dispatch:        # 수동 실행 가능
+    inputs:
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
-  monitor:
+  monitor-korean-sites:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
+    timeout-minutes: 30
     
-    - name: Set up Python
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
     
-    - name: Install Chrome and ChromeDriver (Compatible Version)
+    - name: 🌐 Install Chrome and ChromeDriver (Enhanced)
       run: |
+        echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
+        
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
         
-        # Chrome 버전 정확히 추출
+        # Chrome 버전 추출
         CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
         CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
         echo "Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
         
         # 기존 ChromeDriver 제거
-        sudo rm -f /usr/local/bin/chromedriver
+        sudo rm -f /usr/local/bin/chromedriver /usr/bin/chromedriver
         
-        # 정확히 매칭되는 ChromeDriver 버전 찾기
+        # ChromeDriver 버전 찾기
         CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
         
         if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
-          echo "정확한 버전을 찾을 수 없어 안정 버전 사용"
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "121.0.6167.85")
+          echo "안정 버전 사용: $CHROMEDRIVER_VERSION"
         fi
         
-        if [ -z "$CHROMEDRIVER_VERSION" ]; then
-          CHROMEDRIVER_VERSION="119.0.6045.105"
-          echo "모든 API 실패, 하드코딩된 안정 버전 사용: $CHROMEDRIVER_VERSION"
-        fi
-        
-        echo "선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+        echo "ChromeDriver 버전: $CHROMEDRIVER_VERSION"
         
         # ChromeDriver 다운로드 및 설치
         DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
         
-        if wget -q --spider "$DOWNLOAD_URL"; then
+        if wget -q --spider "$DOWNLOAD_URL" 2>/dev/null; then
+          echo "다운로드 URL 확인됨: $DOWNLOAD_URL"
           wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-          sudo unzip /tmp/chromedriver.zip -d /tmp/
+          sudo unzip -q /tmp/chromedriver.zip -d /tmp/
           sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-          echo "ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+          echo "ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null)"
         else
           echo "다운로드 실패, 우분투 패키지 사용"
           sudo apt-get install -y chromium-chromedriver
           sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
         fi
+        
+        # 설치 확인
+        which chromedriver
+        chromedriver --version || echo "ChromeDriver 버전 확인 실패"
+        google-chrome --version
     
-    - name: Install Python dependencies
+    - name: 📦 Install Python dependencies
       run: |
-        pip install --upgrade pip
+        python -m pip install --upgrade pip
         pip install -r requirements.txt
+        echo "Python 패키지 설치 완료"
     
-    - name: Run monitor
-      run: python monitor_bugs.py --mode arca
+    - name: 🔍 Run Korean Sites Monitoring
+      run: |
+        echo "=== 국내 사이트 모니터링 시작 ==="
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "디버그 모드: ${{ github.event.inputs.debug_mode }}"
+        
+        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+          echo "디버그 모드로 실행"
+          python monitor_bugs.py --mode arca --debug
+        else
+          python monitor_bugs.py --mode arca
+        fi
+        
+        echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S')"
       env:
         DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        PYTHONUNBUFFERED: 1
     
-    - name: Commit and push if changed
+    - name: 📊 Upload Debug Files (if debug mode)
+      if: github.event.inputs.debug_mode == 'true'
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-html-files
+        path: |
+          *_debug_selenium.html
+          *_error_debug.html
+        retention-days: 7
+    
+    - name: 💾 Commit and push changes
       run: |
+        echo "=== Git 변경사항 처리 ==="
+        
         git config --global user.email "action@github.com"
-        git config --global user.name "GitHub Action"
-        git add .
-        git diff --staged --quiet || git commit -m "Update crawled links"
-        git push
+        git config --global user.name "GitHub Action Bot"
+        
+        # 변경된 파일 확인
+        git add -A
+        
+        if git diff --staged --quiet; then
+          echo "변경 사항 없음"
+        else
+          echo "변경 사항 발견, 커밋 진행"
+          git status --porcelain
+          
+          # 커밋 메시지 생성
+          COMMIT_MSG="🔄 [ARCA] 크롤링 상태 업데이트 - $(date '+%Y-%m-%d %H:%M KST')"
+          
+          # 디버그 모드인 경우 메시지 추가
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            COMMIT_MSG="$COMMIT_MSG (DEBUG)"
+          fi
+          
+          git commit -m "$COMMIT_MSG"
+          git push
+          echo "Git 푸시 완료"
+        fi
+    
+    - name: 📈 Report Status
+      if: always()
+      run: |
+        echo "=== 실행 결과 요약 ==="
+        echo "작업 상태: ${{ job.status }}"
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S')"
+        
+        if [ -f "crawled_links.json" ]; then
+          LINK_COUNT=$(cat crawled_links.json | jq '.links | length' 2>/dev/null || echo "0")
+          echo "저장된 링크 수: $LINK_COUNT"
+        fi
+        
+        # 디버그 파일 존재 확인
+        for file in *_debug_selenium.html *_error_debug.html; do
+          if [ -f "$file" ]; then
+            echo "디버그 파일 생성됨: $file ($(stat -c%s "$file") bytes)"
+          fi
+        done
