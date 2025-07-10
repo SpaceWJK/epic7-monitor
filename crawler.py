@@ -25,7 +25,6 @@ def load_crawled_links():
         try:
             with open(CRAWLED_LINKS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # 구 버전 호환성 (리스트 형태)
                 if isinstance(data, list):
                     return {"links": data, "last_updated": datetime.now().isoformat()}
                 return data
@@ -37,7 +36,6 @@ def load_crawled_links():
 def save_crawled_links(link_data):
     """크롤링된 링크들을 저장 (최대 1000개 유지)"""
     try:
-        # 최신 1000개만 유지 (메모리 절약)
         if len(link_data["links"]) > 1000:
             link_data["links"] = link_data["links"][-1000:]
         
@@ -59,10 +57,6 @@ def get_chrome_driver():
     options.add_argument('--disable-extensions')
     options.add_argument('--disable-plugins')
     options.add_argument('--disable-images')
-    options.add_argument('--disable-javascript-harmony-shipping')
-    options.add_argument('--disable-background-timer-throttling')
-    options.add_argument('--disable-backgrounding-occluded-windows')
-    options.add_argument('--disable-renderer-backgrounding')
     options.add_argument('--window-size=1920,1080')
     
     # 봇 탐지 우회 설정
@@ -91,6 +85,8 @@ def get_chrome_driver():
     }
     options.add_experimental_option('prefs', prefs)
     
+    driver = None
+    
     # 호환 가능한 ChromeDriver 경로들
     possible_paths = [
         '/usr/bin/chromedriver',
@@ -98,7 +94,7 @@ def get_chrome_driver():
         '/snap/bin/chromium.chromedriver'
     ]
     
-    # 경로별 시도
+    # 방법 1: 수동 경로별 시도
     for path in possible_paths:
         try:
             if os.path.exists(path):
@@ -111,7 +107,7 @@ def get_chrome_driver():
             print(f"[DEBUG] ChromeDriver 실패 {path}: {str(e)[:100]}...")
             continue
     
-    # 시스템 기본 ChromeDriver
+    # 방법 2: 시스템 기본 ChromeDriver
     try:
         print("[DEBUG] 시스템 기본 ChromeDriver 시도")
         driver = webdriver.Chrome(options=options)
@@ -120,7 +116,7 @@ def get_chrome_driver():
     except Exception as e:
         print(f"[DEBUG] 시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
     
-    # WebDriver Manager (최후 수단)
+    # 방법 3: WebDriver Manager (최후 수단)
     try:
         print("[DEBUG] WebDriver Manager 시도")
         from webdriver_manager.chrome import ChromeDriverManager
@@ -192,7 +188,7 @@ def fetch_ruliweb_epic7_board():
                 if not title or not link or len(title) < 3:
                     continue
                 
-                # 공지사항 필터링
+                # 공지사항 및 추천글 필터링
                 if any(keyword in title for keyword in ['공지', '필독', '이벤트', '추천', '베스트', '공지사항']):
                     continue
                 
@@ -260,8 +256,7 @@ def fetch_stove_bug_board():
         print("[DEBUG] 스토브 페이지 로딩 대기 중...")
         time.sleep(8)
         
-        # 스크롤하여 게시글 영역 로딩
-        print("[DEBUG] 유저 게시글 영역까지 스크롤...")
+        # 스크롤하여 실제 유저 게시글 영역까지 로딩
         driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(3)
         driver.execute_script("window.scrollTo(0, 800);")
@@ -276,12 +271,11 @@ def fetch_stove_bug_board():
         with open("stove_bug_debug_selenium.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         
-        print("[DEBUG] 스토브 버그 게시판 게시글 탐색 중...")
+        print("[DEBUG] 스토브 버그 게시판 게시글 영역 탐색 중...")
         
         # JavaScript로 게시글 추출
         user_posts = driver.execute_script("""
             var userPosts = [];
-            
             var sections = document.querySelectorAll('section.s-board-item');
             console.log('전체 게시글 섹션 수:', sections.length);
             
@@ -297,7 +291,7 @@ def fetch_stove_bug_board():
                     var href = linkElement.href;
                     if (!href) continue;
                     
-                    var idMatch = href.match(/\\/view\\/(\\d+)/);
+                    var idMatch = href.match(/\/view\/(\d+)/);
                     if (!idMatch) continue;
                     var postId = idMatch[1];
                     
@@ -345,15 +339,15 @@ def fetch_stove_bug_board():
             return userPosts.slice(0, 15);
         """)
         
-        print(f"[DEBUG] JavaScript로 {len(user_posts)}개 버그 게시글 발견")
+        print(f"[DEBUG] JavaScript로 {len(user_posts)}개 유저 게시글 발견")
         
-        # 게시글 처리
+        # 유저 게시글 처리
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = post_info['href']
                 title = post_info['title']
                 
-                # URL 수정 (버그 수정)
+                # URL 수정 (중요: ttps → https 버그 수정)
                 if href.startswith('ttps://'):
                     href = 'h' + href
                 elif not href.startswith('http'):
@@ -375,7 +369,7 @@ def fetch_stove_bug_board():
                     }
                     posts.append(post_data)
                     crawled_links.append(href)
-                    print(f"[NEW] 스토브 버그 게시글 발견 ({i}): {title[:50]}...")
+                    print(f"[NEW] 스토브 버그 새 게시글 발견 ({i}): {title[:50]}...")
                 else:
                     print(f"[DEBUG] 스토브 버그 게시글 {i}: 조건 미충족")
                 
@@ -383,17 +377,17 @@ def fetch_stove_bug_board():
                 print(f"[ERROR] 스토브 버그 게시글 {i} 처리 중 오류: {e}")
                 continue
         
-        print(f"[DEBUG] 스토브 버그 게시판 처리 완료: {len(posts)}개 새 게시글")
+        print(f"[DEBUG] 스토브 버그 게시판 처리 결과: {len(user_posts)}개 중 새 게시글 {len(posts)}개 발견")
         
     except Exception as e:
-        print(f"[ERROR] 스토브 버그 게시판 크롤링 중 오류: {e}")
+        print(f"[ERROR] 스토브 버그 게시판 크롤링 중 오류 발생: {e}")
         
     finally:
         if driver:
             print("[DEBUG] 스토브 버그 Chrome 드라이버 종료 중...")
             driver.quit()
     
-    # 링크 저장
+    # 중복 방지 링크 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data)
     
@@ -401,7 +395,7 @@ def fetch_stove_bug_board():
     return posts
 
 def fetch_stove_general_board():
-    """스토브 에픽세븐 자유게시판 크롤링 (새로 추가)"""
+    """스토브 에픽세븐 자유게시판 크롤링 (신규 추가)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -424,8 +418,7 @@ def fetch_stove_general_board():
         print("[DEBUG] 스토브 자유게시판 페이지 로딩 대기 중...")
         time.sleep(8)
         
-        # 스크롤하여 게시글 영역 로딩
-        print("[DEBUG] 자유게시판 유저 게시글 영역까지 스크롤...")
+        # 스크롤하여 실제 유저 게시글 영역까지 로딩
         driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(3)
         driver.execute_script("window.scrollTo(0, 800);")
@@ -440,12 +433,11 @@ def fetch_stove_general_board():
         with open("stove_general_debug_selenium.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         
-        print("[DEBUG] 스토브 자유게시판 게시글 탐색 중...")
+        print("[DEBUG] 스토브 자유게시판 게시글 영역 탐색 중...")
         
         # JavaScript로 게시글 추출
         user_posts = driver.execute_script("""
             var userPosts = [];
-            
             var sections = document.querySelectorAll('section.s-board-item');
             console.log('전체 게시글 섹션 수:', sections.length);
             
@@ -461,7 +453,7 @@ def fetch_stove_general_board():
                     var href = linkElement.href;
                     if (!href) continue;
                     
-                    var idMatch = href.match(/\\/view\\/(\\d+)/);
+                    var idMatch = href.match(/\/view\/(\d+)/);
                     if (!idMatch) continue;
                     var postId = idMatch[1];
                     
@@ -511,13 +503,13 @@ def fetch_stove_general_board():
         
         print(f"[DEBUG] JavaScript로 {len(user_posts)}개 자유게시판 게시글 발견")
         
-        # 게시글 처리
+        # 유저 게시글 처리
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = post_info['href']
                 title = post_info['title']
                 
-                # URL 수정 (버그 수정)
+                # URL 수정 (중요: ttps → https 버그 수정)
                 if href.startswith('ttps://'):
                     href = 'h' + href
                 elif not href.startswith('http'):
@@ -550,14 +542,14 @@ def fetch_stove_general_board():
         print(f"[DEBUG] 스토브 자유게시판 처리 완료: {len(posts)}개 새 게시글")
         
     except Exception as e:
-        print(f"[ERROR] 스토브 자유게시판 크롤링 중 오류: {e}")
+        print(f"[ERROR] 스토브 자유게시판 크롤링 중 오류 발생: {e}")
         
     finally:
         if driver:
             print("[DEBUG] 스토브 자유게시판 Chrome 드라이버 종료 중...")
             driver.quit()
     
-    # 링크 저장
+    # 중복 방지 링크 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data)
     
@@ -565,7 +557,7 @@ def fetch_stove_general_board():
     return posts
 
 def crawl_korean_sites():
-    """한국 사이트들 크롤링 (루리웹 + 스토브 버그게시판 + 스토브 자유게시판)"""
+    """한국 사이트들 크롤링 (루리웹 + 스토브 버그/자유게시판)"""
     all_posts = []
     
     try:
@@ -577,7 +569,7 @@ def crawl_korean_sites():
         all_posts.extend(ruliweb_posts)
         print(f"[INFO] 루리웹: {len(ruliweb_posts)}개 새 게시글")
         
-        # 크롤링 간 지연
+        # 크롤링 간 지연 (서버 부하 방지)
         time.sleep(random.uniform(5, 8))
         
         # 2. 스토브 버그 게시판 크롤링
@@ -602,24 +594,18 @@ def crawl_korean_sites():
     return all_posts
 
 def crawl_global_sites():
-    """글로벌 사이트들 크롤링 (추후 구현)"""
+    """글로벌 사이트들 크롤링 (추후 구현 예정)"""
     print("[DEBUG] 글로벌 사이트 크롤링은 아직 구현되지 않음")
     return []
 
 def get_all_posts_for_report():
-    """일일 리포트용 - 모든 게시글 수집"""
+    """일일 리포트용 - 한국 사이트 모든 게시글"""
     print("[INFO] 일일 리포트용 게시글 수집 중...")
-    return crawl_korean_sites() + crawl_global_sites()
-
-# 기존 호환성을 위한 함수 (deprecated)
-def crawl_arca_sites():
-    """기존 호환성을 위한 함수 - 한국 사이트 크롤링으로 리다이렉트"""
-    print("[DEPRECATED] crawl_arca_sites는 crawl_korean_sites로 변경되었습니다.")
     return crawl_korean_sites()
 
 # 테스트 함수
-def test_all_crawling():
-    """전체 크롤링 테스트"""
+def test_korean_crawling():
+    """한국 사이트 크롤링 테스트"""
     print("=== 한국 사이트 크롤링 테스트 ===")
     
     print("\n1. 루리웹 테스트:")
@@ -640,4 +626,4 @@ def test_all_crawling():
     return ruliweb_posts + stove_bug_posts + stove_general_posts
 
 if __name__ == "__main__":
-    test_all_crawling()
+    test_korean_crawling()

@@ -7,7 +7,7 @@ import re
 import random
 
 def send_bug_alert(webhook_url, bugs):
-    """개선된 버그 알림 전송 (실제 게시글 내용 요약 포함)"""
+    """개선된 버그 알림 전송 (내용 추출 개선)"""
     if not webhook_url or not bugs:
         return
     
@@ -27,7 +27,7 @@ def send_bug_alert(webhook_url, bugs):
                 # 시간 포맷 변경 (yyyy-mm-dd hh:mm)
                 formatted_time = format_timestamp(bug.get('timestamp', ''))
                 
-                # 🔧 실제 게시글 내용 크롤링 및 요약 (개선)
+                # 실제 게시글 내용 크롤링 및 요약 (개선)
                 content_summary = get_post_content_summary(bug.get('url', ''), bug.get('source', ''))
                 
                 # 새로운 메시지 형태 구성
@@ -62,20 +62,20 @@ def send_bug_alert(webhook_url, bugs):
         print(f"[ERROR] Discord 버그 알림 전송 중 오류: {e}")
 
 def get_post_content_summary(post_url, source):
-    """게시글 URL에서 실제 내용을 크롤링하여 1줄 요약 생성 (개선)"""
+    """게시글 URL에서 실제 내용을 크롤링하여 요약 생성 (개선)"""
     try:
         print(f"[DEBUG] 게시글 내용 크롤링 시작: {post_url}")
         
-        # 🔧 소스별 요청 헤더 최적화
+        # 소스별 요청 헤더 최적화
         headers = get_headers_by_source(source)
         
-        # 🔧 게시글 내용 크롤링 (타임아웃 단축)
-        response = requests.get(post_url, headers=headers, timeout=10)
+        # 게시글 내용 크롤링 (타임아웃 조정)
+        response = requests.get(post_url, headers=headers, timeout=15)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 🔧 소스별 게시글 내용 추출 로직 (개선)
+        # 소스별 게시글 내용 추출 로직 (개선)
         content_text = extract_content_by_source(soup, source)
         
         if content_text:
@@ -85,17 +85,17 @@ def get_post_content_summary(post_url, source):
             return summary
         else:
             print(f"[WARN] 게시글 내용 추출 실패")
-            return "게시글 내용을 확인할 수 없습니다."
+            return get_default_summary_by_source(source)
             
     except requests.exceptions.Timeout:
         print(f"[WARN] 게시글 크롤링 타임아웃: {post_url}")
-        return "게시글 로딩 시간 초과"
+        return "게시글 로딩 시간이 초과되었습니다"
     except requests.exceptions.RequestException as e:
         print(f"[WARN] 게시글 크롤링 실패: {e}")
-        return "게시글 접근 불가"
+        return "게시글에 접근할 수 없습니다"
     except Exception as e:
         print(f"[ERROR] 게시글 내용 요약 중 오류: {e}")
-        return "내용 요약 중 오류 발생"
+        return "내용 분석 중 오류가 발생했습니다"
 
 def get_headers_by_source(source):
     """소스별 최적화된 요청 헤더"""
@@ -105,158 +105,198 @@ def get_headers_by_source(source):
         'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
     }
     
-    if source in ['arca_epic7', 'arca']:
-        base_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-        base_headers['Referer'] = 'https://arca.live/'
-    elif source in ['ruliweb_epic7', 'ruliweb']:
+    if source in ['ruliweb_epic7', 'ruliweb']:
         base_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         base_headers['Referer'] = 'https://bbs.ruliweb.com/'
     elif source in ['stove_bug', 'stove_general']:
         base_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         base_headers['Referer'] = 'https://page.onstove.com/'
+        # 스토브 전용 헤더 추가
+        base_headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9'
+        base_headers['Sec-Fetch-Dest'] = 'document'
+        base_headers['Sec-Fetch-Mode'] = 'navigate'
+        base_headers['Sec-Fetch-Site'] = 'same-origin'
     else:
         base_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     
     return base_headers
 
 def extract_content_by_source(soup, source):
-    """소스별 게시글 내용 추출 (개선)"""
+    """소스별 게시글 내용 추출 (확장된 선택자)"""
     try:
         content_text = ""
         
         if source in ['stove_bug', 'stove_general']:
-            # 🔧 스토브 게시글 내용 추출 (선택자 확장)
+            # 스토브 게시글 내용 추출 (선택자 대폭 확장)
             content_selectors = [
+                # 메인 컨텐츠 선택자
                 '.s-article-content',
                 '.s-board-content-text',
-                '.article-content', 
+                '.s-article-body',
+                '.s-board-view-content',
+                '.s-content-text',
+                '.s-view-content',
+                
+                # 일반적인 컨텐츠 선택자
+                '.article-content',
                 '.post-content',
                 '.content-area',
                 '.view-content',
                 '.board-content',
-                '[class*="content"]',
-                '.s-board-view-content',
-                '.s-article-body'
-            ]
-            
-        elif source in ['arca_epic7', 'arca']:
-            # 🔧 아카라이브 게시글 내용 추출 (선택자 확장)
-            content_selectors = [
-                '.article-content',
-                '.article-body', 
-                '.post-content',
-                '.vrow',
-                '.article-wrapper .content',
-                '.article-text',
                 '.user-content',
-                '[class*="content"]'
+                '.main-content',
+                
+                # 텍스트 컨테이너 선택자
+                '.text-content',
+                '.content-text',
+                '.article-text',
+                '.post-text',
+                '.view-text',
+                '.board-text',
+                
+                # 포괄적 선택자
+                '[class*="content"]',
+                '[class*="article"]',
+                '[class*="post"]',
+                '[class*="text"]',
+                '[class*="view"]',
+                
+                # 최후의 수단 - 메인 컨테이너
+                'main',
+                '.main',
+                '#main',
+                '.container',
+                '.wrapper'
             ]
             
         elif source in ['ruliweb_epic7', 'ruliweb']:
-            # 🔧 루리웹 게시글 내용 추출 (선택자 확장)
+            # 루리웹 게시글 내용 추출 (선택자 확장)
             content_selectors = [
                 '.article_container',
                 '.article-content',
                 '.post_content',
                 '.view_content',
                 '.board_main_view',
+                '.content_text',
+                '.article_text',
+                '.user_content',
                 '[class*="content"]',
-                '.article_text'
-            ]
-            
-        elif source == 'reddit':
-            # Reddit 게시글 내용 추출
-            content_selectors = [
-                '[data-testid="post-content"]',
-                '.usertext-body',
-                '.md',
-                '.RichTextJSON-root',
-                '[class*="content"]'
+                '[class*="article"]',
+                'main',
+                '.main'
             ]
             
         else:
-            # 기타 사이트 - 일반적인 선택자 시도
+            # 기타 사이트 - 일반적인 선택자
             content_selectors = [
                 '.content',
                 '.post-content',
                 '.article-content',
                 '.entry-content',
                 '.main-content',
+                '.text-content',
                 'main',
-                '[class*="content"]'
+                '[class*="content"]',
+                '[class*="article"]',
+                '[class*="post"]'
             ]
         
         # 선택자별 시도
         for selector in content_selectors:
-            content_elem = soup.select_one(selector)
-            if content_elem:
-                content_text = content_elem.get_text(strip=True)
-                if len(content_text) > 20:  # 최소 길이 조건
-                    break
+            try:
+                content_elem = soup.select_one(selector)
+                if content_elem:
+                    content_text = content_elem.get_text(strip=True)
+                    if len(content_text) > 30:  # 최소 길이 조건
+                        print(f"[DEBUG] 내용 추출 성공: {selector} ({len(content_text)}자)")
+                        break
+            except Exception as e:
+                continue
         
-        return content_text
+        # 텍스트 길이 체크
+        if content_text and len(content_text) > 20:
+            return content_text
+        else:
+            # 대안: 모든 텍스트 노드 수집
+            print("[DEBUG] 대안 방법으로 텍스트 수집 시도")
+            all_text = soup.get_text(strip=True)
+            if len(all_text) > 50:
+                return all_text[:500]  # 최대 500자
+        
+        return ""
         
     except Exception as e:
         print(f"[ERROR] 게시글 내용 추출 중 오류: {e}")
         return ""
 
+def get_default_summary_by_source(source):
+    """소스별 기본 요약 메시지"""
+    if source in ['stove_bug', 'stove_general']:
+        return "스토브 게시글 내용을 확인해주세요"
+    elif source in ['ruliweb_epic7', 'ruliweb']:
+        return "루리웹 게시글 내용을 확인해주세요"
+    else:
+        return "게시글 내용을 직접 확인해주세요"
+
 def create_intelligent_summary(content_text):
     """지능형 게시글 내용 요약 (개선)"""
     try:
         if not content_text:
-            return "내용이 없습니다."
+            return "내용이 없습니다"
         
-        # 🔧 내용 정제 (개선)
+        # 내용 정제 (개선)
         cleaned_content = clean_content_text(content_text)
         
-        if len(cleaned_content) <= 60:
+        if len(cleaned_content) <= 80:
             return cleaned_content
         
-        # 🔧 버그 관련 키워드 우선 추출
+        # 버그 관련 키워드 우선 추출
         bug_summary = extract_bug_keywords(cleaned_content)
         if bug_summary:
             return bug_summary
         
-        # 🔧 문장 단위로 분리 (개선)
+        # 문장 단위로 분리 (개선)
         sentences = split_into_sentences(cleaned_content)
         
         if not sentences:
-            return cleaned_content[:60] + "..."
+            return cleaned_content[:80] + "..."
         
-        # 🔧 가장 중요한 문장 찾기 (개선)
+        # 가장 중요한 문장 찾기 (개선)
         main_sentence = find_most_important_sentence(sentences)
         
         if main_sentence:
             # 요약 길이 조정
-            if len(main_sentence) > 80:
-                return main_sentence[:77] + "..."
+            if len(main_sentence) > 100:
+                return main_sentence[:97] + "..."
             return main_sentence
         else:
-            return cleaned_content[:60] + "..."
+            return cleaned_content[:80] + "..."
             
     except Exception as e:
         print(f"[ERROR] 지능형 요약 생성 중 오류: {e}")
-        return "요약 생성 실패"
+        return "요약 생성 중 오류가 발생했습니다"
 
 def extract_bug_keywords(content):
     """버그 관련 키워드 우선 추출"""
     try:
-        # 🔧 버그 관련 패턴 매칭
+        # 버그 관련 패턴 매칭
         bug_patterns = [
-            r'(.{0,30})(버그|오류|에러|문제|안(?:돼|되)(?:요|며|는|고))(.{0,30})',
-            r'(.{0,30})(작동(?:안|하지)(?:해|함|요|며))(.{0,30})',
-            r'(.{0,30})(튕(?:김|겨)(?:요|며|서))(.{0,30})',
-            r'(.{0,30})(먹(?:통|먹)(?:이|해|요))(.{0,30})',
-            r'(.{0,30})(로딩|연결|접속)(.{0,10})(안|못|불가)(.{0,20})'
+            r'(.{0,40})(버그|오류|에러|문제|안(?:돼|되)(?:요|며|는|고))(.{0,40})',
+            r'(.{0,40})(작동(?:안|하지)(?:해|함|요|며))(.{0,40})',
+            r'(.{0,40})(튕(?:김|겨)(?:요|며|서))(.{0,40})',
+            r'(.{0,40})(먹(?:통|먹)(?:이|해|요))(.{0,40})',
+            r'(.{0,40})(로딩|연결|접속)(.{0,10})(안|못|불가)(.{0,30})',
+            r'(.{0,40})(게임|앱)(.{0,10})(종료|다운|멈춤)(.{0,30})'
         ]
         
         for pattern in bug_patterns:
             matches = re.finditer(pattern, content, re.IGNORECASE)
             for match in matches:
                 bug_context = ''.join(match.groups()).strip()
-                if len(bug_context) > 10:
+                if len(bug_context) > 15:
                     return clean_bug_context(bug_context)
         
         return None
@@ -273,8 +313,8 @@ def clean_bug_context(bug_context):
         bug_context = re.sub(r'\s+', ' ', bug_context).strip()
         
         # 길이 조정
-        if len(bug_context) > 70:
-            return bug_context[:67] + "..."
+        if len(bug_context) > 90:
+            return bug_context[:87] + "..."
         return bug_context
         
     except Exception as e:
@@ -284,25 +324,28 @@ def clean_bug_context(bug_context):
 def clean_content_text(content):
     """게시글 내용 정제 (개선)"""
     try:
-        # 🔧 정제 과정 개선
-        # 1. 기본 정제
+        # 기본 정제
         content = re.sub(r'\s+', ' ', content)  # 연속 공백 제거
         content = re.sub(r'[\r\n\t]+', ' ', content)  # 개행문자 제거
         
-        # 2. 불필요한 텍스트 제거 (확장)
+        # 불필요한 텍스트 제거 (확장)
         unnecessary_phrases = [
-            '로그인', '회원가입', '댓글', '추천', '비추천', '신고',
-            '목록', '이전', '다음', '페이지', '공지사항', '이벤트',
-            '운영정책', '이용약관', '개인정보', '쿠키', 'Cookie',
-            '광고', '배너', '팝업', '알림', '설정', 'JavaScript',
-            '더보기', '접기', '펼치기', '클릭', '터치', '스크롤'
+            '로그인', '회원가입', '댓글', '추천', '비추천', '신고', '목록',
+            '이전', '다음', '페이지', '공지사항', '이벤트', '운영정책',
+            '이용약관', '개인정보', '쿠키', 'Cookie', '광고', '배너',
+            '팝업', '알림', '설정', 'JavaScript', '더보기', '접기',
+            '펼치기', '클릭', '터치', '스크롤', '복사', '공유', '북마크',
+            '좋아요', '싫어요', '구독', '팔로우', '프로필', '메뉴'
         ]
         
         for phrase in unnecessary_phrases:
             content = content.replace(phrase, '')
         
-        # 3. 특수문자 정제 (한글/영문/숫자/기본 문장부호만 유지)
+        # 특수문자 정제 (한글/영문/숫자/기본 문장부호만 유지)
         content = re.sub(r'[^\w\s가-힣.,!?()[\]""'':-]', '', content)
+        
+        # 연속된 같은 문자 제거 (3개 이상)
+        content = re.sub(r'(.)\1{2,}', r'\1\1', content)
         
         return content.strip()
         
@@ -313,15 +356,15 @@ def clean_content_text(content):
 def split_into_sentences(content):
     """내용을 문장 단위로 분리 (개선)"""
     try:
-        # 🔧 한국어/영어 문장 분리 개선
+        # 한국어/영어 문장 분리 개선
         sentences = re.split(r'[.!?。！？]\s*', content)
         
-        # 의미있는 문장만 필터링 (조건 강화)
+        # 의미있는 문장만 필터링
         meaningful_sentences = []
         for sentence in sentences:
             sentence = sentence.strip()
             # 최소 길이, 한글/영문 포함 조건
-            if (len(sentence) >= 15 and 
+            if (len(sentence) >= 10 and 
                 sentence and 
                 (re.search(r'[가-힣]', sentence) or re.search(r'[a-zA-Z]', sentence))):
                 meaningful_sentences.append(sentence)
@@ -335,23 +378,24 @@ def split_into_sentences(content):
 def find_most_important_sentence(sentences):
     """가장 중요한 문장 찾기 (개선)"""
     try:
-        # 🔧 중요도 기반 키워드 (가중치 적용)
+        # 중요도 기반 키워드 (가중치 적용)
         priority_keywords = {
             # 버그 관련 (최고 우선순위)
-            '버그': 10, '오류': 10, '에러': 10, '문제': 9, '안됨': 8, '작동': 8,
-            '튕김': 9, '먹통': 8, '로딩': 7, '연결': 6, '접속': 6,
+            '버그': 15, '오류': 15, '에러': 15, '문제': 12, '안됨': 10,
+            '안돼': 10, '작동': 10, '튕김': 12, '먹통': 10, '로딩': 8,
+            '연결': 8, '접속': 8, '서버': 8, '네트워크': 6, '강제종료': 12,
             
             # 게임 모드 (높은 우선순위)
-            '아레나': 7, '길드': 7, '원정': 6, '헌트': 6, '던전': 6,
-            '레이드': 6, '어비스': 5, '탑': 5, '미궁': 5,
+            '아레나': 8, '길드': 8, '원정': 7, '헌트': 7, '던전': 7,
+            '레이드': 7, '어비스': 6, '탑': 6, '미궁': 6, '월드': 5,
             
             # 게임 요소 (중간 우선순위)
-            '영웅': 5, '스킬': 5, '아티팩트': 4, '장비': 4, '강화': 4,
-            '소환': 4, '가챠': 4, '각성': 3, '전승': 3,
+            '영웅': 6, '스킬': 6, '아티팩트': 5, '장비': 5, '강화': 5,
+            '소환': 5, '가챠': 4, '각성': 4, '전승': 4, '특성': 4,
             
             # 시스템 관련 (중간 우선순위)
-            '업데이트': 5, '패치': 5, '점검': 4, '유지보수': 4,
-            '서버': 4, '네트워크': 3, '클라이언트': 3
+            '업데이트': 6, '패치': 6, '점검': 5, '유지보수': 5,
+            '클라이언트': 4, '앱': 4, '게임': 3
         }
         
         best_sentence = ""
@@ -367,13 +411,19 @@ def find_most_important_sentence(sentences):
                     score += weight
             
             # 문장 길이 보너스 (적절한 길이 선호)
-            if 20 <= len(sentence) <= 100:
+            if 15 <= len(sentence) <= 120:
+                score += 3
+            elif 10 <= len(sentence) <= 200:
                 score += 2
-            elif 15 <= len(sentence) <= 150:
+            elif len(sentence) <= 300:
                 score += 1
             
             # 첫 번째 문장 보너스
             if sentence == sentences[0]:
+                score += 2
+            
+            # 문장 완성도 보너스
+            if sentence.endswith(('.', '!', '?', '다', '요', '네', '음')):
                 score += 1
             
             if score > max_score:
@@ -395,14 +445,14 @@ def send_discord_message(webhook_url, message, count):
             "avatar_url": "https://cdn.discordapp.com/attachments/123456789/123456789/epic7_logo.png"
         }
         
-        response = requests.post(webhook_url, json=data, timeout=15)
+        response = requests.post(webhook_url, json=data, timeout=20)
         if response.status_code == 204:
             print(f"[SUCCESS] Discord 알림 {count} 전송 성공")
         else:
             print(f"[WARN] Discord 알림 {count} 전송 실패: {response.status_code}")
             
         # Discord Rate Limit 방지를 위한 딜레이
-        time.sleep(1.5)
+        time.sleep(2)
         
     except Exception as e:
         print(f"[ERROR] Discord 메시지 전송 중 오류: {e}")
@@ -411,9 +461,7 @@ def get_source_type_korean(source):
     """소스 타입을 한국어로 변환 (확장)"""
     source_map = {
         "stove_bug": "🏪 스토브 버그 게시판",
-        "stove_general": "🏪 스토브 일반 게시판",
-        "arca_epic7": "🎯 아카라이브 에픽세븐",
-        "arca": "🎯 아카라이브 에픽세븐",
+        "stove_general": "🏪 스토브 자유게시판",
         "ruliweb_epic7": "🎮 루리웹 에픽세븐",
         "ruliweb": "🎮 루리웹 에픽세븐",
         "reddit_epic7": "🌐 Reddit r/EpicSeven",
@@ -437,19 +485,24 @@ def format_timestamp(timestamp_str):
         return datetime.now().strftime('%Y-%m-%d %H:%M')
 
 def send_daily_report(webhook_url, report):
-    """일일 리포트 전송 (개선)"""
+    """일일 리포트 전송 (버그 제외)"""
     if not webhook_url:
         return
         
     try:
-        # 🔧 리포트 내용 생성 (개선)
+        # 리포트 내용 생성 (버그 제외)
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S KST')
-        total_posts = sum(len(posts) for posts in report.values())
         
-        # Embed 형태로 전송 (더 깔끔한 표시)
+        # 버그 카테고리 제외하고 계산
+        total_posts = 0
+        for category, posts in report.items():
+            if category != "버그":  # 버그 제외
+                total_posts += len(posts)
+        
+        # Embed 형태로 전송
         embed = {
-            "title": "📊 에픽세븐 일일 동향 리포트",
-            "description": f"📅 {current_time}\n📈 **총 게시글 수: {total_posts}개**",
+            "title": "📊 에픽세븐 일일 유저 동향 리포트",
+            "description": f"📅 {current_time}\n📈 **분석 게시글 수: {total_posts}개**\n\n*버그 동향은 실시간 알림으로 별도 전송됩니다*",
             "color": 0x00ff00 if total_posts > 0 else 0x808080,
             "fields": [],
             "timestamp": datetime.now().isoformat(),
@@ -459,8 +512,11 @@ def send_daily_report(webhook_url, report):
             }
         }
         
-        # 카테고리별 필드 추가
+        # 카테고리별 필드 추가 (버그 제외)
         for category, posts in report.items():
+            if category == "버그":  # 버그 카테고리 제외
+                continue
+                
             if not posts:
                 embed["fields"].append({
                     "name": f"{get_category_emoji(category)} {category}",
@@ -472,7 +528,7 @@ def send_daily_report(webhook_url, report):
             # 상위 3개 게시글 목록
             top_posts = []
             for i, post in enumerate(posts[:3], 1):
-                title = post['title'][:40] + "..." if len(post['title']) > 40 else post['title']
+                title = post['title'][:35] + "..." if len(post['title']) > 35 else post['title']
                 top_posts.append(f"{i}. {title}")
             
             if len(posts) > 3:
@@ -491,7 +547,7 @@ def send_daily_report(webhook_url, report):
             "avatar_url": "https://cdn.discordapp.com/attachments/123456789/123456789/epic7_logo.png"
         }
         
-        response = requests.post(webhook_url, json=data, timeout=15)
+        response = requests.post(webhook_url, json=data, timeout=20)
         if response.status_code == 204:
             print("[SUCCESS] 일일 리포트 Discord 전송 성공")
         else:
@@ -501,12 +557,12 @@ def send_daily_report(webhook_url, report):
         print(f"[ERROR] 일일 리포트 전송 중 오류: {e}")
 
 def get_category_emoji(category):
-    """카테고리별 이모지 반환 (확장)"""
+    """카테고리별 이모지 반환"""
     emoji_map = {
         "긍정": "😊",
         "부정": "😞", 
+        "중립": "📝",
         "버그": "🐛",
-        "기타": "📝",
         "질문": "❓",
         "정보": "ℹ️",
         "공략": "📋",
@@ -515,50 +571,27 @@ def get_category_emoji(category):
     }
     return emoji_map.get(category, "📌")
 
-def send_crawling_status_report(webhook_url, status_report):
-    """크롤링 상태 보고서 전송 (신규 추가)"""
-    if not webhook_url:
-        return
-        
-    try:
-        embed = {
-            "title": "🔍 크롤링 상태 보고서",
-            "color": 0x00ff00 if status_report.get('total_success', 0) > 0 else 0xff0000,
-            "fields": [
-                {
-                    "name": "📊 수집 현황",
-                    "value": f"""
-• **🎯 아카라이브**: {status_report.get('arca_count', 0)}개 {'✅' if status_report.get('arca_success', False) else '❌'}
-• **🎮 루리웹**: {status_report.get('ruliweb_count', 0)}개 {'✅' if status_report.get('ruliweb_success', False) else '❌'}  
-• **🏪 스토브**: {status_report.get('stove_count', 0)}개 {'✅' if status_report.get('stove_success', False) else '❌'}
-• **📈 총 합계**: {status_report.get('total_count', 0)}개
-                    """,
-                    "inline": False
-                },
-                {
-                    "name": "⏱️ 실행 정보", 
-                    "value": f"실행 시간: {status_report.get('execution_time', 0):.1f}초",
-                    "inline": True
-                }
-            ],
-            "timestamp": datetime.now().isoformat(),
-            "footer": {
-                "text": "Epic7 모니터링 시스템 v2.1"
-            }
-        }
-        
-        # Discord 전송
-        data = {
-            "embeds": [embed],
-            "username": "Epic7 System Monitor",
-            "avatar_url": "https://cdn.discordapp.com/attachments/123456789/123456789/epic7_logo.png"
-        }
-        
-        response = requests.post(webhook_url, json=data, timeout=10)
-        if response.status_code == 204:
-            print("[SUCCESS] 크롤링 상태 보고서 전송 완료")
+# 테스트 함수
+def test_content_extraction():
+    """내용 추출 테스트"""
+    test_urls = [
+        "https://page.onstove.com/epicseven/kr/view/10867127",
+        "https://bbs.ruliweb.com/game/84834/read/30000"
+    ]
+    
+    print("=== 내용 추출 테스트 ===")
+    for url in test_urls:
+        if "onstove" in url:
+            source = "stove_bug"
+        elif "ruliweb" in url:
+            source = "ruliweb_epic7"
         else:
-            print(f"[WARN] 상태 보고서 전송 실패: {response.status_code}")
-            
-    except Exception as e:
-        print(f"[ERROR] 상태 보고서 전송 실패: {e}")
+            source = "unknown"
+        
+        summary = get_post_content_summary(url, source)
+        print(f"URL: {url}")
+        print(f"요약: {summary}")
+        print("-" * 50)
+
+if __name__ == "__main__":
+    test_content_extraction()

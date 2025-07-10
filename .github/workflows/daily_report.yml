@@ -1,4 +1,4 @@
-name: Epic Seven Daily Report (Optimized)
+name: Epic Seven Daily Report (Enhanced)
 
 on:
   schedule:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       force_report:
-        description: 'Force generate report even if no posts'
+        description: 'Force generate report'
         required: false
         default: 'false'
         type: boolean
@@ -15,113 +15,73 @@ on:
 jobs:
   daily-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     
     env:
       TZ: Asia/Seoul
-      PYTHONUNBUFFERED: 1
     
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: 🔄 Sync with remote (Git conflict prevention)
+        run: |
+          git config --global user.email "epic7-report@github.com"
+          git config --global user.name "Epic7 Daily Reporter"
+          git pull --rebase origin main || {
+            echo "Git pull failed, continuing with current state"
+          }
 
       - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
 
       - name: 🌐 Install Chrome (Simplified)
         run: |
           echo "=== Chrome 설치 시작 ==="
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
-          echo "Chrome 버전: $(google-chrome --version)"
-          echo "Chrome 설치 완료"
+          echo "Chrome 설치 완료: $(google-chrome --version)"
 
-      - name: 📦 Install Python dependencies
+      - name: 📦 Install dependencies
         run: |
-          echo "=== Python 의존성 설치 ==="
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          echo "의존성 설치 완료"
+          echo "Python 패키지 설치 완료"
 
-      - name: 🔍 Generate daily report
+      - name: 📊 Generate daily report
         run: |
           echo "=== 일일 리포트 생성 시작 ==="
           echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "강제 실행 모드: ${{ github.event.inputs.force_report }}"
+          echo "강제 실행: ${{ github.event.inputs.force_report }}"
           
-          if [ "${{ github.event.inputs.force_report }}" = "true" ]; then
-            echo "🔄 강제 리포트 생성 모드"
-            python generate_report.py --force
-          else
-            python generate_report.py
-          fi
+          python generate_report.py
           
-          echo "리포트 생성 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "일일 리포트 생성 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
         env:
           DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+          PYTHONUNBUFFERED: 1
 
-      - name: 📊 Upload report artifacts
+      - name: 📂 Upload report artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: daily-report-${{ github.run_number }}
           path: |
-            *_debug_*.html
-            *.json
+            *_debug_selenium.html
+            *_error_debug.html
+            crawled_links.json
             *.log
-          retention-days: 7
+          retention-days: 30
 
-      - name: 🗂️ Archive and cleanup
-        run: |
-          echo "=== 파일 정리 및 보관 ==="
-          
-          # 저장된 링크 수 확인
-          if [[ -f crawled_links.json ]]; then
-            LINK_COUNT=$(jq length crawled_links.json 2>/dev/null || echo "0")
-            echo "📊 현재 저장된 링크 수: $LINK_COUNT"
-            
-            # 1000개 이상이면 최신 800개만 유지
-            if [[ $LINK_COUNT -gt 1000 ]]; then
-              echo "🔄 링크 개수 최적화: $LINK_COUNT → 800개"
-              jq '.links |= .[-800:]' crawled_links.json > temp.json && mv temp.json crawled_links.json
-              echo "링크 정리 완료"
-            fi
-          fi
-          
-          # 메모리 사용량 확인
-          echo "💾 메모리 사용량:"
-          free -h
-
-      - name: 📈 Daily report summary
-        run: |
-          echo "=== 일일 리포트 실행 요약 ==="
-          echo "📅 생성 날짜: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "🔄 워크플로우 ID: ${{ github.run_number }}"
-          echo "📬 Discord 웹훅: ${{ secrets.DISCORD_WEBHOOK_REPORT && '설정됨' || '미설정' }}"
-          
-          # 디버그 파일 확인
-          DEBUG_FILES=$(find . -name "*_debug_*.html" -type f | wc -l)
-          echo "🔍 생성된 디버그 파일: ${DEBUG_FILES}개"
-          
-          # 결과 파일 확인
-          if [[ -f crawled_links.json ]]; then
-            FINAL_LINK_COUNT=$(jq length crawled_links.json 2>/dev/null || echo "0")
-            echo "📊 최종 저장된 링크 수: $FINAL_LINK_COUNT"
-          fi
-
-      - name: 💾 Commit changes
+      - name: 💾 Commit and push changes
         run: |
           echo "=== Git 변경사항 처리 ==="
-          
-          git config --local user.email "epic7-report@github.com"
-          git config --local user.name "Epic7 Report Bot"
           
           # 변경된 파일 확인
           git add -A
@@ -132,24 +92,39 @@ jobs:
             echo "변경 사항 발견, 커밋 진행"
             git status --porcelain
             
-            # 커밋 메시지 생성
             COMMIT_MSG="📊 일일 리포트 생성 - $(date '+%Y-%m-%d %H:%M KST')"
-            
             git commit -m "$COMMIT_MSG"
-            git push
-            echo "Git 커밋 및 푸시 완료"
+            
+            # 푸시 재시도 로직 (Git 충돌 해결)
+            for i in {1..5}; do
+              if git push; then
+                echo "Git 푸시 완료"
+                break
+              else
+                echo "Git 푸시 실패, 재시도 ($i/5)"
+                git pull --rebase origin main
+                sleep $((i * 2))
+              fi
+            done
           fi
 
-      - name: 🔔 Report completion status
+      - name: 📈 Daily report summary
         if: always()
         run: |
-          echo "=== 최종 실행 상태 ==="
+          echo "=== 일일 리포트 실행 결과 ==="
           echo "작업 상태: ${{ job.status }}"
-          echo "완료 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "워크플로우 번호: ${{ github.run_number }}"
           
-          if [[ "${{ job.status }}" == "success" ]]; then
-            echo "✅ 일일 리포트 생성 성공"
+          if [ -f "crawled_links.json" ]; then
+            LINK_COUNT=$(cat crawled_links.json | jq '.links | length' 2>/dev/null || echo "0")
+            echo "저장된 링크 수: $LINK_COUNT"
+          fi
+          
+          echo "📬 Discord 웹훅으로 리포트 전송 완료"
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ 일일 리포트 성공적으로 완료"
           else
-            echo "❌ 일일 리포트 생성 실패"
-            echo "로그를 확인하여 문제를 파악하세요."
+            echo "❌ 일일 리포트 실행 중 오류 발생"
           fi
