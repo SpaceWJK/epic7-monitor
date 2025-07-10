@@ -25,6 +25,7 @@ def load_crawled_links():
         try:
             with open(CRAWLED_LINKS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+                # 구 버전 호환성 (리스트 형태)
                 if isinstance(data, list):
                     return {"links": data, "last_updated": datetime.now().isoformat()}
                 return data
@@ -36,6 +37,7 @@ def load_crawled_links():
 def save_crawled_links(link_data):
     """크롤링된 링크들을 저장 (최대 1000개 유지)"""
     try:
+        # 최신 1000개만 유지 (메모리 절약)
         if len(link_data["links"]) > 1000:
             link_data["links"] = link_data["links"][-1000:]
         
@@ -48,7 +50,7 @@ def save_crawled_links(link_data):
         print(f"[ERROR] 링크 저장 실패: {e}")
 
 def get_chrome_driver():
-    """Chrome 드라이버 초기화 (최적화)"""
+    """Chrome 드라이버 초기화 (호환성 최적화)"""
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -94,7 +96,7 @@ def get_chrome_driver():
         '/snap/bin/chromium.chromedriver'
     ]
     
-    # 방법 1: 수동 경로별 시도
+    # 경로별 시도
     for path in possible_paths:
         try:
             if os.path.exists(path):
@@ -107,7 +109,7 @@ def get_chrome_driver():
             print(f"[DEBUG] ChromeDriver 실패 {path}: {str(e)[:100]}...")
             continue
     
-    # 방법 2: 시스템 기본 ChromeDriver
+    # 시스템 기본 ChromeDriver
     try:
         print("[DEBUG] 시스템 기본 ChromeDriver 시도")
         driver = webdriver.Chrome(options=options)
@@ -116,7 +118,7 @@ def get_chrome_driver():
     except Exception as e:
         print(f"[DEBUG] 시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
     
-    # 방법 3: WebDriver Manager (최후 수단)
+    # WebDriver Manager (최후 수단)
     try:
         print("[DEBUG] WebDriver Manager 시도")
         from webdriver_manager.chrome import ChromeDriverManager
@@ -128,6 +130,33 @@ def get_chrome_driver():
         print(f"[DEBUG] WebDriver Manager 실패: {str(e)[:100]}...")
     
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
+
+def fix_stove_url(url):
+    """스토브 URL 수정 함수 - URL 버그 완전 해결"""
+    if not url:
+        return url
+    
+    # 'ttps://' -> 'https://' 수정
+    if url.startswith('ttps://'):
+        url = 'h' + url
+        print(f"[FIX] URL 수정됨: {url}")
+    
+    # 'ttp://' -> 'http://' 수정 (혹시 모를 경우)
+    elif url.startswith('ttp://'):
+        url = 'h' + url
+        print(f"[FIX] URL 수정됨: {url}")
+    
+    # 상대 경로 처리
+    elif url.startswith('/'):
+        url = 'https://page.onstove.com' + url
+        print(f"[FIX] 상대경로 URL 수정됨: {url}")
+    
+    # URL이 제대로 시작하지 않는 경우
+    elif not url.startswith('http'):
+        url = 'https://page.onstove.com' + ('/' if not url.startswith('/') else '') + url
+        print(f"[FIX] 비정상 URL 수정됨: {url}")
+    
+    return url
 
 def fetch_ruliweb_epic7_board():
     """루리웹 에픽세븐 게시판 크롤링"""
@@ -233,7 +262,7 @@ def fetch_ruliweb_epic7_board():
     return posts
 
 def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링"""
+    """스토브 에픽세븐 버그 게시판 크롤링 (URL 버그 수정)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -256,7 +285,8 @@ def fetch_stove_bug_board():
         print("[DEBUG] 스토브 페이지 로딩 대기 중...")
         time.sleep(8)
         
-        # 스크롤하여 실제 유저 게시글 영역까지 로딩
+        # 스크롤하여 게시글 영역까지 로딩
+        print("[DEBUG] 스토브 버그 게시판 게시글 영역 탐색 중...")
         driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(3)
         driver.execute_script("window.scrollTo(0, 800);")
@@ -271,12 +301,27 @@ def fetch_stove_bug_board():
         with open("stove_bug_debug_selenium.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         
-        print("[DEBUG] 스토브 버그 게시판 게시글 영역 탐색 중...")
-        
-        # JavaScript로 게시글 추출
+        # JavaScript로 게시글 추출 (안정성 개선)
         user_posts = driver.execute_script("""
             var userPosts = [];
-            var sections = document.querySelectorAll('section.s-board-item');
+            
+            // 여러 선택자 시도 (안정성 향상)
+            var selectors = [
+                'section.s-board-item',
+                '.s-board-item',
+                '.board-item',
+                '[class*="board-item"]'
+            ];
+            
+            var sections = [];
+            for (var s = 0; s < selectors.length; s++) {
+                sections = document.querySelectorAll(selectors[s]);
+                if (sections.length > 0) {
+                    console.log('선택자 성공:', selectors[s], sections.length);
+                    break;
+                }
+            }
+            
             console.log('전체 게시글 섹션 수:', sections.length);
             
             var officialIds = ['10518001', '10855687', '10855562', '10855132'];
@@ -285,12 +330,23 @@ def fetch_stove_bug_board():
                 var section = sections[i];
                 
                 try {
-                    var linkElement = section.querySelector('a.s-board-link');
-                    if (!linkElement) continue;
+                    // 링크 요소 찾기 (다중 선택자)
+                    var linkSelectors = [
+                        'a.s-board-link',
+                        '.s-board-link',
+                        'a[href*="/view/"]',
+                        'a'
+                    ];
+                    
+                    var linkElement = null;
+                    for (var ls = 0; ls < linkSelectors.length; ls++) {
+                        linkElement = section.querySelector(linkSelectors[ls]);
+                        if (linkElement && linkElement.href) break;
+                    }
+                    
+                    if (!linkElement || !linkElement.href) continue;
                     
                     var href = linkElement.href;
-                    if (!href) continue;
-                    
                     var idMatch = href.match(/\/view\/(\d+)/);
                     if (!idMatch) continue;
                     var postId = idMatch[1];
@@ -300,16 +356,36 @@ def fetch_stove_bug_board():
                         continue;
                     }
                     
-                    var isNotice = section.querySelector('i.element-badge__s.notice');
-                    var isEvent = section.querySelector('i.element-badge__s.event');
-                    var isOfficial = section.querySelector('span.s-profile-staff-official');
+                    // 공지/이벤트 배지 확인
+                    var isNotice = section.querySelector('i.element-badge__s.notice') || 
+                                  section.querySelector('.notice') ||
+                                  section.querySelector('[class*="notice"]');
+                    var isEvent = section.querySelector('i.element-badge__s.event') ||
+                                 section.querySelector('.event') ||
+                                 section.querySelector('[class*="event"]');
+                    var isOfficial = section.querySelector('span.s-profile-staff-official') ||
+                                    section.querySelector('[class*="official"]');
                     
                     if (isNotice || isEvent || isOfficial) {
                         console.log('공지/이벤트 제외:', postId);
                         continue;
                     }
                     
-                    var titleElement = section.querySelector('h3.s-board-title span.s-board-title-text');
+                    // 제목 요소 찾기 (다중 선택자)
+                    var titleSelectors = [
+                        'h3.s-board-title span.s-board-title-text',
+                        '.s-board-title-text',
+                        '.board-title',
+                        'h3 span',
+                        '.title'
+                    ];
+                    
+                    var titleElement = null;
+                    for (var ts = 0; ts < titleSelectors.length; ts++) {
+                        titleElement = section.querySelector(titleSelectors[ts]);
+                        if (titleElement && titleElement.innerText) break;
+                    }
+                    
                     if (!titleElement) {
                         console.log('제목 요소 없음:', postId);
                         continue;
@@ -347,13 +423,10 @@ def fetch_stove_bug_board():
                 href = post_info['href']
                 title = post_info['title']
                 
-                # URL 수정 (중요: ttps → https 버그 수정)
-                if href.startswith('ttps://'):
-                    href = 'h' + href
-                elif not href.startswith('http'):
-                    href = "https://page.onstove.com" + href
+                # URL 수정 적용 (핵심 버그 수정)
+                href = fix_stove_url(href)
                 
-                print(f"[DEBUG] 스토브 버그 게시글 {i}: URL = {href[-50:]}")
+                print(f"[DEBUG] 스토브 버그 게시글 {i}: URL = {href}")
                 print(f"[DEBUG] 스토브 버그 게시글 {i}: 제목 = {title[:50]}...")
                 
                 if href in crawled_links:
@@ -387,7 +460,7 @@ def fetch_stove_bug_board():
             print("[DEBUG] 스토브 버그 Chrome 드라이버 종료 중...")
             driver.quit()
     
-    # 중복 방지 링크 저장
+    # 링크 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data)
     
@@ -395,7 +468,7 @@ def fetch_stove_bug_board():
     return posts
 
 def fetch_stove_general_board():
-    """스토브 에픽세븐 자유게시판 크롤링 (신규 추가)"""
+    """스토브 에픽세븐 자유게시판 크롤링 (URL 버그 수정)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -418,7 +491,8 @@ def fetch_stove_general_board():
         print("[DEBUG] 스토브 자유게시판 페이지 로딩 대기 중...")
         time.sleep(8)
         
-        # 스크롤하여 실제 유저 게시글 영역까지 로딩
+        # 스크롤하여 게시글 영역까지 로딩
+        print("[DEBUG] 스토브 자유게시판 게시글 영역 탐색 중...")
         driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(3)
         driver.execute_script("window.scrollTo(0, 800);")
@@ -433,13 +507,28 @@ def fetch_stove_general_board():
         with open("stove_general_debug_selenium.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         
-        print("[DEBUG] 스토브 자유게시판 게시글 영역 탐색 중...")
-        
-        # JavaScript로 게시글 추출
+        # JavaScript로 자유게시판 게시글 추출
         user_posts = driver.execute_script("""
             var userPosts = [];
-            var sections = document.querySelectorAll('section.s-board-item');
-            console.log('전체 게시글 섹션 수:', sections.length);
+            
+            // 동일한 선택자 로직 사용
+            var selectors = [
+                'section.s-board-item',
+                '.s-board-item',
+                '.board-item',
+                '[class*="board-item"]'
+            ];
+            
+            var sections = [];
+            for (var s = 0; s < selectors.length; s++) {
+                sections = document.querySelectorAll(selectors[s]);
+                if (sections.length > 0) {
+                    console.log('자유게시판 선택자 성공:', selectors[s], sections.length);
+                    break;
+                }
+            }
+            
+            console.log('자유게시판 전체 게시글 섹션 수:', sections.length);
             
             var officialIds = ['10518001', '10855687', '10855562', '10855132'];
             
@@ -447,41 +536,57 @@ def fetch_stove_general_board():
                 var section = sections[i];
                 
                 try {
-                    var linkElement = section.querySelector('a.s-board-link');
-                    if (!linkElement) continue;
+                    var linkSelectors = [
+                        'a.s-board-link',
+                        '.s-board-link',
+                        'a[href*="/view/"]',
+                        'a'
+                    ];
+                    
+                    var linkElement = null;
+                    for (var ls = 0; ls < linkSelectors.length; ls++) {
+                        linkElement = section.querySelector(linkSelectors[ls]);
+                        if (linkElement && linkElement.href) break;
+                    }
+                    
+                    if (!linkElement || !linkElement.href) continue;
                     
                     var href = linkElement.href;
-                    if (!href) continue;
-                    
                     var idMatch = href.match(/\/view\/(\d+)/);
                     if (!idMatch) continue;
                     var postId = idMatch[1];
                     
-                    if (officialIds.includes(postId)) {
-                        console.log('공지 ID 제외:', postId);
-                        continue;
+                    if (officialIds.includes(postId)) continue;
+                    
+                    var isNotice = section.querySelector('i.element-badge__s.notice') || 
+                                  section.querySelector('.notice') ||
+                                  section.querySelector('[class*="notice"]');
+                    var isEvent = section.querySelector('i.element-badge__s.event') ||
+                                 section.querySelector('.event') ||
+                                 section.querySelector('[class*="event"]');
+                    var isOfficial = section.querySelector('span.s-profile-staff-official') ||
+                                    section.querySelector('[class*="official"]');
+                    
+                    if (isNotice || isEvent || isOfficial) continue;
+                    
+                    var titleSelectors = [
+                        'h3.s-board-title span.s-board-title-text',
+                        '.s-board-title-text',
+                        '.board-title',
+                        'h3 span',
+                        '.title'
+                    ];
+                    
+                    var titleElement = null;
+                    for (var ts = 0; ts < titleSelectors.length; ts++) {
+                        titleElement = section.querySelector(titleSelectors[ts]);
+                        if (titleElement && titleElement.innerText) break;
                     }
                     
-                    var isNotice = section.querySelector('i.element-badge__s.notice');
-                    var isEvent = section.querySelector('i.element-badge__s.event');
-                    var isOfficial = section.querySelector('span.s-profile-staff-official');
-                    
-                    if (isNotice || isEvent || isOfficial) {
-                        console.log('공지/이벤트 제외:', postId);
-                        continue;
-                    }
-                    
-                    var titleElement = section.querySelector('h3.s-board-title span.s-board-title-text');
-                    if (!titleElement) {
-                        console.log('제목 요소 없음:', postId);
-                        continue;
-                    }
+                    if (!titleElement) continue;
                     
                     var title = titleElement.innerText.trim();
-                    if (!title || title.length < 3) {
-                        console.log('제목 없음 또는 너무 짧음:', postId);
-                        continue;
-                    }
+                    if (!title || title.length < 3) continue;
                     
                     userPosts.push({
                         title: title.substring(0, 200).trim(),
@@ -489,51 +594,62 @@ def fetch_stove_general_board():
                         id: postId
                     });
                     
-                    console.log('유저 게시글 추가:', title.substring(0, 30));
+                    console.log('자유게시판 유저 게시글 추가:', title.substring(0, 30));
                     
                 } catch (e) {
-                    console.log('게시글 처리 오류:', e.message);
+                    console.log('자유게시판 게시글 처리 오류:', e.message);
                     continue;
                 }
             }
             
-            console.log('최종 발견된 유저 게시글 수:', userPosts.length);
+            console.log('자유게시판 최종 발견된 유저 게시글 수:', userPosts.length);
             return userPosts.slice(0, 15);
         """)
         
         print(f"[DEBUG] JavaScript로 {len(user_posts)}개 자유게시판 게시글 발견")
         
-        # 유저 게시글 처리
+        # 자유게시판 게시글 처리 (버그 관련만 필터링)
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = post_info['href']
                 title = post_info['title']
                 
-                # URL 수정 (중요: ttps → https 버그 수정)
-                if href.startswith('ttps://'):
-                    href = 'h' + href
-                elif not href.startswith('http'):
-                    href = "https://page.onstove.com" + href
+                # URL 수정 적용
+                href = fix_stove_url(href)
                 
-                print(f"[DEBUG] 스토브 자유게시판 게시글 {i}: URL = {href[-50:]}")
+                print(f"[DEBUG] 스토브 자유게시판 게시글 {i}: URL = {href}")
                 print(f"[DEBUG] 스토브 자유게시판 게시글 {i}: 제목 = {title[:50]}...")
                 
                 if href in crawled_links:
                     print(f"[DEBUG] 스토브 자유게시판 게시글 {i}: 이미 크롤링된 링크")
                     continue
                 
-                if title and href and len(title) > 3:
-                    post_data = {
-                        "title": title,
-                        "url": href,
-                        "timestamp": datetime.now().isoformat(),
-                        "source": "stove_general"
-                    }
-                    posts.append(post_data)
-                    crawled_links.append(href)
-                    print(f"[NEW] 스토브 자유게시판 게시글 발견 ({i}): {title[:50]}...")
-                else:
+                # 제목 길이 및 유효성 검사 강화
+                if not title or len(title) < 4:
                     print(f"[DEBUG] 스토브 자유게시판 게시글 {i}: 조건 미충족")
+                    continue
+                
+                # 의미없는 제목 필터링
+                meaningless_patterns = [
+                    r'^[.]{3,}$',  # 점만 있는 제목
+                    r'^[ㅋㅎㅗㅜㅑ]{3,}$',  # 자음/모음만 있는 제목
+                    r'^[!@#$%^&*()]{3,}$',  # 특수문자만 있는 제목
+                ]
+                
+                is_meaningless = any(re.match(pattern, title) for pattern in meaningless_patterns)
+                if is_meaningless:
+                    print(f"[DEBUG] 스토브 자유게시판 게시글 {i}: 조건 미충족")
+                    continue
+                
+                post_data = {
+                    "title": title,
+                    "url": href,
+                    "timestamp": datetime.now().isoformat(),
+                    "source": "stove_general"
+                }
+                posts.append(post_data)
+                crawled_links.append(href)
+                print(f"[NEW] 스토브 자유게시판 게시글 발견 ({i}): {title[:50]}...")
                 
             except Exception as e:
                 print(f"[ERROR] 스토브 자유게시판 게시글 {i} 처리 중 오류: {e}")
@@ -549,7 +665,7 @@ def fetch_stove_general_board():
             print("[DEBUG] 스토브 자유게시판 Chrome 드라이버 종료 중...")
             driver.quit()
     
-    # 중복 방지 링크 저장
+    # 링크 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data)
     
@@ -557,7 +673,7 @@ def fetch_stove_general_board():
     return posts
 
 def crawl_korean_sites():
-    """한국 사이트들 크롤링 (루리웹 + 스토브 버그/자유게시판)"""
+    """한국 사이트들 크롤링 (루리웹 + 스토브 버그 + 스토브 자유)"""
     all_posts = []
     
     try:
@@ -569,7 +685,7 @@ def crawl_korean_sites():
         all_posts.extend(ruliweb_posts)
         print(f"[INFO] 루리웹: {len(ruliweb_posts)}개 새 게시글")
         
-        # 크롤링 간 지연 (서버 부하 방지)
+        # 크롤링 간 지연
         time.sleep(random.uniform(5, 8))
         
         # 2. 스토브 버그 게시판 크롤링
@@ -594,12 +710,12 @@ def crawl_korean_sites():
     return all_posts
 
 def crawl_global_sites():
-    """글로벌 사이트들 크롤링 (추후 구현 예정)"""
+    """글로벌 사이트들 크롤링 (미구현)"""
     print("[DEBUG] 글로벌 사이트 크롤링은 아직 구현되지 않음")
     return []
 
 def get_all_posts_for_report():
-    """일일 리포트용 - 한국 사이트 모든 게시글"""
+    """일일 리포트용 - 새 게시글 수집"""
     print("[INFO] 일일 리포트용 게시글 수집 중...")
     return crawl_korean_sites()
 
@@ -611,10 +727,10 @@ def test_korean_crawling():
     print("\n1. 루리웹 테스트:")
     ruliweb_posts = fetch_ruliweb_epic7_board()
     
-    print("\n2. 스토브 버그 게시판 테스트:")
+    print("\n2. 스토브 버그 테스트:")
     stove_bug_posts = fetch_stove_bug_board()
     
-    print("\n3. 스토브 자유게시판 테스트:")
+    print("\n3. 스토브 자유 테스트:")
     stove_general_posts = fetch_stove_general_board()
     
     print(f"\n=== 테스트 결과 ===")
