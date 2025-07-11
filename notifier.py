@@ -7,72 +7,47 @@ import re
 import random
 
 def get_stove_post_content(post_url):
-    """스토브 게시글 내용 추출 개선"""
+    """스토브 게시글 내용 추출 - 현실적 접근 방식"""
     try:
-        print(f"[DEBUG] 스토브 게시글 내용 크롤링 시작: {post_url}")
+        print(f"[DEBUG] 스토브 게시글 내용 확인 시도: {post_url}")
         
+        # 간단한 요청으로 제목 재확인 시도
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ko-KR,ko;q=0.8,en-US;q=0.5,en;q=0.3',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Referer': 'https://page.onstove.com/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         }
         
-        response = requests.get(post_url, headers=headers, timeout=10)
-        response.raise_for_status()
+        response = requests.get(post_url, headers=headers, timeout=5)
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 스토브 게시글 내용 추출 (개선된 선택자)
-        content_selectors = [
-            '.s-article-content .s-article-content-text',
-            '.s-article-content',
-            '.s-board-content-text',
-            '.article-content', 
-            '.post-content',
-            '.content-area',
-            '.view-content',
-            '.board-content',
-            '[class*="content"]',
-            '.s-board-view-content',
-            '.s-article-body'
-        ]
-        
-        content_text = ""
-        for selector in content_selectors:
-            content_elem = soup.select_one(selector)
-            if content_elem:
-                content_text = content_elem.get_text(strip=True)
-                if len(content_text) > 20:
-                    break
-        
-        if content_text:
-            # 내용 정제
-            content_text = re.sub(r'\s+', ' ', content_text)
-            content_text = re.sub(r'[\r\n\t]+', ' ', content_text)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 길이 제한
-            if len(content_text) > 100:
-                content_text = content_text[:97] + "..."
+            # 제목 추출 시도
+            title_selectors = [
+                'title', 'h1', 'h2', 'h3',
+                '[data-title]', '[title]'
+            ]
             
-            print(f"[DEBUG] 스토브 내용 추출 성공: {content_text[:50]}...")
-            return content_text
-        else:
-            print(f"[WARN] 스토브 게시글 내용 추출 실패")
-            return "게시글 내용을 확인할 수 없습니다."
-            
+            for selector in title_selectors:
+                title_elem = soup.select_one(selector)
+                if title_elem:
+                    title = title_elem.get_text(strip=True)
+                    if title and len(title) > 5:
+                        print(f"[DEBUG] 제목 추출 성공: {title[:30]}...")
+                        return f"제목: {title}"
+        
+        # JavaScript 동적 로딩으로 인한 내용 추출 불가 안내
+        print(f"[INFO] 스토브 게시글은 동적 로딩으로 내용 추출 불가")
+        return "스토브 게시글은 JavaScript로 동적 로딩되어 내용을 직접 추출할 수 없습니다. 링크를 클릭하여 확인하세요."
+        
     except requests.exceptions.Timeout:
-        print(f"[WARN] 게시글 크롤링 타임아웃: {post_url}")
-        return "게시글 로딩 시간 초과"
+        print(f"[WARN] 게시글 요청 시간 초과: {post_url}")
+        return "게시글 로딩 시간 초과 - 링크를 클릭하여 확인하세요."
     except requests.exceptions.RequestException as e:
-        print(f"[WARN] 게시글 크롤링 실패: {e}")
-        return "게시글 접근 불가"
+        print(f"[WARN] 게시글 접근 실패: {e}")
+        return "게시글 접근 불가 - 링크를 클릭하여 확인하세요."
     except Exception as e:
-        print(f"[ERROR] 게시글 내용 요약 중 오류: {e}")
-        return "내용 요약 중 오류 발생"
+        print(f"[ERROR] 게시글 처리 중 오류: {e}")
+        return "게시글 내용 확인을 위해 링크를 클릭하세요."
 
 def get_post_content_summary(post_url, source):
     """게시글 내용 요약 (소스별 처리)"""
@@ -101,7 +76,7 @@ def send_bug_alert(webhook_url, bugs):
                 source_type = get_source_type_korean(bug.get('source', 'unknown'))
                 formatted_time = format_timestamp(bug.get('timestamp', ''))
                 
-                # 게시글 내용 추출
+                # 게시글 내용 추출 (개선된 방식)
                 content_summary = get_post_content_summary(bug.get('url', ''), bug.get('source', ''))
                 
                 bug_info = f"""**분류**: {source_type}
@@ -130,19 +105,25 @@ def send_bug_alert(webhook_url, bugs):
         print(f"[ERROR] Discord 버그 알림 전송 중 오류: {e}")
 
 def send_sentiment_alert(webhook_url, sentiment_posts):
-    """유저 동향 실시간 알림 전송 (신규 함수)"""
+    """유저 동향 실시간 알림 전송"""
     if not webhook_url or not sentiment_posts:
         return
     
     try:
-        print(f"[INFO] 유저 동향 알림 전송 시작: {len(sentiment_posts)}개 게시글")
+        print(f"[INFO] 유저 동향 알림 전송 시작")
         
         # 카테고리별 분류
         categorized = {"긍정": [], "중립": [], "부정": []}
-        for post in sentiment_posts:
-            category = post.get('category', '중립')
+        total_posts = 0
+        
+        for category, posts in sentiment_posts.items():
             if category in categorized:
-                categorized[category].append(post)
+                categorized[category] = posts
+                total_posts += len(posts)
+        
+        if total_posts == 0:
+            print("[INFO] 전송할 감성 게시글이 없습니다.")
+            return
         
         # 메시지 구성
         current_time = datetime.now().strftime('%H:%M')
@@ -159,8 +140,6 @@ def send_sentiment_alert(webhook_url, sentiment_posts):
         }
         
         # 카테고리별 필드 추가
-        total_posts = sum(len(posts) for posts in categorized.values())
-        
         for category, posts in categorized.items():
             if posts:
                 emoji = get_category_emoji(category)
