@@ -58,7 +58,6 @@ def main():
                     print("[DEBUG] 월간 데이터 정리 완료")
             except AttributeError as e:
                 print(f"[WARNING] 월간 데이터 정리 함수 호출 실패: {e}")
-                # 대체 함수 시도
                 try:
                     if hasattr(sentiment_manager, 'process_monthly_transition'):
                         sentiment_manager.process_monthly_transition()
@@ -74,7 +73,6 @@ def main():
             print(f"[ERROR] SentimentDataManager 초기화 실패: {e}")
             if args.debug:
                 traceback.print_exc()
-            # 데이터 관리자 없이 계속 진행
             sentiment_manager = None
         
         # 사이트별 크롤링 실행
@@ -92,7 +90,6 @@ def main():
             all_posts.extend(korean_posts)
             print(f"[INFO] 한국 사이트: {len(korean_posts)}개 새 게시글")
             
-            # 크롤링 간 지연
             time.sleep(10)
             
             global_posts = crawl_global_sites()
@@ -133,7 +130,12 @@ def main():
                         if category in sentiment_posts:
                             sentiment_posts[category].append(post)
                             if args.debug:
-                                print(f"[SENTIMENT-{category.upper()}] {title[:50]}...")
+                                print(f"[SENTIMENT-{category}] {title[:50]}...")
+                        else:
+                            # 기타 카테고리는 중립으로 분류
+                            sentiment_posts["중립"].append(post)
+                            if args.debug:
+                                print(f"[SENTIMENT-중립] {title[:50]}...")
                         
             except Exception as e:
                 print(f"[ERROR] 게시글 분류 중 오류: {e}")
@@ -150,16 +152,19 @@ def main():
         print(f"  😞 부정: {len(sentiment_posts['부정'])}개")
         print(f"  📊 총 감성: {total_sentiment}개")
         
-        # 감성 데이터 저장 (SentimentDataManager 사용)
+        # 감성 데이터 저장 (SentimentDataManager 사용) - 수정된 부분
         if sentiment_manager and total_sentiment > 0:
             try:
+                # 감성 게시글들을 categories 형태로 변환
                 all_sentiment_posts = []
                 for category, posts in sentiment_posts.items():
                     for post in posts:
-                        post['category'] = category
-                        all_sentiment_posts.append(post)
+                        post_copy = post.copy()
+                        post_copy['category'] = category
+                        all_sentiment_posts.append(post_copy)
                 
-                sentiment_manager.save_sentiment_data(all_sentiment_posts)
+                # 수정된 호출 방식: posts와 categories 모두 전달
+                sentiment_manager.save_sentiment_data(all_sentiment_posts, sentiment_posts)
                 if args.debug:
                     print(f"[DEBUG] {len(all_sentiment_posts)}개 감성 데이터 저장 완료")
                     
@@ -182,7 +187,7 @@ def main():
                     if args.debug:
                         traceback.print_exc()
         
-        # 감성 동향 알림 전송 (새로운 기능)
+        # 감성 동향 알림 전송
         if total_sentiment > 0 and sentiment_webhook_url:
             if args.dry_run:
                 print(f"[DRY-RUN] {total_sentiment}개 감성 동향 알림 전송 시뮬레이션")
@@ -215,18 +220,6 @@ def main():
             print("[TEST] 사이트별 통계:")
             for source, count in site_stats.items():
                 print(f"  - {source}: {count}개")
-            
-            # 시스템 상태 보고
-            status_report = {
-                args.mode: {
-                    "success": True,
-                    "posts_count": len(all_posts),
-                    "bug_count": len(bug_posts),
-                    "sentiment_count": total_sentiment,
-                    "timestamp": datetime.now().isoformat()
-                }
-            }
-            print(f"[TEST] 사이트 상태: {status_report}")
         
         execution_time = time.time() - start_time
         print(f"[SUCCESS] 모니터링 완료 - 실행 시간: {execution_time:.2f}초")
@@ -237,7 +230,6 @@ def main():
     except Exception as e:
         print(f"[ERROR] 예상치 못한 오류: {e}")
         if args.debug:
-            import traceback
             traceback.print_exc()
         sys.exit(1)
 
