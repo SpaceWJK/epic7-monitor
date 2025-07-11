@@ -1,10 +1,9 @@
-[INFO] 일일 감성 동향 보고서 생성 시작 - 2025-07-11 14:45:33
+Traceback (most recent call last):
+  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 35, in main
+    yesterday_data = data_manager.get_daily_data(yesterday_key)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SentimentDataManager' object has no attribute 'get_daily_data'
+[INFO] 일일 감성 동향 보고서 생성 시작 - 2025-07-11 15:43:26
 [INFO] Discord 웹훅 설정됨: Yes
 [INFO] 전날 데이터 조회 중: 2025-07-10
-[INFO] 2025-07-10 데이터가 없습니다. 빈 보고서를 생성합니다.
-[INFO] 2025-07-10 데이터: 0개 게시글
-[INFO] 감성 분석 결과 (2025-07-10):
-  📊 분석된 게시글이 없습니다.
-[INFO] 일간 감성 동향 보고서 전송 시작
-[SUCCESS] 일간 감성 동향 보고서 전송 완료
-[SUCCESS] 일일 감성 동향 보고서 전송 완료
+[ERROR] 일일 감성 보고서 생성 중 치명적 오류: 'SentimentDataManager' object has no attribute 'get_daily_data'
