@@ -1,9 +1,4 @@
-Traceback (most recent call last):
-  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 35, in main
-    yesterday_data = data_manager.get_daily_data(yesterday_key)
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AttributeError: 'SentimentDataManager' object has no attribute 'get_daily_data'
-[INFO] 일일 감성 동향 보고서 생성 시작 - 2025-07-11 15:43:26
+[INFO] 일일 감성 동향 보고서 생성 시작 - 2025-07-11 16:48:18
 [INFO] Discord 웹훅 설정됨: Yes
-[INFO] 전날 데이터 조회 중: 2025-07-10
-[ERROR] 일일 감성 보고서 생성 중 치명적 오류: 'SentimentDataManager' object has no attribute 'get_daily_data'
+[INFO] 전날 데이터 없음, 현재 데이터 사용: 0개
+[INFO] 분석할 감성 데이터가 없습니다.
