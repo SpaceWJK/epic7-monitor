@@ -6,39 +6,78 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Monitor mode (arca/global/all)'
+        description: 'Monitor mode (korean/all)'
         required: true
-        default: 'all'
+        default: 'korean'
         type: choice
         options:
-        - arca
-        - global
+        - korean
         - all
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       matrix:
-        mode: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.mode)) || '["arca", "global"]' }}
+        mode: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.mode)) || '["korean", "all"]' }}
     
     env:
       TZ: Asia/Seoul
     
     steps:
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: 🔄 Sync with remote (Git conflict prevention)
+        run: |
+          git config --global user.email "epic7-monitor@github.com"
+          git config --global user.name "Epic7 Monitor Bot"
+          
+          echo "=== Git 상태 동기화 시작 ==="
+          git fetch origin main
+          
+          # 현재 상태와 원격 상태 비교
+          if ! git diff --quiet HEAD origin/main; then
+            echo "원격에 새로운 변경사항 발견, 동기화 진행"
+            
+            # 로컬 변경사항 임시 저장
+            if ! git diff --quiet; then
+              git stash push -m "Workflow auto-stash $(date)"
+              echo "로컬 변경사항 임시 저장됨"
+            fi
+            
+            # 원격 변경사항 적용
+            git reset --hard origin/main
+            echo "원격 상태로 리셋 완료"
+            
+            # 임시 저장된 변경사항 복원 시도
+            if git stash list | grep -q "Workflow auto-stash"; then
+              git stash pop || {
+                echo "충돌 발생, 수동 해결 필요"
+                git reset --hard HEAD
+                git clean -fd
+              }
+            fi
+          else
+            echo "원격과 동기화 상태 양호"
+          fi
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Chrome and ChromeDriver (Compatible Version)
+      - name: 🌐 Install Chrome and ChromeDriver (Enhanced)
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
@@ -48,40 +87,30 @@ jobs:
           CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
           echo "🌟 Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
           
-          # 기존 ChromeDriver 제거 (버전 충돌 방지)
-          sudo rm -f /usr/local/bin/chromedriver
+          # 기존 ChromeDriver 제거
+          sudo rm -f /usr/local/bin/chromedriver /usr/bin/chromedriver
           
-          # 정확히 매칭되는 ChromeDriver 버전 찾기
+          # ChromeDriver 버전 찾기
           echo "🔍 ChromeDriver 버전 탐색 중..."
-          
-          # 방법 1: 정확한 Chrome 버전과 매칭되는 ChromeDriver
           CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
           
-          # 방법 2: 정확한 버전이 없으면 안정 버전 사용
           if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
-            echo "⚠️ 정확한 버전을 찾을 수 없어 안정 버전 사용"
-            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
-          fi
-          
-          # 방법 3: 최후 수단으로 하드코딩된 안정 버전
-          if [ -z "$CHROMEDRIVER_VERSION" ]; then
-            CHROMEDRIVER_VERSION="119.0.6045.105"  # 알려진 안정 버전
-            echo "⚠️ 모든 API 실패, 하드코딩된 안정 버전 사용: $CHROMEDRIVER_VERSION"
+            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "121.0.6167.85")
+            echo "⚠️ 안정 버전 사용: $CHROMEDRIVER_VERSION"
           fi
           
           echo "✅ 선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
           
           # ChromeDriver 다운로드 및 설치
           DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
-          echo "📥 다운로드 URL: $DOWNLOAD_URL"
           
-          # 다운로드 시도
-          if wget -q --spider "$DOWNLOAD_URL"; then
+          if wget -q --spider "$DOWNLOAD_URL" 2>/dev/null; then
+            echo "다운로드 URL 확인됨: $DOWNLOAD_URL"
             wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-            sudo unzip /tmp/chromedriver.zip -d /tmp/
+            sudo unzip -q /tmp/chromedriver.zip -d /tmp/
             sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
             sudo chmod +x /usr/local/bin/chromedriver
-            echo "✅ ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+            echo "✅ ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null)"
           else
             echo "❌ 다운로드 실패, 우분투 패키지 사용"
             sudo apt-get install -y chromium-chromedriver
@@ -89,38 +118,122 @@ jobs:
           fi
           
           # 설치 확인
-          echo "🔍 설치된 ChromeDriver 경로:"
           which chromedriver || echo "PATH에서 찾을 수 없음"
           ls -la /usr/local/bin/chromedriver 2>/dev/null || echo "/usr/local/bin/chromedriver 없음"
-          ls -la /usr/bin/chromedriver 2>/dev/null || echo "/usr/bin/chromedriver 없음"
 
-      - name: Install dependencies
+      - name: 📦 Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt --timeout 60
+          echo "✅ Python 패키지 설치 완료"
 
-      - name: Run bug monitor - ${{ matrix.mode }}
+      - name: 🔍 Run bug monitor - ${{ matrix.mode }}
+        run: |
+          echo "=== Epic7 버그 모니터링 시작 ==="
+          echo "모드: ${{ matrix.mode }}"
+          echo "디버그: ${{ github.event.inputs.debug_mode }}"
+          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            echo "🐛 디버그 모드로 실행"
+            python monitor_bugs.py --mode ${{ matrix.mode }} --debug
+          else
+            python monitor_bugs.py --mode ${{ matrix.mode }}
+          fi
+          
+          echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-        run: python monitor_bugs.py --mode ${{ matrix.mode }}
+          PYTHONUNBUFFERED: 1
 
-      - name: Upload artifacts
-        if: always()
+      - name: 📊 Upload debug files (if debug mode)
+        if: github.event.inputs.debug_mode == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: monitor-${{ matrix.mode }}-${{ github.run_number }}
+          name: debug-files-${{ matrix.mode }}-${{ github.run_number }}
           path: |
-            *.html
+            *_debug_selenium.html
+            *_error_debug.html
             crawled_links.json
           retention-days: 7
 
-      - name: Commit changes
+      - name: 💾 Commit and push changes (Enhanced)
         run: |
-          git config --local user.email "epic7-monitor@github.com"
-          git config --local user.name "Epic7 Monitor Bot"
+          echo "=== Git 변경사항 처리 ==="
           
-          if [[ -n $(git status --porcelain) ]]; then
-            git add crawled_links.json
-            git commit -m "🔍 Update crawled links - ${{ matrix.mode }} [$(date '+%Y-%m-%d %H:%M:%S KST')]"
-            git push
+          git config --global user.email "epic7-monitor@github.com"
+          git config --global user.name "Epic7 Monitor Bot"
+          
+          # 변경된 파일 확인
+          git add -A
+          
+          if git diff --staged --quiet; then
+            echo "변경 사항 없음"
+          else
+            echo "변경 사항 발견, 커밋 진행"
+            git status --porcelain
+            
+            # 커밋 메시지 생성
+            COMMIT_MSG="🔍 Update crawled links - ${{ matrix.mode }} [$(date '+%Y-%m-%d %H:%M KST')]"
+            
+            if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+              COMMIT_MSG="$COMMIT_MSG (DEBUG)"
+            fi
+            
+            # 커밋 및 푸시 (충돌 해결 포함)
+            git commit -m "$COMMIT_MSG"
+            
+            # 푸시 재시도 로직 (최대 3회)
+            for i in {1..3}; do
+              if git push; then
+                echo "Git 푸시 성공"
+                break
+              else
+                echo "Git 푸시 실패, 재시도 ($i/3)"
+                
+                if [ $i -lt 3 ]; then
+                  # 원격 변경사항 가져오기
+                  git pull --rebase origin main || {
+                    echo "리베이스 실패, 강제 동기화"
+                    git fetch origin main
+                    git reset --hard origin/main
+                    
+                    # 현재 변경사항 다시 적용
+                    git add crawled_links.json
+                    git commit -m "$COMMIT_MSG" || echo "재커밋 실패"
+                  }
+                  sleep 5
+                else
+                  echo "최대 재시도 횟수 초과, 푸시 실패"
+                  exit 1
+                fi
+              fi
+            done
           fi
+
+      - name: 📈 Report status
+        if: always()
+        run: |
+          echo "=== 실행 결과 요약 ==="
+          echo "작업 상태: ${{ job.status }}"
+          echo "모드: ${{ matrix.mode }}"
+          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "워크플로우 번호: ${{ github.run_number }}"
+          echo "실행 ID: ${{ github.run_id }}"
+          
+          if [ -f "crawled_links.json" ]; then
+            LINK_COUNT=$(cat crawled_links.json | jq -r '.links | length' 2>/dev/null || echo "0")
+            LAST_UPDATE=$(cat crawled_links.json | jq -r '.last_updated' 2>/dev/null || echo "N/A")
+            echo "저장된 링크 수: $LINK_COUNT"
+            echo "마지막 업데이트: $LAST_UPDATE"
+          fi
+          
+          # 디버그 파일 확인
+          DEBUG_FILES=$(ls *_debug_selenium.html *_error_debug.html 2>/dev/null | wc -l)
+          echo "생성된 디버그 파일 수: $DEBUG_FILES"
+          
+          # 메모리 사용량 체크
+          echo "최종 메모리 사용량:"
+          free -h
+          
+          echo "✅ 워크플로우 성공적으로 완료"

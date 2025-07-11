@@ -1,4 +1,4 @@
-name: Epic Seven Daily Report (Enhanced)
+name: Epic Seven Daily Report (Enhanced & Stable)
 
 on:
   schedule:
@@ -11,11 +11,16 @@ on:
         required: false
         default: 'false'
         type: boolean
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   daily-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     
     env:
       TZ: Asia/Seoul
@@ -24,107 +29,255 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 3
           token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: 🔄 Sync with remote (Git conflict prevention)
+      - name: 🔄 Git 충돌 완전 해결 및 동기화
         run: |
+          echo "=== Git 충돌 완전 해결 시작 ==="
           git config --global user.email "epic7-report@github.com"
           git config --global user.name "Epic7 Daily Reporter"
-          git pull --rebase origin main || {
-            echo "Git pull failed, continuing with current state"
-          }
+          
+          # 현재 상태 저장
+          echo "현재 브랜치: $(git branch --show-current)"
+          echo "현재 커밋: $(git rev-parse HEAD)"
+          
+          # 원격 저장소 최신 정보 가져오기
+          git fetch origin main
+          
+          # 로컬 변경사항 임시 저장
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "로컬 변경사항 임시 저장 중..."
+            git stash push -m "Auto-stash before daily report $(date)"
+          fi
+          
+          # 강제 동기화 (충돌 방지)
+          echo "원격 저장소와 강제 동기화 중..."
+          git reset --hard origin/main
+          git clean -fd
+          
+          # 임시 저장된 변경사항이 있다면 복원 시도
+          if git stash list | grep -q "Auto-stash before daily report"; then
+            echo "임시 저장된 변경사항 복원 시도 중..."
+            git stash pop || {
+              echo "충돌 발생, 수동 해결 필요 없음 - 최신 상태 유지"
+              git stash drop
+            }
+          fi
+          
+          echo "Git 동기화 완료"
 
-      - name: 🐍 Set up Python
+      - name: 🐍 Python 환경 설정 (최적화)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
-      - name: 🌐 Install Chrome (Simplified)
+      - name: 🌐 Chrome/ChromeDriver 설치 (안정성 강화)
         run: |
-          echo "=== Chrome 설치 시작 ==="
+          echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
+          
+          # Chrome 설치
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
-          echo "Chrome 설치 완료: $(google-chrome --version)"
+          
+          # Chrome 버전 확인
+          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
+          echo "✅ Chrome 설치됨: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
+          
+          # 기존 ChromeDriver 제거
+          sudo rm -f /usr/local/bin/chromedriver /usr/bin/chromedriver
+          
+          # ChromeDriver 설치 (다중 방법)
+          echo "🔍 ChromeDriver 설치 중..."
+          
+          # 방법 1: 정확한 버전 매칭
+          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" 2>/dev/null || echo "")
+          
+          # 방법 2: 안정 버전 사용
+          if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
+            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" 2>/dev/null || echo "121.0.6167.85")
+            echo "⚠️ 안정 버전 사용: $CHROMEDRIVER_VERSION"
+          fi
+          
+          # ChromeDriver 다운로드 및 설치
+          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          
+          if wget -q --spider "$DOWNLOAD_URL" 2>/dev/null; then
+            echo "📥 ChromeDriver 다운로드: $CHROMEDRIVER_VERSION"
+            wget -q -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+            sudo unzip -q /tmp/chromedriver.zip -d /tmp/
+            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
+            sudo chmod +x /usr/local/bin/chromedriver
+            echo "✅ ChromeDriver 설치 완료"
+          else
+            echo "❌ 다운로드 실패, 시스템 패키지 사용"
+            sudo apt-get install -y chromium-chromedriver
+            sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+          fi
+          
+          # 설치 확인
+          echo "🔍 설치 확인:"
+          which chromedriver && chromedriver --version || echo "ChromeDriver 확인 실패"
+          
+          echo "Chrome 및 ChromeDriver 설치 완료"
 
-      - name: 📦 Install dependencies
+      - name: 📦 Python 의존성 설치 (캐시 최적화)
         run: |
+          echo "=== Python 의존성 설치 시작 ==="
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          echo "Python 패키지 설치 완료"
+          
+          # requirements.txt 존재 확인
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+            echo "✅ 의존성 설치 완료"
+          else
+            echo "❌ requirements.txt 파일을 찾을 수 없음"
+            exit 1
+          fi
+          
+          # 설치된 패키지 확인
+          echo "📋 설치된 주요 패키지:"
+          pip list | grep -E "(requests|selenium|beautifulsoup4|discord)" || echo "일부 패키지 누락"
 
-      - name: 📊 Generate daily report
+      - name: 📊 일일 감성 동향 리포트 생성
+        env:
+          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
         run: |
           echo "=== 일일 리포트 생성 시작 ==="
           echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
           echo "강제 실행: ${{ github.event.inputs.force_report }}"
+          echo "디버그 모드: ${{ github.event.inputs.debug_mode }}"
           
-          python generate_report.py
+          # 환경변수 확인
+          if [ -z "$DISCORD_WEBHOOK_REPORT" ]; then
+            echo "❌ DISCORD_WEBHOOK_REPORT 환경변수가 설정되지 않음"
+            exit 1
+          fi
+          
+          # 일일 리포트 생성 실행
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            echo "🐛 디버그 모드로 실행"
+            python generate_report.py --debug 2>&1 | tee daily_report_debug.log
+          else
+            python generate_report.py
+          fi
           
           echo "일일 리포트 생성 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
-        env:
-          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-          PYTHONUNBUFFERED: 1
 
-      - name: 📂 Upload report artifacts
-        if: always()
+      - name: 📤 디버그 파일 업로드 (조건부)
+        if: github.event.inputs.debug_mode == 'true' || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-report-${{ github.run_number }}
+          name: daily-report-debug-${{ github.run_number }}
           path: |
-            *_debug_selenium.html
-            *_error_debug.html
-            crawled_links.json
+            *.html
             *.log
-          retention-days: 30
+            crawled_links.json
+          retention-days: 14
+          if-no-files-found: warn
 
-      - name: 💾 Commit and push changes
+      - name: 📋 시스템 상태 체크
+        if: always()
+        run: |
+          echo "=== 시스템 상태 체크 ==="
+          echo "📅 실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "💾 메모리 사용량:"
+          free -h
+          echo "💿 디스크 사용량:"
+          df -h / | tail -1
+          echo "🔗 저장된 링크 파일 상태:"
+          if [ -f "crawled_links.json" ]; then
+            echo "✅ crawled_links.json 존재 ($(stat -c%s crawled_links.json) bytes)"
+            echo "📊 저장된 링크 수: $(cat crawled_links.json | jq -r '.links | length' 2>/dev/null || echo 'N/A')"
+          else
+            echo "❌ crawled_links.json 없음"
+          fi
+          
+          echo "🌐 네트워크 연결 테스트:"
+          curl -s --max-time 5 https://page.onstove.com > /dev/null && echo "✅ 스토브 연결 가능" || echo "❌ 스토브 연결 실패"
+          curl -s --max-time 5 https://bbs.ruliweb.com > /dev/null && echo "✅ 루리웹 연결 가능" || echo "❌ 루리웹 연결 실패"
+
+      - name: 💾 변경사항 커밋 (충돌 방지)
         run: |
           echo "=== Git 변경사항 처리 ==="
           
-          # 변경된 파일 확인
-          git add -A
+          # 원격 저장소 최신 상태 확인
+          git fetch origin main
           
-          if git diff --staged --quiet; then
-            echo "변경 사항 없음"
-          else
+          # 변경사항이 있는지 확인
+          if [[ -n $(git status --porcelain) ]]; then
             echo "변경 사항 발견, 커밋 진행"
             git status --porcelain
             
-            COMMIT_MSG="📊 일일 리포트 생성 - $(date '+%Y-%m-%d %H:%M KST')"
-            git commit -m "$COMMIT_MSG"
+            # 변경사항 스테이징
+            git add crawled_links.json *.html *.log 2>/dev/null || true
             
-            # 푸시 재시도 로직 (Git 충돌 해결)
-            for i in {1..5}; do
-              if git push; then
-                echo "Git 푸시 완료"
+            # 커밋 메시지 생성
+            COMMIT_MSG="📊 일일 리포트 생성 - $(date '+%Y-%m-%d %H:%M KST')"
+            if [ "${{ github.event.inputs.force_report }}" = "true" ]; then
+              COMMIT_MSG="$COMMIT_MSG (강제실행)"
+            fi
+            if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+              COMMIT_MSG="$COMMIT_MSG (디버그)"
+            fi
+            
+            # 충돌 방지 푸시 (최대 3회 시도)
+            for attempt in {1..3}; do
+              echo "푸시 시도 $attempt/3"
+              
+              # 원격 변경사항이 있는지 확인
+              git fetch origin main
+              if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+                echo "원격 저장소에 새로운 변경사항 발견, 리베이스 시도"
+                
+                # 안전한 리베이스
+                git pull --rebase origin main || {
+                  echo "리베이스 실패, 강제 동기화 후 재시도"
+                  git rebase --abort 2>/dev/null || true
+                  git stash push -m "Temp stash for force sync" 2>/dev/null || true
+                  git reset --hard origin/main
+                  git stash pop 2>/dev/null || true
+                  git add crawled_links.json *.html *.log 2>/dev/null || true
+                }
+              fi
+              
+              # 커밋 및 푸시
+              git commit -m "$COMMIT_MSG" 2>/dev/null || {
+                echo "커밋할 변경사항이 없음"
+                break
+              }
+              
+              if git push origin main; then
+                echo "✅ Git 푸시 성공"
                 break
               else
-                echo "Git 푸시 실패, 재시도 ($i/5)"
-                git pull --rebase origin main
-                sleep $((i * 2))
+                echo "❌ Git 푸시 실패, 재시도 중..."
+                if [ $attempt -eq 3 ]; then
+                  echo "💥 최대 재시도 횟수 도달, 푸시 실패"
+                  exit 1
+                fi
+                sleep 5
               fi
             done
+          else
+            echo "변경 사항 없음"
           fi
 
-      - name: 📈 Daily report summary
+      - name: 📈 실행 결과 요약
         if: always()
         run: |
-          echo "=== 일일 리포트 실행 결과 ==="
-          echo "작업 상태: ${{ job.status }}"
-          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "워크플로우 번호: ${{ github.run_number }}"
-          
-          if [ -f "crawled_links.json" ]; then
-            LINK_COUNT=$(cat crawled_links.json | jq '.links | length' 2>/dev/null || echo "0")
-            echo "저장된 링크 수: $LINK_COUNT"
-          fi
-          
-          echo "📬 Discord 웹훅으로 리포트 전송 완료"
+          echo "=== 일일 리포트 워크플로우 완료 ==="
+          echo "📅 완료 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "📊 작업 상태: ${{ job.status }}"
+          echo "🔗 실행 ID: ${{ github.run_id }}"
+          echo "📝 워크플로우 번호: ${{ github.run_number }}"
           
           if [ "${{ job.status }}" = "success" ]; then
-            echo "✅ 일일 리포트 성공적으로 완료"
+            echo "✅ 일일 리포트 생성 및 전송 완료"
           else
-            echo "❌ 일일 리포트 실행 중 오류 발생"
+            echo "❌ 일일 리포트 처리 중 오류 발생"
+            echo "🔍 로그를 확인하여 문제를 파악하세요"
           fi
