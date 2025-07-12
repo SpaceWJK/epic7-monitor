@@ -36,6 +36,15 @@
         "source": "stove_general",
         "category": "중립"
       }
+    ],
+    "2025-07-12": [
+      {
+        "timestamp": "2025-07-12T01:51:40.739078",
+        "title": "뽑기 6일차",
+        "url": "https://page.onstove.com/epicseven/kr/view/10873229",
+        "source": "stove_general",
+        "category": "중립"
+      }
     ]
   },
   "monthly_data": {}
