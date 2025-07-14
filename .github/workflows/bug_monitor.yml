@@ -144,6 +144,8 @@ jobs:
           echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
           PYTHONUNBUFFERED: 1
 
       - name: 📊 Upload debug files (if debug mode)

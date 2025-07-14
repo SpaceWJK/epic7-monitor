@@ -18,9 +18,38 @@ import requests
 import hashlib
 from typing import Dict, List, Optional, Tuple
 
+# 워크플로우별 독립적인 링크 저장 파일
+def get_crawled_links_file():
+    """워크플로우별 독립적인 크롤링 링크 파일명 생성"""
+    workflow_name = os.environ.get('GITHUB_WORKFLOW', 'default')
+    run_context = os.environ.get('GITHUB_RUN_NUMBER', 'local')
+    
+    # 워크플로우별 파일 분리
+    if 'debug' in workflow_name.lower() or 'test' in workflow_name.lower():
+        return f"crawled_links_debug_{run_context}.json"
+    elif 'korean' in workflow_name.lower():
+        return "crawled_links_korean.json"
+    elif 'unified' in workflow_name.lower() or 'monitor' in workflow_name.lower():
+        return "crawled_links_monitor.json"
+    else:
+        return "crawled_links.json"
+
+def get_content_cache_file():
+    """워크플로우별 독립적인 콘텐츠 캐시 파일명 생성"""
+    workflow_name = os.environ.get('GITHUB_WORKFLOW', 'default')
+    
+    if 'debug' in workflow_name.lower() or 'test' in workflow_name.lower():
+        return "content_cache_debug.json"
+    elif 'korean' in workflow_name.lower():
+        return "content_cache_korean.json"
+    elif 'unified' in workflow_name.lower() or 'monitor' in workflow_name.lower():
+        return "content_cache_monitor.json"
+    else:
+        return "content_cache.json"
+
 # 중복 방지를 위한 링크 저장 파일
-CRAWLED_LINKS_FILE = "crawled_links.json"
-CONTENT_CACHE_FILE = "content_cache.json"
+CRAWLED_LINKS_FILE = get_crawled_links_file()
+CONTENT_CACHE_FILE = get_content_cache_file()
 
 def load_crawled_links():
     """이미 크롤링된 링크들을 로드"""

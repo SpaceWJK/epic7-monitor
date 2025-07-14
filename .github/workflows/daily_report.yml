@@ -24,6 +24,9 @@ jobs:
     
     env:
       TZ: Asia/Seoul
+      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+      DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+      DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
     
     steps:
       - name: 📥 Checkout repository
@@ -145,6 +148,8 @@ jobs:
       - name: 📊 일일 감성 동향 리포트 생성
         env:
           DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         run: |
           echo "=== 일일 리포트 생성 시작 ==="
           echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
