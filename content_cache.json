@@ -13,5 +13,11 @@
     "content": "Install STOVE...",
     "timestamp": "2025-07-14T13:39:17.493527",
     "url": "https://page.onstove.com/epicseven/kr/view/10863437"
+  },
+  "f6aeeaf21dd27cfb70786894d6048324": {
+    "content": "커뮤니티 게시판 글상세 글상세 자유 게시판 1주차 뉴비 생존신고 1 Rank 66 다니카다니카250707 07...",
+    "timestamp": "2025-07-14T07:38:21.464987",
+    "url": "https://page.onstove.com/epicseven/kr/view/10881114",
+    "selector_used": "div.s-board-content"
   }
 }
