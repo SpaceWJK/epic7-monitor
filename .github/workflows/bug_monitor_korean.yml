@@ -2,7 +2,7 @@ name: Bug Monitor Korean Sites (Enhanced)
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 15분마다 실행
+    - cron: '*/30 * * * *'  # 30분마다 실행 (15분에서 변경)
   workflow_dispatch:        # 수동 실행 가능
     inputs:
       debug_mode:
@@ -71,7 +71,7 @@ jobs:
         echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
       env:
         DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-        DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}  # 추가!
+        DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
         DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
         PYTHONUNBUFFERED: 1
     

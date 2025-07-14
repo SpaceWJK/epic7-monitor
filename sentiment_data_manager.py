@@ -29,173 +29,185 @@ class SentimentDataManager:
         except Exception as e:
             print(f"[ERROR] 데이터 저장 실패: {e}")
     
-    def get_current_date_key(self) -> str:
-        """현재 날짜 키 반환 (KST 기준)"""
-        return datetime.now().strftime('%Y-%m-%d')
+    def add_post(self, title: str, url: str, site: str, sentiment: str, timestamp: str = None):
+        """게시글 감성 데이터 추가"""
+        if timestamp is None:
+            timestamp = datetime.now().isoformat()
+        
+        # 날짜별 데이터 구조화
+        date_key = timestamp[:10]  # YYYY-MM-DD
+        
+        if "current_data" not in self.data:
+            self.data["current_data"] = {}
+        
+        if date_key not in self.data["current_data"]:
+            self.data["current_data"][date_key] = []
+        
+        post_data = {
+            "title": title,
+            "url": url,
+            "site": site,
+            "sentiment": sentiment,
+            "timestamp": timestamp
+        }
+        
+        self.data["current_data"][date_key].append(post_data)
+        print(f"[DEBUG] 감성 데이터 추가: {date_key} - {sentiment} - {title[:30]}...")
     
-    def get_current_month_key(self) -> str:
-        """현재 월 키 반환"""
-        return datetime.now().strftime('%Y-%m')
-    
-    def save_sentiment_data(self, posts: List[Dict], categories: Dict[str, List[Dict]]):
-        """감성 데이터 저장"""
-        try:
-            current_date = self.get_current_date_key()
-            
-            # current_data 초기화
-            if "current_data" not in self.data:
-                self.data["current_data"] = {}
-            
-            if current_date not in self.data["current_data"]:
-                self.data["current_data"][current_date] = []
-            
-            # 감성 분류된 게시글들을 저장
-            for category, category_posts in categories.items():
-                if category == "버그":  # 버그는 제외
-                    continue
-                    
-                for post in category_posts:
-                    sentiment_data = {
-                        "timestamp": datetime.now().isoformat(),
-                        "title": post.get("title", ""),
-                        "url": post.get("url", ""),
-                        "source": post.get("source", ""),
-                        "category": category
-                    }
-                    self.data["current_data"][current_date].append(sentiment_data)
-            
-            self.save_data()
-            print(f"[DEBUG] 감성 데이터 저장 완료: {current_date}")
-            
-        except Exception as e:
-            print(f"[ERROR] 감성 데이터 저장 실패: {e}")
-            raise
-    
-    def get_daily_data(self, date_key: str) -> List[Dict]:
+    def get_daily_data(self, date_str: str) -> List[Dict]:
         """특정 날짜의 데이터 조회"""
-        try:
-            # current_data에서 먼저 확인
-            if "current_data" in self.data and date_key in self.data["current_data"]:
-                return self.data["current_data"][date_key]
-            
-            # monthly_data에서 확인
-            if "monthly_data" in self.data:
-                month_key = date_key[:7]  # YYYY-MM 추출
-                if month_key in self.data["monthly_data"]:
-                    if date_key in self.data["monthly_data"][month_key]:
-                        return self.data["monthly_data"][month_key][date_key]
-            
-            return []
-            
-        except Exception as e:
-            print(f"[ERROR] 일간 데이터 조회 실패: {e}")
-            return []
+        return self.data.get("current_data", {}).get(date_str, [])
     
-    def get_monthly_data(self, month_key: str) -> Dict[str, List[Dict]]:
-        """특정 월의 데이터 조회"""
-        try:
-            if "monthly_data" in self.data and month_key in self.data["monthly_data"]:
-                return self.data["monthly_data"][month_key]
-            return {}
-        except Exception as e:
-            print(f"[ERROR] 월간 데이터 조회 실패: {e}")
-            return {}
-    
-    def process_daily_transition(self):
-        """매일 9시 실행: 전날 데이터를 완료 처리"""
-        try:
-            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-            current_month = datetime.now().strftime('%Y-%m')
+    def get_daily_data_range(self, start_datetime: datetime, end_datetime: datetime) -> List[Dict]:
+        """24시간 범위의 데이터 조회 (새로운 함수)"""
+        all_data = []
+        
+        # 시작일과 종료일 사이의 모든 데이터 수집
+        current_date = start_datetime.date()
+        end_date = end_datetime.date()
+        
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            daily_data = self.get_daily_data(date_str)
             
-            if "current_data" in self.data and yesterday in self.data["current_data"]:
-                # monthly_data 초기화
+            for item in daily_data:
+                try:
+                    item_datetime = datetime.fromisoformat(item.get('timestamp', ''))
+                    # 지정된 시간 범위 내의 데이터만 포함
+                    if start_datetime <= item_datetime <= end_datetime:
+                        all_data.append(item)
+                except:
+                    # 타임스탬프 파싱 실패 시 무시
+                    continue
+            
+            current_date += timedelta(days=1)
+        
+        print(f"[DEBUG] 24시간 범위 데이터 조회: {len(all_data)}개 항목")
+        return all_data
+    
+    def get_recent_data(self, hours: int = 24) -> List[Dict]:
+        """최근 N시간 데이터 조회"""
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=hours)
+        return self.get_daily_data_range(start_time, end_time)
+    
+    def cleanup_old_data(self, keep_months: int = 2):
+        """오래된 데이터 정리 (2개월 이상 된 데이터 삭제)"""
+        try:
+            cutoff_date = datetime.now() - timedelta(days=keep_months * 30)
+            cutoff_str = cutoff_date.strftime('%Y-%m')
+            
+            current_data = self.data.get("current_data", {})
+            dates_to_remove = []
+            
+            for date_str in current_data.keys():
+                if date_str < cutoff_str:
+                    dates_to_remove.append(date_str)
+            
+            if dates_to_remove:
+                # 월간 데이터로 아카이브
                 if "monthly_data" not in self.data:
                     self.data["monthly_data"] = {}
                 
-                if current_month not in self.data["monthly_data"]:
-                    self.data["monthly_data"][current_month] = {}
+                for date_str in dates_to_remove:
+                    month_key = date_str[:7]  # YYYY-MM
+                    
+                    if month_key not in self.data["monthly_data"]:
+                        self.data["monthly_data"][month_key] = []
+                    
+                    # 월간 요약 데이터 생성
+                    daily_data = current_data[date_str]
+                    summary = self._create_daily_summary(daily_data, date_str)
+                    self.data["monthly_data"][month_key].append(summary)
+                    
+                    # 상세 데이터 삭제
+                    del current_data[date_str]
                 
-                # 전날 데이터를 월간 데이터로 이동
-                self.data["monthly_data"][current_month][yesterday] = self.data["current_data"][yesterday]
-                
-                # current_data에서 전날 데이터 제거
-                del self.data["current_data"][yesterday]
-                
+                print(f"[INFO] 정리된 오래된 데이터: {len(dates_to_remove)}일치")
                 self.save_data()
-                print(f"[DEBUG] 일간 라벨링 완료: {yesterday} → {current_month}")
-            
-        except Exception as e:
-            print(f"[ERROR] 일간 전환 처리 실패: {e}")
-    
-    def process_monthly_transition(self):
-        """매월 1일 실행: 전월 데이터 확정 및 오래된 데이터 삭제"""
-        try:
-            current_date = datetime.now()
-            last_month = (current_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
-            two_months_ago = (current_date.replace(day=1) - timedelta(days=32)).strftime('%Y-%m')
-            
-            # 2개월 전 데이터 삭제
-            if "monthly_data" in self.data and two_months_ago in self.data["monthly_data"]:
-                del self.data["monthly_data"][two_months_ago]
-                print(f"[DEBUG] 오래된 월간 데이터 삭제: {two_months_ago}")
-            
-            self.save_data()
-            print(f"[DEBUG] 월간 전환 완료: {last_month} 확정")
-            
-        except Exception as e:
-            print(f"[ERROR] 월간 전환 처리 실패: {e}")
-    
-    def cleanup_old_monthly_data(self):
-        """오래된 월간 데이터 정리 (2개월 초과 데이터 삭제)"""
-        try:
-            current_date = datetime.now()
-            cutoff_date = current_date - timedelta(days=62)  # 약 2개월
-            cutoff_month = cutoff_date.strftime('%Y-%m')
-            
-            if "monthly_data" not in self.data:
-                print("[DEBUG] 월간 데이터 없음")
-                return
-            
-            months_to_delete = []
-            for month_key in self.data["monthly_data"]:
-                if month_key < cutoff_month:
-                    months_to_delete.append(month_key)
-            
-            for month_key in months_to_delete:
-                del self.data["monthly_data"][month_key]
-                print(f"[DEBUG] 오래된 데이터 삭제: {month_key}")
-            
-            if months_to_delete:
-                self.save_data()
-                print(f"[DEBUG] {len(months_to_delete)}개 월간 데이터 정리 완료")
             else:
-                current_month = current_date.strftime('%Y-%m')
-                last_month = (current_date.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
-                print(f"[INFO] 정리할 오래된 데이터 없음 (유지: {last_month}, {current_month})")
-            
+                current_month = datetime.now().strftime('%Y-%m')
+                prev_month = (datetime.now() - timedelta(days=30)).strftime('%Y-%m')
+                print(f"[INFO] 정리할 오래된 데이터 없음 (유지: {prev_month}, {current_month})")
+                
         except Exception as e:
-            print(f"[ERROR] 월간 데이터 정리 실패: {e}")
+            print(f"[ERROR] 데이터 정리 실패: {e}")
     
-    def get_statistics(self) -> Dict[str, Any]:
-        """전체 통계 조회"""
-        try:
-            stats = {
-                "current_data_days": len(self.data.get("current_data", {})),
-                "monthly_data_months": len(self.data.get("monthly_data", {})),
-                "total_posts": 0
-            }
+    def _create_daily_summary(self, daily_data: List[Dict], date_str: str) -> Dict:
+        """일간 데이터 요약 생성"""
+        total_posts = len(daily_data)
+        
+        sentiment_counts = {"긍정": 0, "부정": 0, "중립": 0}
+        site_counts = {}
+        
+        for post in daily_data:
+            sentiment = post.get("sentiment", "중립")
+            site = post.get("site", "알 수 없음")
             
-            # current_data 게시글 수 계산
-            for date_posts in self.data.get("current_data", {}).values():
-                stats["total_posts"] += len(date_posts)
+            sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+            site_counts[site] = site_counts.get(site, 0) + 1
+        
+        return {
+            "date": date_str,
+            "total_posts": total_posts,
+            "sentiment_counts": sentiment_counts,
+            "site_counts": site_counts,
+            "created_at": datetime.now().isoformat()
+        }
+    
+    def get_monthly_summary(self, month_str: str) -> Optional[Dict]:
+        """월간 요약 데이터 조회"""
+        return self.data.get("monthly_data", {}).get(month_str)
+    
+    def get_statistics(self, days: int = 7) -> Dict:
+        """최근 N일간 통계 조회"""
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        total_posts = 0
+        sentiment_counts = {"긍정": 0, "부정": 0, "중립": 0}
+        site_counts = {}
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            daily_data = self.get_daily_data(date_str)
             
-            # monthly_data 게시글 수 계산
-            for month_data in self.data.get("monthly_data", {}).values():
-                for date_posts in month_data.values():
-                    stats["total_posts"] += len(date_posts)
+            total_posts += len(daily_data)
             
-            return stats
+            for post in daily_data:
+                sentiment = post.get("sentiment", "중립")
+                site = post.get("site", "알 수 없음")
+                
+                sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+                site_counts[site] = site_counts.get(site, 0) + 1
             
-        except Exception as e:
-            print(f"[ERROR] 통계 조회 실패: {e}")
-            return {}
+            current_date += timedelta(days=1)
+        
+        return {
+            "period": f"{start_date} ~ {end_date}",
+            "total_posts": total_posts,
+            "sentiment_counts": sentiment_counts,
+            "site_counts": site_counts
+        }
+
+if __name__ == "__main__":
+    # 테스트 코드
+    manager = SentimentDataManager()
+    
+    # 테스트 데이터 추가
+    manager.add_post(
+        title="테스트 게시글",
+        url="https://example.com",
+        site="테스트사이트",
+        sentiment="긍정"
+    )
+    
+    # 24시간 범위 조회 테스트
+    now = datetime.now()
+    yesterday = now - timedelta(days=1)
+    range_data = manager.get_daily_data_range(yesterday, now)
+    print(f"24시간 범위 데이터: {len(range_data)}개")
+    
+    manager.save_data()
+    print("sentiment_data_manager.py 테스트 완료")

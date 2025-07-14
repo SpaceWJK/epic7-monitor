@@ -29,326 +29,200 @@ def get_stove_post_content(post_url):
             
             for selector in title_selectors:
                 title_elem = soup.select_one(selector)
-                if title_elem:
-                    title = title_elem.get_text(strip=True)
-                    if title and len(title) > 5:
-                        print(f"[DEBUG] 제목 추출 성공: {title[:30]}...")
-                        return f"제목: {title}"
-        
-        # JavaScript 동적 로딩으로 인한 내용 추출 불가 안내
-        print(f"[INFO] 스토브 게시글은 동적 로딩으로 내용 추출 불가")
-        return "스토브 게시글은 JavaScript로 동적 로딩되어 내용을 직접 추출할 수 없습니다. 링크를 클릭하여 확인하세요."
-        
-    except requests.exceptions.Timeout:
-        print(f"[WARN] 게시글 요청 시간 초과: {post_url}")
-        return "게시글 로딩 시간 초과 - 링크를 클릭하여 확인하세요."
-    except requests.exceptions.RequestException as e:
-        print(f"[WARN] 게시글 접근 실패: {e}")
-        return "게시글 접근 불가 - 링크를 클릭하여 확인하세요."
-    except Exception as e:
-        print(f"[ERROR] 게시글 처리 중 오류: {e}")
-        return "게시글 내용 확인을 위해 링크를 클릭하세요."
-
-def get_post_content_summary(post_url, source):
-    """게시글 내용 요약 (소스별 처리)"""
-    try:
-        if source in ['stove_bug', 'stove_general']:
-            return get_stove_post_content(post_url)
+                if title_elem and title_elem.get_text(strip=True):
+                    title_text = title_elem.get_text(strip=True)
+                    if len(title_text) > 10:  # 의미있는 제목인지 확인
+                        return title_text[:100]  # 100자로 제한
+            
+            return "스토브 게시글"
         else:
-            # 기타 사이트는 기본 처리
-            return "게시글 내용을 확인하세요."
+            return f"접근 불가 ({response.status_code})"
+            
     except Exception as e:
-        print(f"[ERROR] 게시글 내용 요약 실패: {e}")
+        print(f"[ERROR] 스토브 내용 추출 실패: {e}")
         return "내용 확인 불가"
 
-def send_bug_alert(webhook_url, bugs):
-    """버그 알림 전송 (개선된 내용 표시 포함)"""
-    if not webhook_url or not bugs:
-        return
-    
-    try:
-        MAX_MESSAGE_LENGTH = 1900
-        current_message = "🚨 **에픽세븐 버그 탐지 알림** 🚨\n\n"
-        message_count = 1
-        
-        for bug in bugs:
-            try:
-                source_type = get_source_type_korean(bug.get('source', 'unknown'))
-                formatted_time = format_timestamp(bug.get('timestamp', ''))
-                
-                # 게시글 내용 추출 (개선된 방식)
-                content_summary = get_post_content_summary(bug.get('url', ''), bug.get('source', ''))
-                
-                bug_info = f"""**분류**: {source_type}
-**제목**: {bug['title'][:80]}{'...' if len(bug['title']) > 80 else ''}
-**시간**: {formatted_time}
-**내용**: {content_summary}
-**URL**: {bug['url']}
-
-"""
-                
-                if len(current_message + bug_info) > MAX_MESSAGE_LENGTH:
-                    send_discord_message(webhook_url, current_message, message_count)
-                    message_count += 1
-                    current_message = f"🚨 **버그 알림 계속 ({message_count})** 🚨\n\n" + bug_info
-                else:
-                    current_message += bug_info
-                    
-            except Exception as e:
-                print(f"[ERROR] 개별 버그 메시지 처리 중 오류: {e}")
-                continue
-        
-        if current_message.strip():
-            send_discord_message(webhook_url, current_message, message_count)
-                
-    except Exception as e:
-        print(f"[ERROR] Discord 버그 알림 전송 중 오류: {e}")
-
-def send_sentiment_alert(webhook_url, sentiment_posts):
-    """유저 동향 실시간 알림 전송"""
-    if not webhook_url or not sentiment_posts:
-        return
-    
-    try:
-        print(f"[INFO] 유저 동향 알림 전송 시작")
-        
-        # 카테고리별 분류
-        categorized = {"긍정": [], "중립": [], "부정": []}
-        total_posts = 0
-        
-        for category, posts in sentiment_posts.items():
-            if category in categorized:
-                categorized[category] = posts
-                total_posts += len(posts)
-        
-        if total_posts == 0:
-            print("[INFO] 전송할 감성 게시글이 없습니다.")
-            return
-        
-        # 메시지 구성
-        current_time = datetime.now().strftime('%H:%M')
-        
-        embed = {
-            "title": "📊 에픽세븐 유저 동향 알림",
-            "description": f"🕒 **{current_time}** 크롤링 결과",
-            "color": get_sentiment_color(categorized),
-            "fields": [],
-            "timestamp": datetime.now().isoformat(),
-            "footer": {
-                "text": "Epic7 유저 동향 모니터링 시스템"
-            }
-        }
-        
-        # 카테고리별 필드 추가
-        for category, posts in categorized.items():
-            if posts:
-                emoji = get_category_emoji(category)
-                percentage = (len(posts) / total_posts * 100) if total_posts > 0 else 0
-                
-                # 상위 3개 게시글
-                top_posts = []
-                for i, post in enumerate(posts[:3], 1):
-                    title = post['title'][:40] + "..." if len(post['title']) > 40 else post['title']
-                    source = get_source_type_korean(post.get('source', ''))
-                    top_posts.append(f"{i}. {title} ({source})")
-                
-                if len(posts) > 3:
-                    top_posts.append(f"... 외 {len(posts) - 3}개")
-                
-                field_value = f"**{len(posts)}개** ({percentage:.1f}%)\n" + "\n".join(top_posts)
-                
-                embed["fields"].append({
-                    "name": f"{emoji} {category}",
-                    "value": field_value,
-                    "inline": True
-                })
-        
-        # 전체 통계 추가
-        if total_posts > 0:
-            embed["fields"].append({
-                "name": "📈 전체 통계",
-                "value": f"총 {total_posts}개 게시글 분석 완료",
-                "inline": False
-            })
-        
-        # Discord 전송
-        data = {
-            "embeds": [embed],
-            "username": "Epic7 유저 동향 모니터",
-            "avatar_url": "https://cdn.discordapp.com/attachments/123456789/123456789/epic7_logo.png"
-        }
-        
-        response = requests.post(webhook_url, json=data, timeout=15)
-        if response.status_code == 204:
-            print(f"[SUCCESS] 유저 동향 알림 전송 성공: {total_posts}개 게시글")
-        else:
-            print(f"[WARN] 유저 동향 알림 전송 실패: {response.status_code}")
-            
-    except Exception as e:
-        print(f"[ERROR] 유저 동향 알림 전송 중 오류: {e}")
-
-def get_sentiment_color(categorized):
-    """감성 비율에 따른 색상 결정"""
-    total = sum(len(posts) for posts in categorized.values())
-    if total == 0:
-        return 0x808080  # 회색
-    
-    positive_ratio = len(categorized['긍정']) / total
-    negative_ratio = len(categorized['부정']) / total
-    
-    if positive_ratio > 0.5:
-        return 0x00ff00  # 녹색 (긍정 우세)
-    elif negative_ratio > 0.4:
-        return 0xff4444  # 빨간색 (부정 우세)
-    else:
-        return 0x4488ff  # 파란색 (중립/혼재)
-
-def send_daily_report(webhook_url, report_data):
-    """일간 감성 동향 보고서 전송"""
+def send_discord_message(webhook_url, content):
+    """Discord 웹훅으로 메시지 전송"""
     if not webhook_url:
-        return
+        print("[WARNING] Discord 웹훅 URL이 설정되지 않음")
+        return False
         
     try:
-        print("[INFO] 일간 감성 동향 보고서 전송 시작")
+        payload = {"content": content}
+        response = requests.post(webhook_url, json=payload, timeout=10)
         
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S KST')
-        
-        # 리포트 데이터 처리
-        if isinstance(report_data, dict) and 'sentiment_report' in report_data:
-            # 새로운 형식 (감성 분석 데이터)
-            sentiment_report = report_data['sentiment_report']
-            analysis = report_data.get('analysis', {})
-            bug_count = report_data.get('bug_count', 0)
-        else:
-            # 기존 형식 호환
-            sentiment_report = report_data
-            analysis = {}
-            bug_count = 0
-        
-        total_posts = sum(len(posts) for posts in sentiment_report.values())
-        
-        # Embed 구성
-        embed = {
-            "title": "📊 에픽세븐 일간 감성 동향 보고서",
-            "description": f"📅 **{current_time}**\n📈 **분석 게시글: {total_posts}개**",
-            "color": 0x4488ff,
-            "fields": [],
-            "timestamp": datetime.now().isoformat(),
-            "footer": {
-                "text": "Epic7 일간 동향 분석 시스템"
-            }
-        }
-        
-        # 감성 카테고리별 통계
-        for category, posts in sentiment_report.items():
-            if category in ['긍정', '중립', '부정']:
-                emoji = get_category_emoji(category)
-                percentage = (len(posts) / total_posts * 100) if total_posts > 0 else 0
-                
-                # 대표 게시글 (상위 3개)
-                top_posts = []
-                for i, post in enumerate(posts[:3], 1):
-                    title = post['title'][:35] + "..." if len(post['title']) > 35 else post['title']
-                    top_posts.append(f"{i}. {title}")
-                
-                if len(posts) > 3:
-                    top_posts.append(f"... 외 {len(posts) - 3}개")
-                
-                field_value = f"**{len(posts)}개** ({percentage:.1f}%)"
-                if top_posts:
-                    field_value += "\n" + "\n".join(top_posts)
-                
-                embed["fields"].append({
-                    "name": f"{emoji} {category} 동향",
-                    "value": field_value,
-                    "inline": True
-                })
-        
-        # 인사이트 분석 추가
-        if analysis:
-            insight_text = f"**주요 동향**: {analysis.get('trend', '중립적')}\n"
-            insight_text += f"**분석**: {analysis.get('insight', '특별한 변화 없음')}\n"
-            insight_text += f"**권장사항**: {analysis.get('recommendation', '지속적인 모니터링 필요')}"
-            
-            embed["fields"].append({
-                "name": "🔍 동향 인사이트",
-                "value": insight_text,
-                "inline": False
-            })
-        
-        # 버그 현황 참고 정보
-        if bug_count > 0:
-            embed["fields"].append({
-                "name": "🐛 버그 현황 (참고)",
-                "value": f"{bug_count}개 (실시간 알림으로 처리됨)",
-                "inline": True
-            })
-        
-        # Discord 전송
-        data = {
-            "embeds": [embed],
-            "username": "Epic7 일간 리포터",
-            "avatar_url": "https://cdn.discordapp.com/attachments/123456789/123456789/epic7_logo.png"
-        }
-        
-        response = requests.post(webhook_url, json=data, timeout=15)
         if response.status_code == 204:
-            print("[SUCCESS] 일간 감성 동향 보고서 전송 완료")
+            print("[SUCCESS] Discord 메시지 전송 성공")
+            return True
         else:
-            print(f"[WARN] 일간 보고서 전송 실패: {response.status_code}")
+            print(f"[ERROR] Discord 메시지 전송 실패: {response.status_code}")
+            return False
             
-    except Exception as e:
-        print(f"[ERROR] 일간 보고서 전송 중 오류: {e}")
-
-def send_discord_message(webhook_url, message, count):
-    """Discord 메시지 전송"""
-    try:
-        data = {
-            "content": message,
-            "username": "Epic7 Bug Monitor",
-            "avatar_url": "https://cdn.discordapp.com/attachments/123456789/123456789/epic7_logo.png"
-        }
-        
-        response = requests.post(webhook_url, json=data, timeout=15)
-        if response.status_code == 204:
-            print(f"[SUCCESS] Discord 알림 {count} 전송 성공")
-        else:
-            print(f"[WARN] Discord 알림 {count} 전송 실패: {response.status_code}")
-            
-        time.sleep(1.5)  # Rate Limit 방지
-        
     except Exception as e:
         print(f"[ERROR] Discord 메시지 전송 중 오류: {e}")
+        return False
 
-def get_source_type_korean(source):
-    """소스 타입을 한국어로 변환"""
-    source_map = {
-        "stove_bug": "🏪 스토브 버그",
-        "stove_general": "🏪 스토브 자유",
-        "ruliweb_epic7": "🎮 루리웹",
-        "reddit_epic7": "🌐 Reddit",
-        "unknown": "❓ 기타"
+def send_bug_alert(title, url, site, severity="보통"):
+    """버그 알림 전송 (즉시 전송)"""
+    import os
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_BUG")
+    
+    if not webhook_url:
+        print("[WARNING] 버그 알림 웹훅이 설정되지 않음")
+        return False
+    
+    # 심각도에 따른 이모지
+    severity_emoji = {
+        "높음": "🚨",
+        "보통": "⚠️", 
+        "낮음": "ℹ️"
     }
-    return source_map.get(source, f"🔸 {source}")
+    
+    emoji = severity_emoji.get(severity, "⚠️")
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    message = f"""
+{emoji} **Epic7 버그 발견**
 
-def get_category_emoji(category):
-    """카테고리별 이모지 반환"""
-    emoji_map = {
-        "긍정": "😊",
-        "중립": "😐", 
-        "부정": "😞",
-        "버그": "🐛"
-    }
-    return emoji_map.get(category, "📌")
+**제목:** {title}
+**사이트:** {site}
+**링크:** {url}
+**심각도:** {severity}
+**발견 시간:** {timestamp}
 
-def format_timestamp(timestamp_str):
-    """타임스탬프를 yyyy-mm-dd hh:mm 형태로 포맷"""
-    try:
-        if timestamp_str:
-            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d %H:%M')
-        else:
-            return datetime.now().strftime('%Y-%m-%d %H:%M')
-    except Exception as e:
-        print(f"[WARN] 시간 포맷 변환 실패: {e}")
-        return datetime.now().strftime('%Y-%m-%d %H:%M')
+즉시 확인이 필요합니다.
+"""
+    
+    return send_discord_message(webhook_url, message.strip())
+
+def send_sentiment_alert(posts):
+    """단건별 동향 알림 전송 (새로운 함수)"""
+    import os
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_SENTIMENT")
+    
+    if not webhook_url:
+        print("[WARNING] 감성 동향 웹훅이 설정되지 않음")
+        return False
+    
+    if not posts:
+        # 빈 크롤링 상태 메시지
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        message = f"""
+🔍 **Epic7 동향 모니터링 상태**
+
+새로운 게시글이 없습니다.
+**확인 시간:** {timestamp}
+
+시스템이 정상적으로 동작 중입니다.
+"""
+        return send_discord_message(webhook_url, message.strip())
+    
+    # 단건별 동향 알림 전송
+    success_count = 0
+    for post in posts:
+        title = post.get('title', '제목 없음')
+        url = post.get('url', '')
+        site = post.get('site', '알 수 없음')
+        sentiment = post.get('sentiment', '중립')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 감성에 따른 이모지
+        sentiment_emoji = {
+            "긍정": "😊",
+            "부정": "😞",
+            "중립": "😐"
+        }
+        
+        emoji = sentiment_emoji.get(sentiment, "😐")
+        
+        message = f"""
+{emoji} **Epic7 유저 동향**
+
+**제목:** {title}
+**사이트:** {site}
+**감성:** {sentiment}
+**링크:** {url}
+**수집 시간:** {timestamp}
+"""
+        
+        if send_discord_message(webhook_url, message.strip()):
+            success_count += 1
+            time.sleep(1)  # Discord API 제한 고려
+    
+    print(f"[INFO] 동향 알림 전송 완료: {success_count}/{len(posts)}")
+    return success_count > 0
+
+def send_daily_report(report_content):
+    """일일 리포트 전송 (24시간 누적 데이터)"""
+    import os
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_REPORT")
+    
+    if not webhook_url:
+        print("[WARNING] 일간 리포트 웹훅이 설정되지 않음")
+        return False
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    message = f"""
+📊 **Epic7 일간 동향 리포트**
+
+{report_content}
+
+**생성 시간:** {timestamp}
+**데이터 기간:** 전날 24시간 누적
+
+---
+Epic7 모니터링 시스템
+"""
+    
+    return send_discord_message(webhook_url, message.strip())
+
+def send_monitoring_status(status_message):
+    """모니터링 시스템 상태 메시지 전송"""
+    import os
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_SENTIMENT")
+    
+    if not webhook_url:
+        print("[WARNING] 상태 알림 웹훅이 설정되지 않음")
+        return False
+    
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    message = f"""
+🔧 **Epic7 모니터링 시스템 상태**
+
+{status_message}
+
+**확인 시간:** {timestamp}
+"""
+    
+    return send_discord_message(webhook_url, message.strip())
+
+# 기존 함수들도 유지 (하위 호환성)
+def send_alert(title, url, site, alert_type="버그"):
+    """기존 호환성을 위한 함수"""
+    if alert_type == "버그":
+        return send_bug_alert(title, url, site)
+    else:
+        # 동향 알림은 새로운 방식 사용
+        posts = [{'title': title, 'url': url, 'site': site, 'sentiment': '중립'}]
+        return send_sentiment_alert(posts)
+
+if __name__ == "__main__":
+    # 테스트 코드
+    print("notifier.py 테스트 실행")
+    
+    # 빈 크롤링 테스트
+    send_sentiment_alert([])
+    
+    # 단건 동향 알림 테스트
+    test_posts = [
+        {
+            'title': '테스트 게시글',
+            'url': 'https://example.com',
+            'site': '루리웹',
+            'sentiment': '긍정'
+        }
+    ]
+    send_sentiment_alert(test_posts)

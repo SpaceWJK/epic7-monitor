@@ -36,6 +36,9 @@ jobs:
     
     env:
       TZ: Asia/Seoul
+      DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
       PYTHONUNBUFFERED: 1
     
     steps:
