@@ -1,6 +1,5 @@
-crawler_FIXED_COMPLETE.py
+# crawler.py
 
-Download
 import json
 import os
 from bs4 import BeautifulSoup

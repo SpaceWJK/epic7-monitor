@@ -1,6 +1,5 @@
-generate_report_FIXED_COMPLETE.py
+# generate_report.py
 
-Download
 from classifier import classify_post, is_positive_post, is_negative_post, is_neutral_post
 from notifier import send_daily_report
 from sentiment_data_manager import SentimentDataManager
