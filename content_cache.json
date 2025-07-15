@@ -103,5 +103,11 @@
     "timestamp": "2025-07-16T00:28:20.873378",
     "url": "https://page.onstove.com/epicseven/kr/view/10886010",
     "selector_used": "div.content-body"
+  },
+  "cbf963905cf55b9b2c2c36874958de8b": {
+    "content": "에픽세븐 공식 커뮤니티에 오신 것을 환영합니다...",
+    "timestamp": "2025-07-15T19:26:53.060939",
+    "url": "https://page.onstove.com/epicseven/kr/view/10886941",
+    "selector_used": "div.content-body"
   }
 }
