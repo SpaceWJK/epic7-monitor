@@ -1,9 +1,9 @@
-name: Bug Monitor Korean Sites (Enhanced)
+name: Bug Monitor Korean Sites (Optimized)
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # 30분마다 실행 (15분에서 변경)
-  workflow_dispatch:        # 수동 실행 가능
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
     inputs:
       debug_mode:
         description: 'Enable debug mode'
@@ -20,61 +20,58 @@ jobs:
   monitor-korean-sites:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
     - name: 📥 Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
-      
+
     - name: 🐍 Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
-    
+
     - name: 🌐 Install Chrome (Simplified)
       run: |
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
-        echo "Chrome 설치 완료: $(google-chrome --version)"
-    
+        echo "✅ Chrome: $(google-chrome --version)"
+
     - name: 📦 Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        echo "Python 패키지 설치 완료"
-    
-    - name: 🔍 Run Korean Sites Monitoring
+        echo "✅ Python packages installed"
+
+    - name: 🔍 Determine execution flags
+      id: mode
+      run: |
+        ARGS="--mode korean"
+        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+          ARGS="$ARGS --debug"
+        fi
+        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
+          ARGS="$ARGS --test"
+        fi
+        echo "ARGS=$ARGS" >> $GITHUB_ENV
+        echo "🎯 실행 인자: $ARGS"
+
+    - name: 🚀 Run Korean Sites Monitoring
       run: |
         echo "=== 한국 사이트 모니터링 시작 ==="
         echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-        echo "디버그 모드: ${{ github.event.inputs.debug_mode }}"
-        echo "테스트 모드: ${{ github.event.inputs.test_mode }}"
-        
-        # 인자 구성
-        ARGS="--mode korean"
-        
-        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-          ARGS="$ARGS --debug"
-          echo "🐛 디버그 모드로 실행"
-        fi
-        
-        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
-          ARGS="$ARGS --test"
-          echo "🧪 테스트 모드로 실행"
-        fi
-        
+        echo "ARGS: $ARGS"
         python monitor_bugs.py $ARGS
-        
         echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
       env:
         DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
         DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
         PYTHONUNBUFFERED: 1
-    
+
     - name: 📊 Upload Debug Files (if debug mode)
       if: github.event.inputs.debug_mode == 'true'
       uses: actions/upload-artifact@v4
@@ -84,117 +81,64 @@ jobs:
           *_debug_selenium.html
           *_error_debug.html
         retention-days: 7
-    
-    - name: 💾 Smart Git Commit (충돌 해결)
+
+    - name: 💾 Smart Git Commit
       run: |
         echo "=== Git 변경사항 처리 ==="
-        
         git config --global user.email "epic7-korean@github.com"
         git config --global user.name "Epic7 Korean Monitor"
-        
-        # 변경된 파일 확인
+
         git add -A
-        
         if git diff --staged --quiet; then
           echo "변경 사항 없음"
           exit 0
         fi
-        
-        echo "변경 사항 발견, 스마트 커밋 진행"
-        git status --porcelain
-        
-        # 커밋 메시지 생성
+
         COMMIT_MSG="🔄 [KOREAN] 크롤링 상태 업데이트 - $(date '+%Y-%m-%d %H:%M KST')"
-        
         if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
           COMMIT_MSG="$COMMIT_MSG (DEBUG)"
         fi
-        
         if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
           COMMIT_MSG="$COMMIT_MSG (TEST)"
         fi
-        
-        # 스마트 푸시 (충돌 해결 포함)
+
+        git commit -m "$COMMIT_MSG"
+
         for i in {1..5}; do
           echo "푸시 시도 $i/5"
-          
-          git commit -m "$COMMIT_MSG" || {
-            echo "커밋 실패, 재시도..."
-            continue
-          }
-          
           if git push origin main; then
             echo "Git 푸시 완료"
             break
           else
             echo "Git 푸시 실패, 재시도 ($i/5)"
-            
-            # 원격 변경사항 가져오기
             git fetch origin main
-            
-            # 리베이스 시도
-            if git rebase origin/main; then
-              echo "리베이스 성공"
-            else
-              echo "리베이스 충돌 발생, 자동 해결 시도"
-              
-              # crawled_links.json 충돌 자동 해결
-              if [ -f "crawled_links.json" ]; then
-                echo "crawled_links.json 충돌 자동 해결"
-                
-                # 원격 버전 사용하고 현재 변경사항 병합
-                git checkout --ours crawled_links.json
-                git add crawled_links.json
-                
-                # 리베이스 계속
-                git rebase --continue || {
-                  echo "리베이스 실패, 수동 해결 필요"
-                  git rebase --abort
-                  
-                  # 강제 푸시 (최후 수단)
-                  if [ $i -eq 5 ]; then
-                    echo "최후 수단: 머지 커밋 생성"
-                    git merge origin/main -m "Auto-merge: resolve conflicts"
-                  fi
-                  continue
-                }
-              else
-                git rebase --abort
-                continue
-              fi
-            fi
-            
-            sleep $((i * 2))  # 지수 백오프
+            git rebase origin/main || {
+              echo "리베이스 실패, 강제 초기화"
+              git reset --hard origin/main
+            }
+            sleep $((i * 2))
           fi
         done
-        
-        if [ $? -ne 0 ]; then
-          echo "Git 푸시 최종 실패"
-          exit 1
-        fi
-    
+
     - name: 📈 System Status Report
       if: always()
       run: |
         echo "=== 시스템 상태 보고 ==="
         echo "작업 상태: ${{ job.status }}"
-        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
         echo "워크플로우 번호: ${{ github.run_number }}"
         echo "실행 ID: ${{ github.run_id }}"
-        
+
         if [ -f "crawled_links.json" ]; then
-          LINK_COUNT=$(cat crawled_links.json | jq '.links | length' 2>/dev/null || echo "0")
-          LAST_UPDATE=$(cat crawled_links.json | jq -r '.last_updated' 2>/dev/null || echo "N/A")
+          LINK_COUNT=$(jq '.links | length' crawled_links.json 2>/dev/null || echo 0)
+          LAST_UPDATE=$(jq -r '.last_updated' crawled_links.json 2>/dev/null || echo "N/A")
           echo "저장된 링크 수: $LINK_COUNT"
           echo "마지막 업데이트: $LAST_UPDATE"
         fi
-        
-        # 디버그 파일 상태
+
         DEBUG_FILES=$(ls -la *_debug_selenium.html *_error_debug.html 2>/dev/null | wc -l)
         echo "생성된 디버그 파일 수: $DEBUG_FILES"
-        
-        # 메모리 사용량
+
         echo "최종 메모리 사용량:"
         free -h
-        
+
         echo "✅ 워크플로우 성공적으로 완료"
