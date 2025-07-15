@@ -18,38 +18,28 @@ import requests
 import hashlib
 from typing import Dict, List, Optional, Tuple
 
-# 워크플로우별 독립적인 링크 저장 파일
-def get_crawled_links_file():
-    """워크플로우별 독립적인 크롤링 링크 파일명 생성"""
-    workflow_name = os.environ.get('GITHUB_WORKFLOW', 'default')
-    run_context = os.environ.get('GITHUB_RUN_NUMBER', 'local')
-    
-    # 워크플로우별 파일 분리
-    if 'debug' in workflow_name.lower() or 'test' in workflow_name.lower():
-        return f"crawled_links_debug_{run_context}.json"
-    elif 'korean' in workflow_name.lower():
-        return "crawled_links_korean.json"
-    elif 'unified' in workflow_name.lower() or 'monitor' in workflow_name.lower():
-        return "crawled_links_monitor.json"
-    else:
-        return "crawled_links.json"
+# ==================== 문제 1 해결: 안전한 워크플로우별 파일 분리 ====================
 
-def get_content_cache_file():
-    """워크플로우별 독립적인 콘텐츠 캐시 파일명 생성"""
-    workflow_name = os.environ.get('GITHUB_WORKFLOW', 'default')
+def get_workflow_files():
+    """워크플로우별 파일 안전 분리 - 단순화된 로직"""
+    workflow_name = os.environ.get('GITHUB_WORKFLOW', '').lower()
     
-    if 'debug' in workflow_name.lower() or 'test' in workflow_name.lower():
-        return "content_cache_debug.json"
-    elif 'korean' in workflow_name.lower():
-        return "content_cache_korean.json"
-    elif 'unified' in workflow_name.lower() or 'monitor' in workflow_name.lower():
-        return "content_cache_monitor.json"
-    else:
-        return "content_cache.json"
+    # 기본 파일 (실제 워크플로우)
+    base_links = "crawled_links.json"
+    base_cache = "content_cache.json"
+    
+    # 디버그/테스트 모드만 분리
+    if 'debug' in workflow_name or 'test' in workflow_name:
+        debug_links = "crawled_links_debug.json"
+        debug_cache = "content_cache_debug.json"
+        print(f"[DEBUG] 디버그 모드 파일 사용: {debug_links}, {debug_cache}")
+        return debug_links, debug_cache
+    
+    print(f"[INFO] 기본 파일 사용: {base_links}, {base_cache}")
+    return base_links, base_cache
 
-# 중복 방지를 위한 링크 저장 파일
-CRAWLED_LINKS_FILE = get_crawled_links_file()
-CONTENT_CACHE_FILE = get_content_cache_file()
+# 파일 설정
+CRAWLED_LINKS_FILE, CONTENT_CACHE_FILE = get_workflow_files()
 
 def load_crawled_links():
     """이미 크롤링된 링크들을 로드"""
@@ -61,7 +51,7 @@ def load_crawled_links():
                     return {"links": data, "last_updated": datetime.now().isoformat()}
                 return data
         except (json.JSONDecodeError, FileNotFoundError):
-            print("[WARNING] crawled_links.json 파일 읽기 실패, 새로 생성")
+            print(f"[WARNING] {CRAWLED_LINKS_FILE} 파일 읽기 실패, 새로 생성")
     return {"links": [], "last_updated": datetime.now().isoformat()}
 
 def save_crawled_links(link_data):
@@ -72,6 +62,7 @@ def save_crawled_links(link_data):
         link_data["last_updated"] = datetime.now().isoformat()
         with open(CRAWLED_LINKS_FILE, 'w', encoding='utf-8') as f:
             json.dump(link_data, f, ensure_ascii=False, indent=2)
+        print(f"[SUCCESS] 링크 저장: {len(link_data['links'])}개")
     except Exception as e:
         print(f"[ERROR] 링크 저장 실패: {e}")
 
@@ -82,7 +73,7 @@ def load_content_cache():
             with open(CONTENT_CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (json.JSONDecodeError, FileNotFoundError):
-            print("[WARNING] content_cache.json 파일 읽기 실패, 새로 생성")
+            print(f"[WARNING] {CONTENT_CACHE_FILE} 파일 읽기 실패, 새로 생성")
     return {}
 
 def save_content_cache(cache_data):
@@ -93,6 +84,7 @@ def save_content_cache(cache_data):
             cache_data = dict(sorted_items[:500])
         with open(CONTENT_CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        print(f"[SUCCESS] 캐시 저장: {len(cache_data)}개")
     except Exception as e:
         print(f"[ERROR] 캐시 저장 실패: {e}")
 
@@ -206,7 +198,7 @@ def get_chrome_driver():
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
 
 def check_discord_webhooks():
-    """Discord 웹훅 환경변수 확인 - 수정 사항 1: 환경변수 처리 코드 완전 복원"""
+    """Discord 웹훅 환경변수 확인"""
     webhooks = {}
     
     # 버그 알림 웹훅
@@ -217,7 +209,7 @@ def check_discord_webhooks():
     else:
         print("[WARNING] DISCORD_WEBHOOK_BUG 환경변수가 설정되지 않았습니다.")
     
-    # 감성 동향 웹훅 - 핵심 수정
+    # 감성 동향 웹훅
     sentiment_webhook = os.environ.get('DISCORD_WEBHOOK_SENTIMENT') or os.getenv('DISCORD_WEBHOOK_SENTIMENT')
     if sentiment_webhook:
         webhooks['sentiment'] = sentiment_webhook
@@ -264,8 +256,10 @@ def send_discord_message(webhook_url: str, message: str, title: str = "Epic7 모
         print(f"[ERROR] Discord 메시지 전송 중 오류: {e}")
         return False
 
+# ==================== 문제 2 해결: JavaScript 동적 로딩 최적화 ====================
+
 def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> str:
-    """스토브 게시글 내용 추출 - 수정 사항 2,3,4: 완전 개선된 버전"""
+    """스토브 게시글 내용 추출 - 완전 개선된 버전"""
     
     # 캐시 확인
     cache = load_content_cache()
@@ -293,49 +287,65 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
     try:
         print(f"[DEBUG] 게시글 내용 추출 시도: {post_url}")
         
-        # 수정 사항 3: JavaScript 로딩 대기 시간 대폭 증가 (8초 → 30초)
-        driver.set_page_load_timeout(30)
+        # 페이지 로드 타임아웃 증가
+        driver.set_page_load_timeout(45)
         driver.get(post_url)
         
-        # 페이지 완전 로딩 대기 - 기존 8초에서 30초로 증가
-        print("[DEBUG] 페이지 로딩 대기 중... (30초)")
-        time.sleep(15)  # 첫 번째 대기
+        # 확장된 페이지 로딩 대기
+        print("[DEBUG] 페이지 로딩 대기 중... (45초)")
+        time.sleep(20)  # 초기 대기 시간 증가
         
-        # JavaScript 완전 로딩 확인
-        WebDriverWait(driver, 15).until(
+        # JavaScript 완전 로딩 확인 - 대기 시간 증가
+        WebDriverWait(driver, 25).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         print("[DEBUG] JavaScript 로딩 완료 확인")
         
-        # 추가 동적 콘텐츠 로딩 대기
-        driver.execute_script("window.scrollTo(0, 500);")
-        time.sleep(5)
+        # 추가 동적 콘텐츠 로딩 대기 - 더 많은 스크롤과 대기
+        driver.execute_script("window.scrollTo(0, 300);")
+        time.sleep(8)
+        driver.execute_script("window.scrollTo(0, 600);")
+        time.sleep(8)
         driver.execute_script("window.scrollTo(0, 1000);")
-        time.sleep(5)
+        time.sleep(8)
         driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(5)
+        time.sleep(8)
         
-        print("[DEBUG] 동적 콘텐츠 로딩 완료")
+        print("[DEBUG] 확장된 동적 콘텐츠 로딩 완료")
         
-        # 수정 사항 4: 특정 CSS 선택자를 활용한 정확한 게시글 내용 추출
+        # 스토브 사이트 최신 구조 대응 선택자 - 대폭 확장
         content_selectors = [
-            # 스토브 게시글 전용 선택자 (우선순위 높음)
+            # 스토브 게시글 전용 선택자 (최신 구조)
             'div.s-article-content',
             'div.s-article-content-text',
             'div[class*="s-article-content"]',
             'section.s-article-body',
             'div.s-board-content',
+            'article.s-post-content',
+            'div[data-content="true"]',
+            'main .content-wrapper',
+            '.post-content-area',
+            '.article-body-content',
             
             # 일반적인 게시글 선택자
             'div.article-content',
             'div.post-content',
             'div.content-body',
             'main.content',
+            'article.content',
             
             # 텍스트 영역 선택자
             'div[class*="text-content"]',
             'div[class*="post-body"]',
-            'div[class*="article-body"]'
+            'div[class*="article-body"]',
+            'div[class*="content-text"]',
+            'section[class*="content"]',
+            
+            # 백업 선택자
+            '.content',
+            '[data-role="content"]',
+            'main',
+            'article'
         ]
         
         extracted_content = ""
@@ -348,10 +358,14 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
                 if elements:
                     for element in elements:
                         text = element.text.strip()
-                        if text and len(text) > 50:  # 충분한 길이의 텍스트만
-                            # 불필요한 텍스트 필터링
-                            if not any(skip_text in text.lower() for skip_text in 
-                                     ['install stove', '스토브를 설치', '로그인이 필요', 'javascript']):
+                        if text and len(text) > 30:  # 최소 길이 감소
+                            # 불필요한 텍스트 필터링 확장
+                            skip_texts = [
+                                'install stove', '스토브를 설치', '로그인이 필요', 
+                                'javascript', '회원가입', '메뉴', '검색', '공지사항',
+                                'header', 'footer', 'navigation', 'sidebar'
+                            ]
+                            if not any(skip_text in text.lower() for skip_text in skip_texts):
                                 extracted_content = text
                                 successful_selector = selector
                                 print(f"[SUCCESS] 선택자 '{selector}'로 내용 추출 성공")
@@ -366,13 +380,12 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
         
         # 추출된 내용이 있으면 요약 처리
         if extracted_content:
-            # 게시글 내용에서 실제 내용 부분만 추출
             lines = extracted_content.split('\n')
             meaningful_lines = []
             
             for line in lines:
                 line = line.strip()
-                if (len(line) > 15 and 
+                if (len(line) > 10 and  # 최소 길이 감소
                     '로그인' not in line and 
                     '회원가입' not in line and 
                     '메뉴' not in line and 
@@ -380,28 +393,35 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
                     '공지사항' not in line and
                     '이벤트' not in line and
                     'Install STOVE' not in line and
-                    '스토브를 설치' not in line):
+                    '스토브를 설치' not in line and
+                    'header' not in line.lower() and
+                    'footer' not in line.lower()):
                     meaningful_lines.append(line)
             
             if meaningful_lines:
                 # 가장 긴 줄을 게시글 내용으로 선택
                 longest_line = max(meaningful_lines, key=len)
-                if len(longest_line) > 20:
+                if len(longest_line) > 15:  # 최소 길이 감소
                     content_summary = extract_content_summary(longest_line)
                     print(f"[SUCCESS] 실제 게시글 내용 추출 성공: {content_summary[:50]}...")
                 else:
                     content_summary = extract_content_summary(meaningful_lines[0])
                     print(f"[SUCCESS] 첫 번째 의미있는 내용 추출: {content_summary[:50]}...")
         
-        # JavaScript를 통한 대체 추출 방법
+        # JavaScript를 통한 대체 추출 방법 - 개선된 스크립트
         if content_summary == "게시글 내용 확인을 위해 링크를 클릭하세요.":
             try:
                 js_content = driver.execute_script("""
-                    // 스토브 게시글 내용을 정확히 추출하는 JavaScript
+                    // 스토브 게시글 내용을 정확히 추출하는 개선된 JavaScript
                     var contentElements = [
                         document.querySelector('div.s-article-content'),
                         document.querySelector('div[class*="article-content"]'),
                         document.querySelector('div[class*="post-content"]'),
+                        document.querySelector('article.s-post-content'),
+                        document.querySelector('div[data-content="true"]'),
+                        document.querySelector('main .content-wrapper'),
+                        document.querySelector('.post-content-area'),
+                        document.querySelector('.article-body-content'),
                         document.querySelector('main'),
                         document.querySelector('article')
                     ];
@@ -410,10 +430,13 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
                         var element = contentElements[i];
                         if (element && element.innerText) {
                             var text = element.innerText.trim();
-                            if (text.length > 50 && 
+                            if (text.length > 30 && 
                                 !text.toLowerCase().includes('install stove') &&
                                 !text.includes('스토브를 설치') &&
-                                !text.includes('로그인이 필요')) {
+                                !text.includes('로그인이 필요') &&
+                                !text.includes('회원가입') &&
+                                !text.toLowerCase().includes('header') &&
+                                !text.toLowerCase().includes('footer')) {
                                 return text;
                             }
                         }
@@ -422,32 +445,37 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
                     return '';
                 """)
                 
-                if js_content and len(js_content.strip()) > 50:
+                if js_content and len(js_content.strip()) > 30:
                     content_summary = extract_content_summary(js_content)
                     print(f"[SUCCESS] JavaScript 방식으로 내용 추출 성공: {content_summary[:50]}...")
                     
             except Exception as e:
                 print(f"[ERROR] JavaScript 추출 실패: {e}")
         
-        # 최후 수단: BeautifulSoup 사용
+        # 최후 수단: BeautifulSoup 사용 - 선택자 확장
         if content_summary == "게시글 내용 확인을 위해 링크를 클릭하세요.":
             try:
                 html = driver.page_source
                 soup = BeautifulSoup(html, 'html.parser')
                 
-                # 스토브 전용 태그들 확인
+                # 스토브 전용 태그들 확장
                 stove_content_tags = [
                     soup.find('div', class_='s-article-content'),
                     soup.find('div', class_='s-article-content-text'),
                     soup.find('section', class_='s-article-body'),
-                    soup.find('div', class_='s-board-content')
+                    soup.find('div', class_='s-board-content'),
+                    soup.find('article', class_='s-post-content'),
+                    soup.find('div', attrs={'data-content': 'true'}),
+                    soup.find('main', class_='content-wrapper'),
+                    soup.find('div', class_='post-content-area'),
+                    soup.find('div', class_='article-body-content')
                 ]
                 
                 for tag in stove_content_tags:
                     if tag:
                         text = tag.get_text(strip=True)
-                        if text and len(text) > 50:
-                            if not any(skip in text.lower() for skip in ['install stove', '스토브를 설치']):
+                        if text and len(text) > 30:
+                            if not any(skip in text.lower() for skip in ['install stove', '스토브를 설치', 'header', 'footer']):
                                 content_summary = extract_content_summary(text)
                                 print(f"[SUCCESS] BeautifulSoup으로 내용 추출 성공: {content_summary[:50]}...")
                                 break
@@ -484,6 +512,8 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None) -> st
                 pass
     
     return content_summary
+
+# ==================== 기존 크롤링 함수들 유지 ====================
 
 def fetch_ruliweb_epic7_board():
     """루리웹 에픽세븐 게시판 크롤링"""
@@ -585,7 +615,7 @@ def fetch_ruliweb_epic7_board():
     return posts
 
 def fetch_stove_bug_board():
-    """스토브 에픽세븐 버그 게시판 크롤링 (완전 개선 버전)"""
+    """스토브 에픽세븐 버그 게시판 크롤링"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -597,8 +627,8 @@ def fetch_stove_bug_board():
         print("[DEBUG] 스토브 버그용 Chrome 드라이버 초기화 중...")
         driver = get_chrome_driver()
         
-        driver.set_page_load_timeout(30)
-        driver.implicitly_wait(10)
+        driver.set_page_load_timeout(45)  # 타임아웃 증가
+        driver.implicitly_wait(15)
         
         url = "https://page.onstove.com/epicseven/kr/list/1012?page=1&direction=LATEST"
         print(f"[DEBUG] 스토브 버그 게시판 접속 중: {url}")
@@ -606,21 +636,20 @@ def fetch_stove_bug_board():
         driver.get(url)
         
         print("[DEBUG] 스토브 페이지 로딩 대기 중...")
-        time.sleep(15)  # 증가된 대기 시간
+        time.sleep(20)  # 증가된 대기 시간
         
         # 페이지 완전 로딩 확인
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
-        driver.execute_script("window.scrollTo(0, 500);")
-        time.sleep(5)
-        driver.execute_script("window.scrollTo(0, 800);")
-        time.sleep(5)
-        driver.execute_script("window.scrollTo(0, 1200);")
-        time.sleep(5)
+        # 추가 스크롤 및 대기
+        for i in range(5):
+            driver.execute_script(f"window.scrollTo(0, {(i+1)*400});")
+            time.sleep(6)
+        
         driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(5)
+        time.sleep(8)
         
         html_content = driver.page_source
         with open("stove_bug_debug_selenium.html", "w", encoding="utf-8") as f:
@@ -636,7 +665,7 @@ def fetch_stove_bug_board():
             for (var i = 0; i < Math.min(items.length, 15); i++) {
                 var item = items[i];
                 var link = item.querySelector('a[href*="/view/"]');
-                var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
+                var title = item.querySelector('.s-board-title-text, .board-title, h3 span, .title');
                 
                 if (link && title && link.href && title.innerText) {
                     var titleText = title.innerText.trim();
@@ -695,7 +724,7 @@ def fetch_stove_bug_board():
                 else:
                     print(f"[DEBUG] 스토브 버그 게시글 {i}: 조건 미충족")
                 
-                time.sleep(random.uniform(2, 4))  # 증가된 대기 시간
+                time.sleep(random.uniform(3, 6))  # 증가된 대기 시간
                 
             except Exception as e:
                 print(f"[ERROR] 스토브 버그 게시글 {i} 처리 중 오류: {e}")
@@ -718,7 +747,7 @@ def fetch_stove_bug_board():
     return posts
 
 def fetch_stove_general_board():
-    """스토브 에픽세븐 자유게시판 크롤링 (완전 개선 버전)"""
+    """스토브 에픽세븐 자유게시판 크롤링"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -730,8 +759,8 @@ def fetch_stove_general_board():
         print("[DEBUG] 스토브 자유게시판용 Chrome 드라이버 초기화 중...")
         driver = get_chrome_driver()
         
-        driver.set_page_load_timeout(30)
-        driver.implicitly_wait(10)
+        driver.set_page_load_timeout(45)  # 타임아웃 증가
+        driver.implicitly_wait(15)
         
         url = "https://page.onstove.com/epicseven/kr/list/1005?page=1&direction=LATEST"
         print(f"[DEBUG] 스토브 자유게시판 접속 중: {url}")
@@ -739,21 +768,20 @@ def fetch_stove_general_board():
         driver.get(url)
         
         print("[DEBUG] 스토브 자유게시판 페이지 로딩 대기 중...")
-        time.sleep(15)  # 증가된 대기 시간
+        time.sleep(20)  # 증가된 대기 시간
         
         # 페이지 완전 로딩 확인
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
-        driver.execute_script("window.scrollTo(0, 500);")
-        time.sleep(5)
-        driver.execute_script("window.scrollTo(0, 800);")
-        time.sleep(5)
-        driver.execute_script("window.scrollTo(0, 1200);")
-        time.sleep(5)
+        # 추가 스크롤 및 대기
+        for i in range(5):
+            driver.execute_script(f"window.scrollTo(0, {(i+1)*400});")
+            time.sleep(6)
+        
         driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(5)
+        time.sleep(8)
         
         html_content = driver.page_source
         with open("stove_general_debug_selenium.html", "w", encoding="utf-8") as f:
@@ -769,7 +797,7 @@ def fetch_stove_general_board():
             for (var i = 0; i < Math.min(items.length, 15); i++) {
                 var item = items[i];
                 var link = item.querySelector('a[href*="/view/"]');
-                var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
+                var title = item.querySelector('.s-board-title-text, .board-title, h3 span, .title');
                 
                 if (link && title && link.href && title.innerText) {
                     var titleText = title.innerText.trim();
@@ -839,7 +867,7 @@ def fetch_stove_general_board():
                 print(f"[NEW] 스토브 자유게시판 게시글 발견 ({i}): {title[:50]}...")
                 print(f"[CONTENT] 내용: {content[:100]}...")
                 
-                time.sleep(random.uniform(2, 4))  # 증가된 대기 시간
+                time.sleep(random.uniform(3, 6))  # 증가된 대기 시간
                 
             except Exception as e:
                 print(f"[ERROR] 스토브 자유게시판 게시글 {i} 처리 중 오류: {e}")
@@ -895,7 +923,7 @@ def process_sentiment_posts(posts):
         print(f"[INFO] 감성 동향 {len(posts)}개 알림 전송 완료")
 
 def crawl_korean_sites():
-    """한국 사이트들 크롤링 (환경변수 처리 포함)"""
+    """한국 사이트들 크롤링"""
     all_posts = []
     
     # 환경변수 확인
@@ -909,14 +937,14 @@ def crawl_korean_sites():
         all_posts.extend(ruliweb_posts)
         print(f"[INFO] 루리웹: {len(ruliweb_posts)}개 새 게시글")
         
-        time.sleep(random.uniform(5, 8))
+        time.sleep(random.uniform(8, 12))  # 대기 시간 증가
         
         print("[INFO] 2/3 스토브 버그 게시판 크롤링")
         stove_bug_posts = fetch_stove_bug_board()
         all_posts.extend(stove_bug_posts)
         print(f"[INFO] 스토브 버그: {len(stove_bug_posts)}개 새 게시글")
         
-        time.sleep(random.uniform(5, 8))
+        time.sleep(random.uniform(8, 12))  # 대기 시간 증가
         
         print("[INFO] 3/3 스토브 자유게시판 크롤링")
         stove_general_posts = fetch_stove_general_board()
