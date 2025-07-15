@@ -1,3 +1,3 @@
-  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 48
+  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 47
     return
 IndentationError: unexpected indent
