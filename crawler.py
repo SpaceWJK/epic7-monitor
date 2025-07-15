@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 # 중복 방지를 위한 링크 저장 파일
 CRAWLED_LINKS_FILE = "crawled_links_debug.json" if os.environ.get('GITHUB_WORKFLOW', '').lower() in ['debug', 'test'] else "crawled_links.json"
-CONTENT_CACHE_FILE = "content_cache_debug.json" if os.environ.get('GITHUB_WORKFLOW', '').lower() in ['debug', 'test'] else "content_cache.json
+CONTENT_CACHE_FILE = "content_cache_debug.json" if os.environ.get('GITHUB_WORKFLOW', '').lower() in ['debug', 'test'] else "content_cache.json"
 
 def load_crawled_links():
     """이미 크롤링된 링크들을 로드"""
