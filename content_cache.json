@@ -91,5 +91,17 @@
     "timestamp": "2025-07-15T20:44:53.729331",
     "url": "https://page.onstove.com/epicseven/kr/view/10885344",
     "selector_used": "div.s-board-content"
+  },
+  "9113da7f66fb27d9e9d27cfccb983e97": {
+    "content": "에픽세븐 공식 커뮤니티에 오신 것을 환영합니다...",
+    "timestamp": "2025-07-16T00:26:45.644593",
+    "url": "https://page.onstove.com/epicseven/kr/view/10886112",
+    "selector_used": "div.content-body"
+  },
+  "079fa26aacbee8a2d61f8cc664990eb8": {
+    "content": "에픽세븐 공식 커뮤니티에 오신 것을 환영합니다...",
+    "timestamp": "2025-07-16T00:28:20.873378",
+    "url": "https://page.onstove.com/epicseven/kr/view/10886010",
+    "selector_used": "div.content-body"
   }
 }
