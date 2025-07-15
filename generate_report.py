@@ -37,15 +37,15 @@ def main():
             today = datetime.now().strftime('%Y-%m-%d')
             yesterday_data = data_manager.get_daily_data(today)
             print(f"[INFO] 전날 데이터 없음, 현재 데이터 사용: {len(yesterday_data)}개")
-        
+                        
         if not yesterday_data:
             print("[INFO] 분석할 감성 데이터가 없습니다.")
             if not force_report:
             # return  # 이 줄 제거하고 아래로 변경
                 print("[INFO] 데이터 없음 - 상태 메시지 전송")
                 send_daily_report(WEBHOOK_URL, "데이터 없음")
-                    return
-                   else:
+                return
+            else:
                 print("[INFO] 강제 실행 모드 - 빈 보고서 생성")
         
         print(f"[INFO] 총 {len(yesterday_data)}개 감성 데이터 분석 중...")
