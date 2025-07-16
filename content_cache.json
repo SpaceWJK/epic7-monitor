@@ -109,5 +109,23 @@
     "timestamp": "2025-07-15T19:26:53.060939",
     "url": "https://page.onstove.com/epicseven/kr/view/10886941",
     "selector_used": "div.content-body"
+  },
+  "5fa801e882cf34998bcdd3ce04ebbbf7": {
+    "content": "에픽세븐 공식 커뮤니티에 오신 것을 환영합니다...",
+    "timestamp": "2025-07-16T10:59:34.024357",
+    "url": "https://page.onstove.com/epicseven/kr/view/10887769",
+    "selector_used": "div.content-body"
+  },
+  "d2555708327be2ea0b6b5d6036f41e9c": {
+    "content": "에픽세븐 공식 커뮤니티에 오신 것을 환영합니다...",
+    "timestamp": "2025-07-16T11:01:09.942303",
+    "url": "https://page.onstove.com/epicseven/kr/view/10887601",
+    "selector_used": "div.content-body"
+  },
+  "f2c46ea857d3c8854b7beaaaa5f0486d": {
+    "content": "에픽세븐 공식 커뮤니티에 오신 것을 환영합니다...",
+    "timestamp": "2025-07-16T11:02:45.071491",
+    "url": "https://page.onstove.com/epicseven/kr/view/10887446",
+    "selector_used": "div.content-body"
   }
 }
