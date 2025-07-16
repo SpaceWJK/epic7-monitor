@@ -1,3 +1,30 @@
-  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 47
-    return
-IndentationError: unexpected indent
+Traceback (most recent call last):
+  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 169, in main
+    send_daily_global_sentiment_report(WEBHOOK_URL, sentiment_report, sentiment_analysis, bug_count, source_stats)
+  File "/home/runner/work/epic7-monitor/epic7-monitor/generate_report.py", line 341, in send_daily_global_sentiment_report
+    send_daily_report(webhook_url, report_data)
+TypeError: send_daily_report() takes 1 positional argument but 2 were given
+[INFO] 일일 감성 동향 보고서 생성 시작 - 2025-07-16 12:10:08
+[INFO] Discord 웹훅 설정됨: Yes
+[INFO] 총 13개 감성 데이터 분석 중...
+[INFO] 글로벌 감성 분석 결과:
+  📊 총 분석 대상: 13개 게시글
+  🇰🇷 한국 사이트: 13개
+  🌍 글로벌 사이트: 0개
+  😊 긍정: 0개 (0.0%)
+  😐 중립: 13개 (100.0%)
+  😞 부정: 0개 (0.0%)
+  🐛 버그: 0개 (실시간 알림 처리)
+  📈 감성 총합: 13개
+
+[INFO] 소스별 상세 통계:
+  📍 Korean:
+    • ruliweb_epic7: 0개
+    • stove_bug: 0개
+    • stove_general: 0개
+  📍 Global:
+    • STOVE Global Bug: 0개
+    • STOVE Global General: 0개
+    • Reddit: 0개
+[ERROR] 글로벌 감성 보고서 전송 중 오류: send_daily_report() takes 1 positional argument but 2 were given
+[ERROR] 일일 감성 보고서 전송 실패: send_daily_report() takes 1 positional argument but 2 were given
