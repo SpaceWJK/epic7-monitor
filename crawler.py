@@ -528,6 +528,7 @@ def fetch_ruliweb_epic7_board():
                         "content": "루리웹 게시글 내용 확인을 위해 링크를 클릭하세요.",
                         "timestamp": datetime.now().isoformat(),
                         "source": "ruliweb_epic7"
+                        "site": "루리웹"
                     }
                     posts.append(post_data)
                     crawled_links.append(link)
@@ -690,7 +691,7 @@ def fetch_stove_bug_board():
     print(f"[DEBUG] 스토브 버그 게시판에서 {len(posts)}개 새 게시글 발견")
     return posts
     
-    def fetch_stove_global_bug_board():
+def fetch_stove_global_bug_board():
     """STOVE 글로벌 버그 게시판 크롤링"""
     posts = []
     link_data = load_crawled_links()
@@ -736,7 +737,7 @@ def fetch_stove_bug_board():
                 }
             }
             return posts;
-        """)
+        """)            
         for post_info in user_posts:
             href = fix_stove_url(post_info['href'])
             title = post_info['title']
@@ -747,7 +748,8 @@ def fetch_stove_bug_board():
                     "url": href,
                     "content": content,
                     "timestamp": datetime.now().isoformat(),
-                    "source": "STOVE Global Bug"
+                    "source": "STOVE Global Bug",
+                    "site": "STOVE Global Bug"
                 }
                 posts.append(post_data)
                 crawled_links.append(href)
@@ -761,7 +763,7 @@ def fetch_stove_bug_board():
     save_crawled_links(link_data)
     return posts
     
-    def fetch_reddit_epic7_board():
+def fetch_reddit_epic7_board():
     """Reddit r/EpicSeven 최신글"""
     posts = []
     link_data = load_crawled_links()
@@ -783,6 +785,7 @@ def fetch_stove_bug_board():
                     "content": "",  # Reddit은 게시글 전체 텍스트 필요시 추가
                     "timestamp": datetime.now().isoformat(),
                     "source": "Reddit"
+                    "site": "Reddit"
                 }
                 posts.append(post_data)
                 crawled_links.append(permalink)
@@ -937,25 +940,32 @@ def fetch_stove_general_board():
     
     print(f"[DEBUG] 스토브 자유게시판에서 {len(posts)}개 새 게시글 발견")
     return posts
-    
-    def fetch_stove_global_general_board():
+
+def fetch_stove_global_general_board():
     """STOVE 글로벌 자유 게시판 크롤링"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
     print(f"[DEBUG] STOVE 글로벌 자유 크롤 시작 - 저장된 링크 수: {len(crawled_links)}")
+    
     driver = None
     try:
         print("[DEBUG] STOVE 글로벌 자유 Chrome 초기화 중...")
         driver = get_chrome_driver()
         driver.set_page_load_timeout(30)
         driver.implicitly_wait(10)
+        
         url = "https://page.onstove.com/epicseven/global/list/989?page=1&direction=LATEST"
         print(f"[DEBUG] STOVE 글로벌 자유 접속 중: {url}")
         driver.get(url)
+        
         print("[DEBUG] STOVE 글로벌 자유 페이지 로딩 대기 중...")
         time.sleep(15)
-        WebDriverWait(driver, 15).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        
+        WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+        
         driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(5)
         driver.execute_script("window.scrollTo(0, 800);")
@@ -964,9 +974,11 @@ def fetch_stove_general_board():
         time.sleep(5)
         driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(5)
+        
         html_content = driver.page_source
         with open("stove_global_general_debug_selenium.html", "w", encoding="utf-8") as f:
             f.write(html_content)
+        
         user_posts = driver.execute_script("""
             var posts = [];
             var items = document.querySelectorAll('section.s-board-item');
@@ -985,6 +997,7 @@ def fetch_stove_general_board():
             }
             return posts;
         """)
+        
         for post_info in user_posts:
             href = fix_stove_url(post_info['href'])
             title = post_info['title']
@@ -995,20 +1008,23 @@ def fetch_stove_general_board():
                     "url": href,
                     "content": content,
                     "timestamp": datetime.now().isoformat(),
-                    "source": "STOVE Global General"
+                    "source": "stove_global_general",
+                    "site": "STOVE Global General"
                 }
                 posts.append(post_data)
                 crawled_links.append(href)
                 print(f"[NEW] STOVE Global General: {title[:50]}...")
+                
     except Exception as e:
         print(f"[ERROR] STOVE 글로벌 자유 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
+    
     link_data["links"] = crawled_links[-1000:]
     save_crawled_links(link_data)
     return posts
-
+    
 def process_sentiment_posts(posts):
     """감성 분석된 게시글 처리 및 Discord 알림"""
     webhooks = check_discord_webhooks()
@@ -1179,3 +1195,38 @@ if __name__ == "__main__":
     else:
         test_korean_crawling()
         test_global_crawling()
+        
+ # crawler.py 파일의 맨 끝에 추가
+def crawl_global_sites(debug=False):
+    """글로벌 사이트 크롤링 통합 함수"""
+    print("[INFO] === 글로벌 사이트 크롤링 시작 ===")
+    
+    all_posts = []
+    
+    try:
+        # STOVE 글로벌 버그 게시판
+        print("[DEBUG] STOVE 글로벌 버그 게시판 크롤링...")
+        stove_global_bug_posts = fetch_stove_global_bug_board()
+        all_posts.extend(stove_global_bug_posts)
+        print(f"[INFO] STOVE 글로벌 버그: {len(stove_global_bug_posts)}개")
+        
+        # STOVE 글로벌 자유 게시판  
+        print("[DEBUG] STOVE 글로벌 자유 게시판 크롤링...")
+        stove_global_general_posts = fetch_stove_global_general_board()
+        all_posts.extend(stove_global_general_posts)
+        print(f"[INFO] STOVE 글로벌 자유: {len(stove_global_general_posts)}개")
+        
+        # Reddit Epic7
+        print("[DEBUG] Reddit Epic7 크롤링...")
+        reddit_posts = fetch_reddit_epic7_board()
+        all_posts.extend(reddit_posts)
+        print(f"[INFO] Reddit Epic7: {len(reddit_posts)}개")
+        
+    except Exception as e:
+        print(f"[ERROR] 글로벌 사이트 크롤링 중 오류: {e}")
+        if debug:
+            import traceback
+            traceback.print_exc()
+    
+    print(f"[INFO] === 글로벌 사이트 크롤링 완료: 총 {len(all_posts)}개 게시글 ===")
+    return all_posts

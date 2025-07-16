@@ -12,8 +12,8 @@ import traceback
 def parse_arguments():
     """명령행 인자 파싱"""
     parser = argparse.ArgumentParser(description='Epic7 Bug Monitor')
-    parser.add_argument('--mode', choices=['korean', 'all'], default='korean',
-                        help='모니터링 모드: korean (한국 사이트), all (모든 사이트)')
+    parser.add_argument('--mode', choices=['korean', 'all', 'global'], default='korean',
+                        help='모니터링 모드: korean (한국 사이트), all (모든 사이트), global (글로벌 사이트)')
     parser.add_argument('--debug', action='store_true', help='디버그 모드')
     parser.add_argument('--test', action='store_true', help='테스트 모드')
     parser.add_argument('--dry-run', action='store_true', help='실제 알림 전송 없이 시뮬레이션')
@@ -148,26 +148,42 @@ def main():
                 if not args.dry_run:
                     send_monitoring_status(f"한국 사이트 크롤링 실패: {str(e)}")
         
+        elif args.mode == 'global':
+            print("[INFO] 글로벌 사이트 크롤링 시작...")
+    
+            try:
+                posts = crawl_global_sites(debug=args.debug)
+                print(f"[INFO] 글로벌 사이트 크롤링 완료: {len(posts)}개 게시글")
+        
+            except Exception as e:
+                print(f"[ERROR] 글로벌 사이트 크롤링 실패: {e}")
+                if args.debug:
+                    traceback.print_exc()
+        
+            # 크롤링 실패 알림
+                if not args.dry_run:
+                    send_monitoring_status(f"글로벌 사이트 크롤링 실패: {str(e)}")
+
         elif args.mode == 'all':
             print("[INFO] 전체 사이트 크롤링 시작...")
-            
+    
             try:
                 # 한국 사이트
                 korean_posts = crawl_korean_sites(debug=args.debug)
                 print(f"[INFO] 한국 사이트: {len(korean_posts)}개")
-                
-                # 글로벌 사이트 (현재 미구현)
-                global_posts = []  # crawl_global_sites(debug=args.debug)
+        
+                # 글로벌 사이트 (이제 구현됨)
+                global_posts = crawl_global_sites(debug=args.debug)
                 print(f"[INFO] 글로벌 사이트: {len(global_posts)}개")
-                
+        
                 posts = korean_posts + global_posts
                 print(f"[INFO] 전체 크롤링 완료: {len(posts)}개 게시글")
-                
+        
             except Exception as e:
                 print(f"[ERROR] 전체 사이트 크롤링 실패: {e}")
                 if args.debug:
                     traceback.print_exc()
-        
+               
         # 게시글 처리
         process_posts(posts, mode=args.mode, debug=args.debug, dry_run=args.dry_run)
         
