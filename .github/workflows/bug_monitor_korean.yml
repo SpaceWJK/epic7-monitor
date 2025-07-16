@@ -87,7 +87,7 @@ jobs:
 
     - name: 📊 결과 업로드
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: korean-monitor-results
         path: |

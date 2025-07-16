@@ -93,6 +93,18 @@ class Epic7Classifier:
             '버그수정', '오류수정', 'bug fix', 'error fix',
             '문제해결', 'issue resolved'
         ]
+        
+        # 고우선순위 버그 키워드 (추가됨)
+        self.high_priority_bug_keywords = [
+            '크래시', '강제종료', '멈춤', '정지', '튕김',
+            'crash', 'force close', 'frozen', 'stuck',
+            '서버오류', '접속안됨', '로그인안됨',
+            'server error', 'connection error', 'login error',
+            '결제오류', '업데이트오류', '설치오류',
+            'payment error', 'update error', 'installation error',
+            '데이터손실', '진행안됨', '게임안됨',
+            'data loss', 'progress lost', 'game broken'
+        ]
     
     def load_source_config(self):
         """소스별 설정 로드"""
@@ -115,12 +127,6 @@ class Epic7Classifier:
                 'weight': 0.9,
                 'bug_priority': 'medium',
                 'sentiment_weight': 0.9
-            },
-            'arca_epic7': {
-                'type': 'korean',
-                'weight': 0.8,
-                'bug_priority': 'medium',
-                'sentiment_weight': 0.8
             },
             
             # 글로벌 소스
@@ -217,6 +223,47 @@ class Epic7Classifier:
         reason = f"매칭 키워드: {', '.join(matched_keywords)}" if matched_keywords else "키워드 없음"
         
         return is_bug, min(confidence, 1.0), reason
+    
+    def is_high_priority_bug(self, title: str, content: str = "", source: str = "") -> bool:
+        """
+        고우선순위 버그 판별 (새로 추가된 함수)
+        
+        Args:
+            title: 게시글 제목
+            content: 게시글 내용
+            source: 소스 타입
+            
+        Returns:
+            bool: 고우선순위 버그 여부
+        """
+        if not title:
+            return False
+        
+        # 먼저 버그 게시글인지 확인
+        is_bug, confidence, _ = self.is_bug_post(title, content, source)
+        
+        if not is_bug:
+            return False
+        
+        # 소스별 우선순위 확인
+        if source in self.source_config:
+            source_priority = self.source_config[source].get('bug_priority', 'medium')
+            if source_priority == 'high':
+                return True
+        
+        # 텍스트 정규화
+        text = (title + " " + content).lower().strip()
+        
+        # 고우선순위 키워드 매칭
+        for keyword in self.high_priority_bug_keywords:
+            if keyword in text:
+                return True
+        
+        # 버그 신뢰도가 매우 높은 경우
+        if confidence >= 0.8:
+            return True
+        
+        return False
     
     def analyze_sentiment(self, title: str, content: str = "", source: str = "") -> Tuple[str, float, str]:
         """
@@ -415,6 +462,11 @@ def is_bug_post(title: str, content: str = "", source: str = "") -> bool:
     is_bug, _, _ = classifier.is_bug_post(title, content, source)
     return is_bug
 
+def is_high_priority_bug(title: str, content: str = "", source: str = "") -> bool:
+    """고우선순위 버그 판별 (새로 추가된 편의 함수)"""
+    classifier = Epic7Classifier()
+    return classifier.is_high_priority_bug(title, content, source)
+
 def is_positive_post(title: str, content: str = "", source: str = "") -> bool:
     """긍정 게시글 판별 (하위 호환성)"""
     classifier = Epic7Classifier()
@@ -452,13 +504,13 @@ if __name__ == "__main__":
     # 테스트 게시글
     test_posts = [
         {
-            'title': '게임에서 버그가 발생했어요',
-            'content': '로그인할 때 계속 오류가 나요',
+            'title': '게임에서 크래시 버그가 발생했어요',
+            'content': '로그인할 때 계속 강제종료가 나요',
             'source': 'stove_bug'
         },
         {
-            'title': 'Game has a bug',
-            'content': 'Error occurs during login',
+            'title': 'Game has a crash bug',
+            'content': 'Force close occurs during login',
             'source': 'stove_global_bug'
         },
         {
@@ -475,6 +527,7 @@ if __name__ == "__main__":
         results.append(result)
         print(f"제목: {post['title']}")
         print(f"분류: {result['category']} ({classifier.get_category_emoji(result['category'])})")
+        print(f"고우선순위 버그: {classifier.is_high_priority_bug(post['title'], post['content'], post['source'])}")
         print(f"언어: {result['language']}")
         print(f"소스: {result['source_type']}")
         print("---")
