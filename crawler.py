@@ -268,20 +268,8 @@ def get_chrome_driver():
         return driver
     except Exception as e:
         logger.debug(f"시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
-    
-    # WebDriver Manager 최후 시도
-    try:
-        from webdriver_manager.chrome import ChromeDriverManager
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(45)
-        driver.implicitly_wait(15)
-        logger.info("WebDriver Manager 초기화 성공")
-        return driver
-    except Exception as e:
-        logger.debug(f"WebDriver Manager 실패: {str(e)[:100]}...")
-    
-    raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
+       
+    raise Exception("ChromeDriver 초기화 실패 - 시스템 ChromeDriver를 확인하세요.")
 
 # =============================================================================
 # Discord 관련 함수들 (누락된 함수 완전 구현)
