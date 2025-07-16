@@ -19,7 +19,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-
 jobs:
   # 한국 사이트 모니터링 워크플로우
   korean-monitor:
