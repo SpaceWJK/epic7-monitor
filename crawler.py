@@ -692,7 +692,7 @@ def fetch_stove_bug_board():
     return posts
     
 def fetch_stove_global_bug_board():
-    """STOVE 글로벌 버그 게시판 크롤링"""
+    """STOVE글로벌 버그 게시판 크롤링"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
