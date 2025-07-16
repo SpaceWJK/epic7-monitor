@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import os
 import json
 import hashlib
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import time
 import re
 
@@ -134,8 +134,8 @@ def translate_text(text, target_lang='ko'):
     
     try:
         translator = Translator()
-        result = translator.translate(text, dest=target_lang)
-        translated_text = result.text
+        translator = GoogleTranslator(source='auto', target=target_lang)
+        translated_text = translator.translate(text)
         
         # Epic7 전용 용어 적용
         translated_text = apply_epic7_terms(translated_text)
