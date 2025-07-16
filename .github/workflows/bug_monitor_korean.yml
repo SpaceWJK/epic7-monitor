@@ -1,4 +1,4 @@
-name: 🌐 Bug Monitor Korean Sites (Fixed)
+name: 🌐 Bug Monitor Korean Sites
 
 on:
   workflow_call:
@@ -50,134 +50,63 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 📦 Install Python dependencies
+    - name: 🌐 Install Chrome and dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install webdriver-manager  # Chrome Driver 관리
-
-    - name: 🌐 Install Chrome and ChromeDriver (Robust)
-      run: |
-        # Google Chrome 최신 설치
+        # Chrome 설치
         wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
         echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
         
-        # Chrome 버전 확인
-        CHROME_VERSION=$(google-chrome --version)
-        echo "설치된 Chrome 버전: $CHROME_VERSION"
+        # ChromeDriver 설치
+        CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1)
+        echo "Chrome version: $CHROME_VERSION"
         
-        # Chrome for Testing API를 통한 ChromeDriver 다운로드
-        python -c "
-        import requests
-        import zipfile
-        import os
-        import stat
-        import subprocess
+        # ChromeDriver 다운로드 및 설치
+        wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION/chromedriver_linux64.zip"
+        unzip /tmp/chromedriver.zip -d /tmp/
+        sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
+        sudo chmod +x /usr/local/bin/chromedriver
         
-        try:
-            # Chrome for Testing API 사용
-            api_url = 'https://googlechromelabs.github.io/chrome-for-testing/latest-patch-versions-per-build-with-downloads.json'
-            response = requests.get(api_url, timeout=30)
-            data = response.json()
-            
-            # Chrome 버전 확인
-            chrome_version = subprocess.check_output(['google-chrome', '--version']).decode().strip()
-            major_version = chrome_version.split()[2].split('.')[0]
-            
-            # 해당 버전의 ChromeDriver 찾기
-            target_version = None
-            for version in data['builds'].keys():
-                if version.startswith(major_version + '.'):
-                    target_version = version
-                    break
-            
-            if not target_version:
-                target_version = max(data['builds'].keys(), key=lambda x: [int(i) for i in x.split('.')])
-            
-            # ChromeDriver 다운로드 URL 찾기
-            for download in data['builds'][target_version]['downloads']['chromedriver']:
-                if download['platform'] == 'linux64':
-                    chromedriver_url = download['url']
-                    break
-            
-            print(f'ChromeDriver 다운로드 URL: {chromedriver_url}')
-            
-            # 다운로드 및 설치
-            driver_response = requests.get(chromedriver_url, timeout=120)
-            with open('/tmp/chromedriver.zip', 'wb') as f:
-                f.write(driver_response.content)
-            
-            with zipfile.ZipFile('/tmp/chromedriver.zip', 'r') as zip_ref:
-                zip_ref.extractall('/tmp/chromedriver')
-            
-            # 실행 권한 부여
-            chromedriver_path = '/tmp/chromedriver/chromedriver-linux64/chromedriver'
-            os.chmod(chromedriver_path, 0o755)
-            
-            # /usr/local/bin에 복사
-            import shutil
-            shutil.copy(chromedriver_path, '/usr/local/bin/chromedriver')
-            
-            print('ChromeDriver 설치 완료')
-            
-        except Exception as e:
-            print(f'Chrome for Testing API 실패: {e}')
-            # Fallback: webdriver-manager 사용
-            from webdriver_manager.chrome import ChromeDriverManager
-            ChromeDriverManager().install()
-        "
-        
-        # ChromeDriver 설치 확인
+        # 버전 확인
+        google-chrome --version
         chromedriver --version
 
-    - name: 🔍 Run Korean Sites Monitoring
+    - name: 📦 Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: 🇰🇷 한국 사이트 모니터링 실행
       run: |
         echo "=== 한국 사이트 모니터링 시작 ==="
         echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-        echo "ARGS: --mode korean ${{ inputs.debug_mode == true && '--debug' || '' }} ${{ inputs.test_mode == true && '--test' || '' }}"
-        
-        python monitor_bugs.py --mode korean \
-          ${{ inputs.debug_mode == true && '--debug' || '' }} \
-          ${{ inputs.test_mode == true && '--test' || '' }}
+        echo "ARGS: --mode korean --debug"
+        echo "시작" && python monitor_bugs.py --mode korean --debug
+        echo "완료"
 
-    - name: 📤 Upload debug files (if failed)
-      if: failure()
-      uses: actions/upload-artifact@v4
+    - name: 📊 결과 업로드
+      if: always()
+      uses: actions/upload-artifact@v3
       with:
-        name: korean-debug-files
+        name: korean-monitor-results
         path: |
+          *.json
           *.html
           *.log
-          *.json
-        retention-days: 3
+        retention-days: 7
 
-    - name: 💬 Notify on failure
+    - name: 📤 Discord 알림 전송
       if: failure()
       run: |
-        if [ -n "${{ secrets.DISCORD_WEBHOOK_BUG }}" ]; then
-          python -c "
-          import requests
-          import json
-          from datetime import datetime
-          
-          webhook_url = '${{ secrets.DISCORD_WEBHOOK_BUG }}'
-          message = {
-              'embeds': [{
-                  'title': '🚨 한국 사이트 모니터링 실패',
-                  'description': '한국 사이트 크롤링 중 오류가 발생했습니다.',
-                  'color': 0xff0000,
-                  'fields': [
-                      {'name': '워크플로우', 'value': 'Korean Sites Monitor', 'inline': True},
-                      {'name': '실행 시간', 'value': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'inline': True},
-                      {'name': '상태', 'value': '실패', 'inline': True}
-                  ],
-                  'timestamp': datetime.now().isoformat()
-              }]
-          }
-          
-          response = requests.post(webhook_url, json=message, timeout=10)
-          print(f'Discord 알림 전송 상태: {response.status_code}')
-          "
+        if [ ! -z "$DISCORD_WEBHOOK_BUG" ]; then
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"🚨 **한국 사이트 모니터링 실패**\\n\\n**시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')\\n**상태:** 실패\\n**로그:** GitHub Actions에서 확인 가능\"}" \
+               "$DISCORD_WEBHOOK_BUG"
         fi
+
+    - name: 🏁 모니터링 완료
+      run: |
+        echo "한국 사이트 모니터링 완료"
+        echo "상태: ${{ job.status == 'success' && '성공' || '실패' }}"

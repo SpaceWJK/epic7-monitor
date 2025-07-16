@@ -31,6 +31,9 @@ jobs:
     
     env:
       TZ: Asia/Seoul
+      DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
 
     steps:
     - name: 📥 Checkout repository
@@ -45,143 +48,62 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 🌐 Install Chrome (Simplified)
+    - name: 🌐 Install Chrome and dependencies
       run: |
+        # Chrome 설치
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
-        echo "✅ Chrome: $(google-chrome --version)"
+        
+        # ChromeDriver 설치
+        CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1)
+        echo "Chrome version: $CHROME_VERSION"
+        
+        # ChromeDriver 다운로드 및 설치
+        wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION/chromedriver_linux64.zip"
+        unzip /tmp/chromedriver.zip -d /tmp/
+        sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
+        sudo chmod +x /usr/local/bin/chromedriver
+        
+        # 버전 확인
+        google-chrome --version
+        chromedriver --version
 
     - name: 📦 Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        echo "✅ Python packages installed"
 
-    - name: 🔍 Determine execution flags
-      id: mode
-      run: |
-        ARGS="--mode global"
-        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-          ARGS="$ARGS --debug"
-        fi
-        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
-          ARGS="$ARGS --test"
-        fi
-        echo "ARGS=$ARGS" >> $GITHUB_ENV
-        echo "🎯 실행 인자: $ARGS"
-
-    - name: 🚀 Run Global Sites Monitoring
+    - name: 🌐 글로벌 사이트 모니터링 실행
       run: |
         echo "=== 글로벌 사이트 모니터링 시작 ==="
-        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-        echo "ARGS: $ARGS"
-        python monitor_bugs.py $ARGS
-        echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
-      env:
-        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-        DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
-        DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-        PYTHONUNBUFFERED: 1
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "ARGS: --mode global --debug"
+        python monitor_bugs.py --mode global --debug
 
-    - name: 📝 Check JSON debug file
-      run: |
-        if [ -f "crawled_links.json" ]; then
-          echo "==== crawled_links.json 상태 확인 ===="
-          LINK_COUNT=$(jq '.links | length' crawled_links.json 2>/dev/null || echo 0)
-          LAST_UPDATE=$(jq -r '.last_updated' crawled_links.json 2>/dev/null || echo "N/A")
-          echo "저장된 링크 수: $LINK_COUNT"
-          echo "마지막 업데이트: $LAST_UPDATE"
-          
-          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-            echo "==== 상위 5개 링크 (디버그) ===="
-            jq -r '.links[:5][]' crawled_links.json 2>/dev/null || echo "링크 데이터 없음"
-          fi
-        else
-          echo "⚠️ crawled_links.json 파일이 존재하지 않습니다!"
-        fi
-
-    - name: 📊 Upload Debug Files (if debug mode)
-      if: github.event.inputs.debug_mode == 'true'
-      uses: actions/upload-artifact@v4
+    - name: 📊 결과 업로드
+      if: always()
+      uses: actions/upload-artifact@v3
       with:
-        name: debug-html-files-global-${{ github.run_number }}
+        name: global-monitor-results
         path: |
-          *global_debug_selenium.html
-          *_debug_selenium.html
-          *_error_debug.html
+          *.json
+          *.html
           *.log
         retention-days: 7
 
-    - name: 📈 Memory Status Check
+    - name: 📤 Discord 알림 전송
+      if: failure()
       run: |
-        echo "=== 시스템 리소스 상태 ==="
-        echo "메모리 사용량:"
-        free -h
-        echo ""
-        echo "디스크 사용량:"
-        df -h
-        echo ""
-        echo "현재 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+        if [ ! -z "$DISCORD_WEBHOOK_BUG" ]; then
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"🚨 **글로벌 사이트 모니터링 실패**\\n\\n**시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')\\n**상태:** 실패\\n**로그:** GitHub Actions에서 확인 가능\"}" \
+               "$DISCORD_WEBHOOK_BUG"
+        fi
 
-    - name: 💾 Smart Git Commit
+    - name: 🏁 모니터링 완료
       run: |
-        echo "=== Git 변경사항 처리 ==="
-        git config --global user.email "epic7-global@github.com"
-        git config --global user.name "Epic7 Global Monitor"
-
-        git add -A
-        if git diff --staged --quiet; then
-          echo "변경 사항 없음"
-          exit 0
-        fi
-
-        COMMIT_MSG="🌐 [GLOBAL] 크롤링 상태 업데이트 - $(date '+%Y-%m-%d %H:%M KST')"
-        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-          COMMIT_MSG="$COMMIT_MSG (DEBUG)"
-        fi
-        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
-          COMMIT_MSG="$COMMIT_MSG (TEST)"
-        fi
-
-        git commit -m "$COMMIT_MSG"
-
-        for i in {1..5}; do
-          echo "푸시 시도 $i/5"
-          if git push origin main; then
-            echo "Git 푸시 완료"
-            break
-          else
-            echo "Git 푸시 실패, 재시도 ($i/5)"
-            git fetch origin main
-            git rebase origin/main || {
-              echo "리베이스 실패, 강제 초기화"
-              git reset --hard origin/main
-            }
-            sleep $((i * 2))
-          fi
-        done
-
-    - name: 📈 System Status Report
-      if: always()
-      run: |
-        echo "=== 시스템 상태 보고 ==="
-        echo "작업 상태: ${{ job.status }}"
-        echo "워크플로우 번호: ${{ github.run_number }}"
-        echo "실행 ID: ${{ github.run_id }}"
-        echo "크롤링 대상: Reddit, 해외 포럼, 글로벌 커뮤니티"
-        echo ""
-
-        if [ -f "crawled_links.json" ]; then
-          LINK_COUNT=$(jq '.links | length' crawled_links.json 2>/dev/null || echo 0)
-          LAST_UPDATE=$(jq -r '.last_updated' crawled_links.json 2>/dev/null || echo "N/A")
-          echo "저장된 링크 수: $LINK_COUNT"
-          echo "마지막 업데이트: $LAST_UPDATE"
-        fi
-
-        DEBUG_FILES=$(ls -la *global_debug_selenium.html *_debug_selenium.html *_error_debug.html *.log 2>/dev/null | wc -l)
-        echo "생성된 디버그 파일 수: $DEBUG_FILES"
-
-        echo "최종 메모리 사용량:"
-        free -h
-
-        echo "✅ 글로벌 워크플로우 성공적으로 완료"
+        echo "글로벌 사이트 모니터링 완료"
+        echo "상태: ${{ job.status == 'success' && '성공' || '실패' }}"

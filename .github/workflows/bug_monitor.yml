@@ -35,148 +35,121 @@ jobs:
     uses: ./.github/workflows/bug_monitor_global.yml
     with:
       debug_mode: ${{ inputs.debug_mode == 'true' }}
+      test_mode: false
     secrets: inherit
 
-  # 디스패치 결과 종합 및 보고
-  dispatch-summary:
+  # 결과 통합 및 종합 보고서
+  dispatcher-summary:
+    if: ${{ always() }}
     needs: [korean-monitor, global-monitor]
-    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     
     env:
       TZ: Asia/Seoul
+      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
     
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 📊 Dispatch Summary Report
-        run: |
-          echo "============================================="
-          echo "   Epic7 모니터링 워크플로우 디스패치 완료"
-          echo "============================================="
-          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "실행 모드: ${{ inputs.mode || 'scheduled' }}"
-          echo "디버그 모드: ${{ inputs.debug_mode || 'false' }}"
-          echo "트리거 유형: ${{ github.event_name }}"
-          echo "워크플로우 번호: ${{ github.run_number }}"
-          echo "실행 ID: ${{ github.run_id }}"
-          echo ""
-          
-          # 각 워크플로우 실행 결과 확인
-          KOREAN_RESULT="${{ needs.korean-monitor.result }}"
-          GLOBAL_RESULT="${{ needs.global-monitor.result }}"
-          
-          echo "=== 워크플로우 실행 결과 ==="
-          
-          # 한국 사이트 모니터링 결과
-          if [[ "${{ inputs.mode }}" == "korean" || "${{ inputs.mode }}" == "all" || "${{ github.event_name }}" == "schedule" ]]; then
-            echo "🇰🇷 한국 사이트 모니터링:"
-            echo "   - 크롤링 대상: STOVE, 아카라이브, 루리웹"
-            echo "   - 워크플로우: bug_monitor_korean.yml"
-            echo "   - 실행 결과: $KOREAN_RESULT"
-            
-            case "$KOREAN_RESULT" in
-              "success")
-                echo "   - 상태: ✅ 성공적으로 완료"
-                ;;
-              "failure")
-                echo "   - 상태: ❌ 실행 실패"
-                ;;
-              "cancelled")
-                echo "   - 상태: ⏹️ 실행 취소"
-                ;;
-              "skipped")
-                echo "   - 상태: ⏭️ 건너뜀"
-                ;;
-              *)
-                echo "   - 상태: ❓ 알 수 없음 ($KOREAN_RESULT)"
-                ;;
-            esac
-            echo ""
-          fi
-          
-          # 글로벌 사이트 모니터링 결과
-          if [[ "${{ inputs.mode }}" == "global" || "${{ inputs.mode }}" == "all" ]]; then
-            echo "🌍 글로벌 사이트 모니터링:"
-            echo "   - 크롤링 대상: Reddit, 해외 포럼"
-            echo "   - 워크플로우: bug_monitor_global.yml"
-            echo "   - 실행 결과: $GLOBAL_RESULT"
-            
-            case "$GLOBAL_RESULT" in
-              "success")
-                echo "   - 상태: ✅ 성공적으로 완료"
-                ;;
-              "failure")
-                echo "   - 상태: ❌ 실행 실패"
-                ;;
-              "cancelled")
-                echo "   - 상태: ⏹️ 실행 취소"
-                ;;
-              "skipped")
-                echo "   - 상태: ⏭️ 건너뜀"
-                ;;
-              *)
-                echo "   - 상태: ❓ 알 수 없음 ($GLOBAL_RESULT)"
-                ;;
-            esac
-            echo ""
-          fi
-          
-          # 전체 결과 판정
-          echo "=== 전체 실행 결과 ==="
-          
-          SUCCESS_COUNT=0
-          TOTAL_COUNT=0
-          
-          if [[ "${{ inputs.mode }}" == "korean" || "${{ inputs.mode }}" == "all" || "${{ github.event_name }}" == "schedule" ]]; then
-            TOTAL_COUNT=$((TOTAL_COUNT + 1))
-            if [[ "$KOREAN_RESULT" == "success" ]]; then
-              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-            fi
-          fi
-          
-          if [[ "${{ inputs.mode }}" == "global" || "${{ inputs.mode }}" == "all" ]]; then
-            TOTAL_COUNT=$((TOTAL_COUNT + 1))
-            if [[ "$GLOBAL_RESULT" == "success" ]]; then
-              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-            fi
-          fi
-          
-          echo "실행된 워크플로우: $TOTAL_COUNT개"
-          echo "성공한 워크플로우: $SUCCESS_COUNT개"
-          echo "성공률: $(( SUCCESS_COUNT * 100 / TOTAL_COUNT ))%"
-          echo ""
-          
-          if [[ $SUCCESS_COUNT -eq $TOTAL_COUNT ]]; then
-            echo "🎉 모든 워크플로우가 성공적으로 완료되었습니다!"
-            echo "   Epic7 모니터링 시스템이 정상적으로 작동하고 있습니다."
-          elif [[ $SUCCESS_COUNT -gt 0 ]]; then
-            echo "⚠️ 일부 워크플로우에서 문제가 발생했습니다."
-            echo "   부분적으로 모니터링이 진행되었습니다."
-          else
-            echo "❌ 모든 워크플로우가 실패했습니다."
-            echo "   시스템 점검이 필요합니다."
-          fi
-          
-          echo ""
-          echo "============================================="
-          echo "   디스패치 보고서 생성 완료"
-          echo "============================================="
-
-      - name: 📈 System Status Check
-        if: always()
-        run: |
-          echo "=== 시스템 상태 체크 ==="
-          echo "메모리 사용량:"
-          free -h
-          echo ""
-          echo "디스크 사용량:"
-          df -h
-          echo ""
-          echo "현재 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "업타임: $(uptime)"
+    - name: 📥 체크아웃
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: 📊 디스패처 결과 종합
+      run: |
+        echo "=== Epic7 Bug Monitor Dispatcher 결과 종합 ==="
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "트리거: ${{ github.event_name }}"
+        echo "모드: ${{ inputs.mode || 'korean (scheduled)' }}"
+        echo "디버그 모드: ${{ inputs.debug_mode || 'false' }}"
+        echo ""
+        
+        # 한국 사이트 모니터링 결과
+        echo "🇰🇷 한국 사이트 모니터링 결과:"
+        if [ "${{ needs.korean-monitor.result }}" == "success" ]; then
+          echo "  ✅ 성공적으로 완료"
+        elif [ "${{ needs.korean-monitor.result }}" == "failure" ]; then
+          echo "  ❌ 실패"
+        elif [ "${{ needs.korean-monitor.result }}" == "skipped" ]; then
+          echo "  ⏭️ 건너뜀"
+        else
+          echo "  ⚠️ 알 수 없는 상태: ${{ needs.korean-monitor.result }}"
+        fi
+        
+        # 글로벌 사이트 모니터링 결과
+        echo "🌐 글로벌 사이트 모니터링 결과:"
+        if [ "${{ needs.global-monitor.result }}" == "success" ]; then
+          echo "  ✅ 성공적으로 완료"
+        elif [ "${{ needs.global-monitor.result }}" == "failure" ]; then
+          echo "  ❌ 실패"
+        elif [ "${{ needs.global-monitor.result }}" == "skipped" ]; then
+          echo "  ⏭️ 건너뜀"
+        else
+          echo "  ⚠️ 알 수 없는 상태: ${{ needs.global-monitor.result }}"
+        fi
+        
+        echo ""
+        echo "=== 디스패처 실행 완료 ==="
+    
+    - name: 📤 Discord 종합 보고서 전송
+      if: env.DISCORD_WEBHOOK_REPORT != ''
+      run: |
+        KOREAN_STATUS="${{ needs.korean-monitor.result }}"
+        GLOBAL_STATUS="${{ needs.global-monitor.result }}"
+        
+        # 상태 이모지 설정
+        if [ "$KOREAN_STATUS" == "success" ]; then
+          KOREAN_EMOJI="✅"
+        elif [ "$KOREAN_STATUS" == "failure" ]; then
+          KOREAN_EMOJI="❌"
+        elif [ "$KOREAN_STATUS" == "skipped" ]; then
+          KOREAN_EMOJI="⏭️"
+        else
+          KOREAN_EMOJI="⚠️"
+        fi
+        
+        if [ "$GLOBAL_STATUS" == "success" ]; then
+          GLOBAL_EMOJI="✅"
+        elif [ "$GLOBAL_STATUS" == "failure" ]; then
+          GLOBAL_EMOJI="❌"
+        elif [ "$GLOBAL_STATUS" == "skipped" ]; then
+          GLOBAL_EMOJI="⏭️"
+        else
+          GLOBAL_EMOJI="⚠️"
+        fi
+        
+        # Discord 메시지 생성
+        DISCORD_MESSAGE="{
+          \"embeds\": [{
+            \"title\": \"🎯 Epic7 Bug Monitor Dispatcher 결과\",
+            \"description\": \"**실행 시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')\\n**트리거:** ${{ github.event_name }}\\n**모드:** ${{ inputs.mode || 'korean (scheduled)' }}\\n**디버그:** ${{ inputs.debug_mode || 'false' }}\",
+            \"color\": 3447003,
+            \"fields\": [
+              {
+                \"name\": \"🇰🇷 한국 사이트 모니터링\",
+                \"value\": \"$KOREAN_EMOJI $KOREAN_STATUS\",
+                \"inline\": true
+              },
+              {
+                \"name\": \"🌐 글로벌 사이트 모니터링\",
+                \"value\": \"$GLOBAL_EMOJI $GLOBAL_STATUS\",
+                \"inline\": true
+              }
+            ],
+            \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",
+            \"footer\": {
+              \"text\": \"Epic7 Bug Monitor Dispatcher\"
+            }
+          }]
+        }"
+        
+        # Discord 웹훅 전송
+        curl -H "Content-Type: application/json" \
+             -X POST \
+             -d "$DISCORD_MESSAGE" \
+             "$DISCORD_WEBHOOK_REPORT"
+    
+    - name: 🏁 디스패처 완료
+      run: |
+        echo "Epic7 Bug Monitor Dispatcher 실행 완료"
+        echo "전체 실행 시간: ${{ job.status == 'success' && '성공' || '실패' }}"

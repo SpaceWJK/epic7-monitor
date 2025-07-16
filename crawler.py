@@ -1,9 +1,28 @@
-# crawler.py - Epic7 모니터링 시스템 완전 개선 버전 2.0
-# Korean/Global 모드 분기 처리와 글로벌 크롤링 함수 완전 구현
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Epic7 모니터링 시스템 크롤링 엔진 (완전 수정 버전)
+Korean/Global 모드 분기 처리와 글로벌 크롤링 함수 완전 구현
+
+Author: Epic7 Monitoring Team
+Version: 2.1.0
+Date: 2025-07-16
+"""
 
 import json
 import os
-from bs4 import BeautifulSoup
+import sys
+import time
+import random
+import hashlib
+import re
+import requests
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+from urllib.parse import urljoin, urlparse
+
+# Selenium 관련 import
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -13,16 +32,17 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-import time
-from datetime import datetime, timedelta
-import re
-import random
-import requests
-import hashlib
-from typing import Dict, List, Optional, Tuple
-import threading
-import concurrent.futures
-from urllib.parse import urljoin, urlparse
+
+# HTML 파싱
+from bs4 import BeautifulSoup
+
+# 로깅 설정
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # 모드 기반 파일 분리 시스템
@@ -52,11 +72,11 @@ def load_crawled_links(mode: str = "korean"):
         try:
             with open(links_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    return {"links": data, "last_updated": datetime.now().isoformat()}
-                return data
+            if isinstance(data, list):
+                return {"links": data, "last_updated": datetime.now().isoformat()}
+            return data
         except (json.JSONDecodeError, FileNotFoundError):
-            print(f"[WARNING] {links_file} 파일 읽기 실패, 새로 생성")
+            logger.warning(f"{links_file} 파일 읽기 실패, 새로 생성")
     
     return {"links": [], "last_updated": datetime.now().isoformat()}
 
@@ -67,13 +87,15 @@ def save_crawled_links(link_data, mode: str = "korean"):
     try:
         if len(link_data["links"]) > 1000:
             link_data["links"] = link_data["links"][-1000:]
+        
         link_data["last_updated"] = datetime.now().isoformat()
         
         with open(links_file, 'w', encoding='utf-8') as f:
             json.dump(link_data, f, ensure_ascii=False, indent=2)
-        print(f"[INFO] {links_file} 저장 완료: {len(link_data['links'])}개 링크")
+        
+        logger.info(f"{links_file} 저장 완료: {len(link_data['links'])}개 링크")
     except Exception as e:
-        print(f"[ERROR] {links_file} 저장 실패: {e}")
+        logger.error(f"{links_file} 저장 실패: {e}")
 
 def load_content_cache(mode: str = "korean"):
     """모드별 게시글 내용 캐시 로드"""
@@ -84,7 +106,7 @@ def load_content_cache(mode: str = "korean"):
             with open(cache_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (json.JSONDecodeError, FileNotFoundError):
-            print(f"[WARNING] {cache_file} 파일 읽기 실패, 새로 생성")
+            logger.warning(f"{cache_file} 파일 읽기 실패, 새로 생성")
     
     return {}
 
@@ -93,15 +115,17 @@ def save_content_cache(cache_data, mode: str = "korean"):
     _, cache_file = get_file_paths(mode)
     
     try:
+        # 캐시 크기 제한 (최대 500개)
         if len(cache_data) > 500:
             sorted_items = sorted(cache_data.items(), key=lambda x: x[1].get('timestamp', ''), reverse=True)
             cache_data = dict(sorted_items[:500])
         
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=2)
-        print(f"[INFO] {cache_file} 저장 완료: {len(cache_data)}개 캐시")
+        
+        logger.info(f"{cache_file} 저장 완료: {len(cache_data)}개 캐시")
     except Exception as e:
-        print(f"[ERROR] {cache_file} 저장 실패: {e}")
+        logger.error(f"{cache_file} 저장 실패: {e}")
 
 # =============================================================================
 # 유틸리티 함수들
@@ -116,8 +140,11 @@ def extract_content_summary(content: str) -> str:
     if not content or len(content.strip()) < 10:
         return "게시글 내용 확인을 위해 링크를 클릭하세요."
     
+    # 내용 정리
     content = re.sub(r'\s+', ' ', content.strip())
     content = re.sub(r'[^\w\s가-힣.,!?]', '', content)
+    
+    # 첫 문장 추출
     sentences = re.split(r'[.!?]', content)
     first_sentence = sentences[0].strip() if sentences else content
     
@@ -155,24 +182,23 @@ def retry_on_failure(max_retries: int = 3, delay: float = 2.0):
                 except Exception as e:
                     last_exception = e
                     if attempt < max_retries - 1:
-                        print(f"[RETRY] {func.__name__} 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                        logger.warning(f"{func.__name__} 시도 {attempt + 1}/{max_retries} 실패: {e}")
                         time.sleep(delay * (attempt + 1))
                     else:
-                        print(f"[ERROR] {func.__name__} 최종 실패: {e}")
+                        logger.error(f"{func.__name__} 최종 실패: {e}")
             
             if last_exception:
                 raise last_exception
-            
         return wrapper
     return decorator
 
 # =============================================================================
-# Chrome 드라이버 관리
+# Chrome 드라이버 관리 (Chrome 138+ 호환성)
 # =============================================================================
 
 @retry_on_failure(max_retries=3, delay=1.0)
 def get_chrome_driver():
-    """Chrome 드라이버 초기화 (재시도 로직 포함)"""
+    """Chrome 드라이버 초기화 (Chrome 138+ 호환성 완전 적용)"""
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -191,24 +217,31 @@ def get_chrome_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
+    # User Agent 설정
     user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
     ]
     options.add_argument(f'--user-agent={random.choice(user_agents)}')
     
+    # 프리퍼런스 설정
     prefs = {
         'profile.default_content_setting_values': {
-            'images': 2, 'plugins': 2, 'popups': 2,
-            'geolocation': 2, 'notifications': 2, 'media_stream': 2,
+            'images': 2,
+            'plugins': 2,
+            'popups': 2,
+            'geolocation': 2,
+            'notifications': 2,
+            'media_stream': 2,
         }
     }
     options.add_experimental_option('prefs', prefs)
     
+    # ChromeDriver 경로 시도
     possible_paths = [
-        '/usr/bin/chromedriver',
         '/usr/local/bin/chromedriver',
+        '/usr/bin/chromedriver',
         '/snap/bin/chromium.chromedriver',
         '/opt/chrome/chromedriver'
     ]
@@ -220,33 +253,110 @@ def get_chrome_driver():
                 driver = webdriver.Chrome(service=service, options=options)
                 driver.set_page_load_timeout(45)
                 driver.implicitly_wait(15)
-                print(f"[SUCCESS] ChromeDriver 초기화 성공: {path}")
+                logger.info(f"ChromeDriver 초기화 성공: {path}")
                 return driver
         except Exception as e:
-            print(f"[DEBUG] ChromeDriver 경로 {path} 실패: {str(e)[:100]}...")
+            logger.debug(f"ChromeDriver 경로 {path} 실패: {str(e)[:100]}...")
             continue
     
+    # 시스템 기본 ChromeDriver 시도
     try:
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(45)
         driver.implicitly_wait(15)
-        print("[SUCCESS] 시스템 기본 ChromeDriver 초기화 성공")
+        logger.info("시스템 기본 ChromeDriver 초기화 성공")
         return driver
     except Exception as e:
-        print(f"[DEBUG] 시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
+        logger.debug(f"시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
     
+    # WebDriver Manager 최후 시도
     try:
         from webdriver_manager.chrome import ChromeDriverManager
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(45)
         driver.implicitly_wait(15)
-        print("[SUCCESS] WebDriver Manager 초기화 성공")
+        logger.info("WebDriver Manager 초기화 성공")
         return driver
     except Exception as e:
-        print(f"[DEBUG] WebDriver Manager 실패: {str(e)[:100]}...")
+        logger.debug(f"WebDriver Manager 실패: {str(e)[:100]}...")
     
     raise Exception("모든 ChromeDriver 초기화 방법이 실패했습니다.")
+
+# =============================================================================
+# Discord 관련 함수들 (누락된 함수 완전 구현)
+# =============================================================================
+
+def check_discord_webhooks():
+    """Discord 웹훅 환경변수 확인"""
+    webhooks = {}
+    
+    # 버그 알림 웹훅
+    bug_webhook = os.environ.get('DISCORD_WEBHOOK_BUG')
+    if bug_webhook:
+        webhooks['bug'] = bug_webhook
+        logger.info("Discord 버그 알림 웹훅 확인됨")
+    
+    # 감성 알림 웹훅
+    sentiment_webhook = os.environ.get('DISCORD_WEBHOOK_SENTIMENT')
+    if sentiment_webhook:
+        webhooks['sentiment'] = sentiment_webhook
+        logger.info("Discord 감성 알림 웹훅 확인됨")
+    
+    # 리포트 웹훅
+    report_webhook = os.environ.get('DISCORD_WEBHOOK_REPORT')
+    if report_webhook:
+        webhooks['report'] = report_webhook
+        logger.info("Discord 리포트 웹훅 확인됨")
+    
+    if not webhooks:
+        logger.warning("Discord 웹훅 환경변수가 설정되지 않았습니다.")
+    
+    return webhooks
+
+def send_discord_message(webhook_url: str, message: str, title: str = "Epic7 모니터링"):
+    """Discord 메시지 전송"""
+    if not webhook_url:
+        logger.error("Discord 웹훅 URL이 없습니다.")
+        return False
+    
+    try:
+        # 메시지 길이 제한 (Discord 한계 고려)
+        if len(message) > 1900:
+            message = message[:1900] + "\n...(메시지 길이 초과로 생략)"
+        
+        # Discord 웹훅 페이로드
+        payload = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": message,
+                    "color": 0x3498db,
+                    "timestamp": datetime.now().isoformat(),
+                    "footer": {
+                        "text": "Epic7 모니터링 시스템"
+                    }
+                }
+            ]
+        }
+        
+        # 웹훅 전송
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        if response.status_code == 204:
+            logger.info("Discord 메시지 전송 성공")
+            return True
+        else:
+            logger.error(f"Discord 메시지 전송 실패: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Discord 메시지 전송 중 오류: {e}")
+        return False
+
+def get_file_path(mode: str = "korean"):
+    """호환성을 위한 wrapper 함수 - get_file_paths의 첫 번째 값만 반환"""
+    links_file, cache_file = get_file_paths(mode)
+    return links_file
 
 # =============================================================================
 # 게시글 내용 추출 함수
@@ -254,42 +364,45 @@ def get_chrome_driver():
 
 def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, mode: str = "korean") -> str:
     """스토브 게시글 내용 추출 (강화된 버전)"""
-    
     cache = load_content_cache(mode)
     url_hash = get_url_hash(post_url)
     
+    # 캐시 확인
     if url_hash in cache:
         cached_item = cache[url_hash]
         cache_time = datetime.fromisoformat(cached_item.get('timestamp', '2000-01-01'))
         if datetime.now() - cache_time < timedelta(hours=24):
             return cached_item.get('content', "게시글 내용 확인을 위해 링크를 클릭하세요.")
     
+    # 드라이버 초기화
     driver_created = False
     if driver is None:
         try:
             driver = get_chrome_driver()
             driver_created = True
         except Exception as e:
-            print(f"[ERROR] Driver 생성 실패: {e}")
+            logger.error(f"Driver 생성 실패: {e}")
             return "게시글 내용 확인을 위해 링크를 클릭하세요."
     
     content_summary = "게시글 내용 확인을 위해 링크를 클릭하세요."
     
     try:
         driver.get(post_url)
-        time.sleep(20)
+        time.sleep(10)  # 페이지 로딩 대기
         
         WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
+        # 스크롤링으로 콘텐츠 로딩
         for i in range(3):
             driver.execute_script(f"window.scrollTo(0, {500 * (i + 1)});")
-            time.sleep(5)
+            time.sleep(3)
         
         driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(5)
+        time.sleep(3)
         
+        # 콘텐츠 선택자들
         content_selectors = [
             'div.s-article-content',
             'div.s-article-content-text',
@@ -306,8 +419,6 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, mode:
         ]
         
         extracted_content = ""
-        successful_selector = ""
-        
         for selector in content_selectors:
             try:
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -315,30 +426,28 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, mode:
                     for element in elements:
                         text = element.text.strip()
                         if text and len(text) > 50:
-                            if not any(skip_text in text.lower() for skip_text in 
-                                     ['install stove', '스토브를 설치', '로그인이 필요', 'javascript']):
+                            if not any(skip_text in text.lower() for skip_text in ['install stove', '스토브를 설치', '로그인이 필요', 'javascript']):
                                 extracted_content = text
-                                successful_selector = selector
                                 break
                     if extracted_content:
                         break
-            except Exception as e:
+            except Exception:
                 continue
         
+        # 내용 처리
         if extracted_content:
             lines = extracted_content.split('\n')
             meaningful_lines = []
-            
             for line in lines:
                 line = line.strip()
                 if (len(line) > 15 and 
                     '로그인' not in line and 
                     '회원가입' not in line and 
                     '메뉴' not in line and 
-                    '검색' not in line and
-                    '공지사항' not in line and
-                    '이벤트' not in line and
-                    'Install STOVE' not in line and
+                    '검색' not in line and 
+                    '공지사항' not in line and 
+                    '이벤트' not in line and 
+                    'Install STOVE' not in line and 
                     '스토브를 설치' not in line):
                     meaningful_lines.append(line)
             
@@ -349,38 +458,39 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, mode:
                 else:
                     content_summary = extract_content_summary(meaningful_lines[0])
         
+        # JavaScript 추출 시도
         if content_summary == "게시글 내용 확인을 위해 링크를 클릭하세요.":
             try:
                 js_content = driver.execute_script("""
-                    var contentElements = [
-                        document.querySelector('div.s-article-content'),
-                        document.querySelector('div[class*="article-content"]'),
-                        document.querySelector('div[class*="post-content"]'),
-                        document.querySelector('main'),
-                        document.querySelector('article')
-                    ];
-                    
-                    for (var i = 0; i < contentElements.length; i++) {
-                        var element = contentElements[i];
-                        if (element && element.innerText) {
-                            var text = element.innerText.trim();
-                            if (text.length > 50 && 
-                                !text.toLowerCase().includes('install stove') &&
-                                !text.includes('스토브를 설치') &&
-                                !text.includes('로그인이 필요')) {
-                                return text;
-                            }
+                var contentElements = [
+                    document.querySelector('div.s-article-content'),
+                    document.querySelector('div[class*="article-content"]'),
+                    document.querySelector('div[class*="post-content"]'),
+                    document.querySelector('main'),
+                    document.querySelector('article')
+                ];
+                
+                for (var i = 0; i < contentElements.length; i++) {
+                    var element = contentElements[i];
+                    if (element && element.innerText) {
+                        var text = element.innerText.trim();
+                        if (text.length > 50 && 
+                            !text.toLowerCase().includes('install stove') && 
+                            !text.includes('스토브를 설치') && 
+                            !text.includes('로그인이 필요')) {
+                            return text;
                         }
                     }
-                    return '';
+                }
+                return '';
                 """)
                 
                 if js_content and len(js_content.strip()) > 50:
                     content_summary = extract_content_summary(js_content)
-                    
             except Exception as e:
-                print(f"[ERROR] JavaScript 추출 실패: {e}")
+                logger.error(f"JavaScript 추출 실패: {e}")
         
+        # BeautifulSoup 추출 시도
         if content_summary == "게시글 내용 확인을 위해 링크를 클릭하세요.":
             try:
                 html = driver.page_source
@@ -400,27 +510,22 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, mode:
                             if not any(skip in text.lower() for skip in ['install stove', '스토브를 설치']):
                                 content_summary = extract_content_summary(text)
                                 break
-                                
             except Exception as e:
-                print(f"[ERROR] BeautifulSoup 추출 실패: {e}")
+                logger.error(f"BeautifulSoup 추출 실패: {e}")
         
-        debug_filename = f"debug_stove_{mode}_{datetime.now().strftime('%H%M%S')}.html"
-        with open(debug_filename, "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
-        
+        # 캐시 저장
         cache[url_hash] = {
             'content': content_summary,
             'timestamp': datetime.now().isoformat(),
-            'url': post_url,
-            'selector_used': successful_selector
+            'url': post_url
         }
         save_content_cache(cache, mode)
         
     except TimeoutException:
-        print(f"[ERROR] 페이지 로딩 타임아웃: {post_url}")
+        logger.error(f"페이지 로딩 타임아웃: {post_url}")
         content_summary = "⏰ 게시글 로딩 시간 초과. 링크를 클릭하여 확인하세요."
     except Exception as e:
-        print(f"[ERROR] 게시글 내용 추출 실패: {e}")
+        logger.error(f"게시글 내용 추출 실패: {e}")
         content_summary = "🔗 게시글 내용 확인을 위해 링크를 클릭하세요."
     finally:
         if driver_created and driver:
@@ -442,58 +547,56 @@ def fetch_stove_bug_board(mode: str = "korean"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] 스토브 버그 게시판 크롤링 시작 (mode: {mode})")
+    logger.info(f"스토브 버그 게시판 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
         driver = get_chrome_driver()
         url = "https://page.onstove.com/epicseven/kr/list/1012?page=1&direction=LATEST"
         driver.get(url)
+        time.sleep(15)
         
-        time.sleep(20)
         WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
+        # 스크롤링으로 게시글 로딩
         for i in range(3):
             driver.execute_script(f"window.scrollTo(0, {500 * (i + 1)});")
-            time.sleep(5)
+            time.sleep(3)
         
         driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(5)
+        time.sleep(3)
         
-        html_content = driver.page_source
-        with open(f"stove_bug_debug_{mode}.html", "w", encoding="utf-8") as f:
-            f.write(html_content)
-        
+        # JavaScript로 게시글 추출
         user_posts = driver.execute_script("""
-            var posts = [];
-            var items = document.querySelectorAll('section.s-board-item');
+        var posts = [];
+        var items = document.querySelectorAll('section.s-board-item');
+        
+        for (var i = 0; i < Math.min(items.length, 15); i++) {
+            var item = items[i];
+            var link = item.querySelector('a[href*="/view/"]');
+            var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
             
-            for (var i = 0; i < Math.min(items.length, 15); i++) {
-                var item = items[i];
-                var link = item.querySelector('a[href*="/view/"]');
-                var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
-                
-                if (link && title && link.href && title.innerText) {
-                    var titleText = title.innerText.trim();
-                    if (titleText.length > 3) {
-                        var isNotice = item.querySelector('.notice, [class*="notice"]');
-                        var isEvent = item.querySelector('.event, [class*="event"]');
-                        
-                        if (!isNotice && !isEvent) {
-                            posts.push({
-                                title: titleText,
-                                href: link.href,
-                                id: link.href.split('/').pop()
-                            });
-                        }
+            if (link && title && link.href && title.innerText) {
+                var titleText = title.innerText.trim();
+                if (titleText.length > 3) {
+                    var isNotice = item.querySelector('.notice, [class*="notice"]');
+                    var isEvent = item.querySelector('.event, [class*="event"]');
+                    if (!isNotice && !isEvent) {
+                        posts.push({
+                            title: titleText,
+                            href: link.href,
+                            id: link.href.split('/').pop()
+                        });
                     }
                 }
             }
-            return posts;
+        }
+        return posts;
         """)
         
+        # 게시글 처리
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = fix_stove_url(post_info['href'])
@@ -513,23 +616,24 @@ def fetch_stove_bug_board(mode: str = "korean"):
                         "source": "stove_bug",
                         "site": "STOVE 버그신고"
                     }
+                    
                     posts.append(post_data)
                     crawled_links.append(href)
-                    print(f"[NEW] 스토브 버그 새 게시글: {title[:50]}...")
-                
-                time.sleep(random.uniform(3, 6))
-                
+                    
+                    logger.info(f"스토브 버그 새 게시글: {title[:50]}...")
+                    time.sleep(random.uniform(2, 4))
+                    
             except Exception as e:
-                print(f"[ERROR] 스토브 버그 게시글 {i} 처리 오류: {e}")
+                logger.error(f"스토브 버그 게시글 {i} 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] 스토브 버그 게시판 크롤링 실패: {e}")
-        
+        logger.error(f"스토브 버그 게시판 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -542,50 +646,52 @@ def fetch_stove_general_board(mode: str = "korean"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] 스토브 자유게시판 크롤링 시작 (mode: {mode})")
+    logger.info(f"스토브 자유게시판 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
         driver = get_chrome_driver()
         url = "https://page.onstove.com/epicseven/kr/list/1005?page=1&direction=LATEST"
         driver.get(url)
+        time.sleep(15)
         
-        time.sleep(20)
         WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
+        # 스크롤링으로 게시글 로딩
         for i in range(3):
             driver.execute_script(f"window.scrollTo(0, {500 * (i + 1)});")
-            time.sleep(5)
+            time.sleep(3)
         
+        # JavaScript로 게시글 추출
         user_posts = driver.execute_script("""
-            var posts = [];
-            var items = document.querySelectorAll('section.s-board-item');
+        var posts = [];
+        var items = document.querySelectorAll('section.s-board-item');
+        
+        for (var i = 0; i < Math.min(items.length, 15); i++) {
+            var item = items[i];
+            var link = item.querySelector('a[href*="/view/"]');
+            var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
             
-            for (var i = 0; i < Math.min(items.length, 15); i++) {
-                var item = items[i];
-                var link = item.querySelector('a[href*="/view/"]');
-                var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
-                
-                if (link && title && link.href && title.innerText) {
-                    var titleText = title.innerText.trim();
-                    if (titleText.length > 3) {
-                        var isNotice = item.querySelector('.notice, [class*="notice"]');
-                        var isEvent = item.querySelector('.event, [class*="event"]');
-                        
-                        if (!isNotice && !isEvent) {
-                            posts.push({
-                                title: titleText,
-                                href: link.href
-                            });
-                        }
+            if (link && title && link.href && title.innerText) {
+                var titleText = title.innerText.trim();
+                if (titleText.length > 3) {
+                    var isNotice = item.querySelector('.notice, [class*="notice"]');
+                    var isEvent = item.querySelector('.event, [class*="event"]');
+                    if (!isNotice && !isEvent) {
+                        posts.push({
+                            title: titleText,
+                            href: link.href
+                        });
                     }
                 }
             }
-            return posts;
+        }
+        return posts;
         """)
         
+        # 게시글 처리
         for post_info in user_posts:
             try:
                 href = fix_stove_url(post_info['href'])
@@ -597,6 +703,7 @@ def fetch_stove_general_board(mode: str = "korean"):
                 if not title or len(title) < 4:
                     continue
                 
+                # 의미없는 제목 필터링
                 meaningless_patterns = [
                     r'^[.]{3,}$',
                     r'^[ㅋㅎㅗㅜㅑ]{3,}$',
@@ -617,23 +724,24 @@ def fetch_stove_general_board(mode: str = "korean"):
                     "source": "stove_general",
                     "site": "STOVE 자유게시판"
                 }
+                
                 posts.append(post_data)
                 crawled_links.append(href)
-                print(f"[NEW] 스토브 자유게시판 새 게시글: {title[:50]}...")
                 
-                time.sleep(random.uniform(3, 6))
+                logger.info(f"스토브 자유게시판 새 게시글: {title[:50]}...")
+                time.sleep(random.uniform(2, 4))
                 
             except Exception as e:
-                print(f"[ERROR] 스토브 자유게시판 게시글 처리 오류: {e}")
+                logger.error(f"스토브 자유게시판 게시글 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] 스토브 자유게시판 크롤링 실패: {e}")
-        
+        logger.error(f"스토브 자유게시판 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -646,7 +754,7 @@ def fetch_ruliweb_epic7_board(mode: str = "korean"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] 루리웹 크롤링 시작 (mode: {mode})")
+    logger.info(f"루리웹 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
@@ -655,6 +763,7 @@ def fetch_ruliweb_epic7_board(mode: str = "korean"):
         driver.get(url)
         time.sleep(10)
         
+        # 다양한 선택자 시도
         selectors = [
             ".subject_link",
             ".table_body .subject a",
@@ -669,17 +778,16 @@ def fetch_ruliweb_epic7_board(mode: str = "korean"):
             try:
                 articles = driver.find_elements(By.CSS_SELECTOR, selector)
                 if articles:
-                    print(f"[DEBUG] 루리웹 선택자 성공: {selector} ({len(articles)}개)")
+                    logger.info(f"루리웹 선택자 성공: {selector} ({len(articles)}개)")
                     break
             except NoSuchElementException:
                 continue
         
         if not articles:
-            print("[WARNING] 루리웹 게시글을 찾을 수 없음")
-            with open(f"ruliweb_debug_{mode}.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
+            logger.warning("루리웹 게시글을 찾을 수 없음")
             return posts
         
+        # 게시글 처리
         for i, article in enumerate(articles[:15]):
             try:
                 title = article.text.strip()
@@ -688,9 +796,11 @@ def fetch_ruliweb_epic7_board(mode: str = "korean"):
                 if not title or not link or len(title) < 3:
                     continue
                 
+                # 공지사항 제외
                 if any(keyword in title for keyword in ['공지', '필독', '이벤트', '추천', '베스트', '공지사항']):
                     continue
                 
+                # 상대 경로 처리
                 if link.startswith('/'):
                     link = 'https://bbs.ruliweb.com' + link
                 
@@ -703,27 +813,23 @@ def fetch_ruliweb_epic7_board(mode: str = "korean"):
                         "source": "ruliweb_epic7",
                         "site": "루리웹"
                     }
+                    
                     posts.append(post_data)
                     crawled_links.append(link)
-                    print(f"[NEW] 루리웹 새 게시글: {title[:50]}...")
-                
+                    
+                    logger.info(f"루리웹 새 게시글: {title[:50]}...")
+                    
             except Exception as e:
-                print(f"[ERROR] 루리웹 게시글 {i+1} 처리 오류: {e}")
+                logger.error(f"루리웹 게시글 {i+1} 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] 루리웹 크롤링 실패: {e}")
-        if driver:
-            try:
-                with open(f"ruliweb_error_{mode}.html", "w", encoding="utf-8") as f:
-                    f.write(driver.page_source)
-            except:
-                pass
-    
+        logger.error(f"루리웹 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -736,7 +842,7 @@ def fetch_arca_epic7_board(mode: str = "korean"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] 아카라이브 크롤링 시작 (mode: {mode})")
+    logger.info(f"아카라이브 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
@@ -752,10 +858,7 @@ def fetch_arca_epic7_board(mode: str = "korean"):
         driver.execute_script("window.scrollTo(0, 800);")
         time.sleep(5)
         
-        html_content = driver.page_source
-        with open(f"arca_debug_{mode}.html", "w", encoding="utf-8") as f:
-            f.write(html_content)
-        
+        # 다양한 선택자 시도
         selectors = [
             ".vrow .title a",
             ".vrow-inner .title a",
@@ -769,15 +872,16 @@ def fetch_arca_epic7_board(mode: str = "korean"):
             try:
                 articles = driver.find_elements(By.CSS_SELECTOR, selector)
                 if articles:
-                    print(f"[DEBUG] 아카라이브 선택자 성공: {selector} ({len(articles)}개)")
+                    logger.info(f"아카라이브 선택자 성공: {selector} ({len(articles)}개)")
                     break
             except NoSuchElementException:
                 continue
         
         if not articles:
-            print("[WARNING] 아카라이브 게시글을 찾을 수 없음")
+            logger.warning("아카라이브 게시글을 찾을 수 없음")
             return posts
         
+        # 게시글 처리
         for i, article in enumerate(articles[:15]):
             try:
                 title = article.text.strip()
@@ -786,9 +890,11 @@ def fetch_arca_epic7_board(mode: str = "korean"):
                 if not title or not link or len(title) < 3:
                     continue
                 
+                # 공지사항 제외
                 if any(keyword in title for keyword in ['공지', '필독', '이벤트', '추천', '베스트']):
                     continue
                 
+                # 상대 경로 처리
                 if link.startswith('/'):
                     link = 'https://arca.live' + link
                 
@@ -801,21 +907,23 @@ def fetch_arca_epic7_board(mode: str = "korean"):
                         "source": "arca_epic7",
                         "site": "아카라이브"
                     }
+                    
                     posts.append(post_data)
                     crawled_links.append(link)
-                    print(f"[NEW] 아카라이브 새 게시글: {title[:50]}...")
-                
+                    
+                    logger.info(f"아카라이브 새 게시글: {title[:50]}...")
+                    
             except Exception as e:
-                print(f"[ERROR] 아카라이브 게시글 {i+1} 처리 오류: {e}")
+                logger.error(f"아카라이브 게시글 {i+1} 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] 아카라이브 크롤링 실패: {e}")
-        
+        logger.error(f"아카라이브 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -832,54 +940,52 @@ def fetch_stove_global_bug_board(mode: str = "global"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] STOVE 글로벌 버그 크롤링 시작 (mode: {mode})")
+    logger.info(f"STOVE 글로벌 버그 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
         driver = get_chrome_driver()
         url = "https://page.onstove.com/epicseven/global/list/998?page=1&direction=LATEST"
         driver.get(url)
+        time.sleep(15)
         
-        time.sleep(20)
         WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
+        # 스크롤링으로 게시글 로딩
         for i in range(3):
             driver.execute_script(f"window.scrollTo(0, {500 * (i + 1)});")
-            time.sleep(5)
+            time.sleep(3)
         
-        html_content = driver.page_source
-        with open(f"stove_global_bug_debug_{mode}.html", "w", encoding="utf-8") as f:
-            f.write(html_content)
-        
+        # JavaScript로 게시글 추출
         user_posts = driver.execute_script("""
-            var posts = [];
-            var items = document.querySelectorAll('section.s-board-item');
+        var posts = [];
+        var items = document.querySelectorAll('section.s-board-item');
+        
+        for (var i = 0; i < Math.min(items.length, 15); i++) {
+            var item = items[i];
+            var link = item.querySelector('a[href*="/view/"]');
+            var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
             
-            for (var i = 0; i < Math.min(items.length, 15); i++) {
-                var item = items[i];
-                var link = item.querySelector('a[href*="/view/"]');
-                var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
-                
-                if (link && title && link.href && title.innerText) {
-                    var titleText = title.innerText.trim();
-                    if (titleText.length > 3) {
-                        var isNotice = item.querySelector('.notice, [class*="notice"]');
-                        var isEvent = item.querySelector('.event, [class*="event"]');
-                        
-                        if (!isNotice && !isEvent) {
-                            posts.push({
-                                title: titleText,
-                                href: link.href
-                            });
-                        }
+            if (link && title && link.href && title.innerText) {
+                var titleText = title.innerText.trim();
+                if (titleText.length > 3) {
+                    var isNotice = item.querySelector('.notice, [class*="notice"]');
+                    var isEvent = item.querySelector('.event, [class*="event"]');
+                    if (!isNotice && !isEvent) {
+                        posts.push({
+                            title: titleText,
+                            href: link.href
+                        });
                     }
                 }
             }
-            return posts;
+        }
+        return posts;
         """)
         
+        # 게시글 처리
         for post_info in user_posts:
             try:
                 href = fix_stove_url(post_info['href'])
@@ -898,23 +1004,24 @@ def fetch_stove_global_bug_board(mode: str = "global"):
                     "source": "stove_global_bug",
                     "site": "STOVE Global Bug"
                 }
+                
                 posts.append(post_data)
                 crawled_links.append(href)
-                print(f"[NEW] STOVE 글로벌 버그 새 게시글: {title[:50]}...")
                 
-                time.sleep(random.uniform(3, 6))
+                logger.info(f"STOVE 글로벌 버그 새 게시글: {title[:50]}...")
+                time.sleep(random.uniform(2, 4))
                 
             except Exception as e:
-                print(f"[ERROR] STOVE 글로벌 버그 게시글 처리 오류: {e}")
+                logger.error(f"STOVE 글로벌 버그 게시글 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] STOVE 글로벌 버그 크롤링 실패: {e}")
-        
+        logger.error(f"STOVE 글로벌 버그 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -927,50 +1034,52 @@ def fetch_stove_global_general_board(mode: str = "global"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] STOVE 글로벌 자유게시판 크롤링 시작 (mode: {mode})")
+    logger.info(f"STOVE 글로벌 자유게시판 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
         driver = get_chrome_driver()
         url = "https://page.onstove.com/epicseven/global/list/989?page=1&direction=LATEST"
         driver.get(url)
+        time.sleep(15)
         
-        time.sleep(20)
         WebDriverWait(driver, 20).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
+        # 스크롤링으로 게시글 로딩
         for i in range(3):
             driver.execute_script(f"window.scrollTo(0, {500 * (i + 1)});")
-            time.sleep(5)
+            time.sleep(3)
         
+        # JavaScript로 게시글 추출
         user_posts = driver.execute_script("""
-            var posts = [];
-            var items = document.querySelectorAll('section.s-board-item');
+        var posts = [];
+        var items = document.querySelectorAll('section.s-board-item');
+        
+        for (var i = 0; i < Math.min(items.length, 15); i++) {
+            var item = items[i];
+            var link = item.querySelector('a[href*="/view/"]');
+            var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
             
-            for (var i = 0; i < Math.min(items.length, 15); i++) {
-                var item = items[i];
-                var link = item.querySelector('a[href*="/view/"]');
-                var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
-                
-                if (link && title && link.href && title.innerText) {
-                    var titleText = title.innerText.trim();
-                    if (titleText.length > 3) {
-                        var isNotice = item.querySelector('.notice, [class*="notice"]');
-                        var isEvent = item.querySelector('.event, [class*="event"]');
-                        
-                        if (!isNotice && !isEvent) {
-                            posts.push({
-                                title: titleText,
-                                href: link.href
-                            });
-                        }
+            if (link && title && link.href && title.innerText) {
+                var titleText = title.innerText.trim();
+                if (titleText.length > 3) {
+                    var isNotice = item.querySelector('.notice, [class*="notice"]');
+                    var isEvent = item.querySelector('.event, [class*="event"]');
+                    if (!isNotice && !isEvent) {
+                        posts.push({
+                            title: titleText,
+                            href: link.href
+                        });
                     }
                 }
             }
-            return posts;
+        }
+        return posts;
         """)
         
+        # 게시글 처리
         for post_info in user_posts:
             try:
                 href = fix_stove_url(post_info['href'])
@@ -989,23 +1098,24 @@ def fetch_stove_global_general_board(mode: str = "global"):
                     "source": "stove_global_general",
                     "site": "STOVE Global General"
                 }
+                
                 posts.append(post_data)
                 crawled_links.append(href)
-                print(f"[NEW] STOVE 글로벌 자유게시판 새 게시글: {title[:50]}...")
                 
-                time.sleep(random.uniform(3, 6))
+                logger.info(f"STOVE 글로벌 자유게시판 새 게시글: {title[:50]}...")
+                time.sleep(random.uniform(2, 4))
                 
             except Exception as e:
-                print(f"[ERROR] STOVE 글로벌 자유게시판 게시글 처리 오류: {e}")
+                logger.error(f"STOVE 글로벌 자유게시판 게시글 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] STOVE 글로벌 자유게시판 크롤링 실패: {e}")
-        
+        logger.error(f"STOVE 글로벌 자유게시판 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -1018,7 +1128,7 @@ def fetch_reddit_epic7_board(mode: str = "global"):
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] Reddit 크롤링 시작 (mode: {mode})")
+    logger.info(f"Reddit 크롤링 시작 (mode: {mode})")
     
     try:
         url = "https://www.reddit.com/r/EpicSeven/new.json?limit=20"
@@ -1053,19 +1163,22 @@ def fetch_reddit_epic7_board(mode: str = "global"):
                         "source": "reddit_epic7",
                         "site": "Reddit"
                     }
+                    
                     posts.append(post_data)
                     crawled_links.append(permalink)
-                    print(f"[NEW] Reddit 새 게시글: {title[:50]}...")
+                    
+                    logger.info(f"Reddit 새 게시글: {title[:50]}...")
                     
                 except Exception as e:
-                    print(f"[ERROR] Reddit 게시글 처리 오류: {e}")
+                    logger.error(f"Reddit 게시글 처리 오류: {e}")
                     continue
-        
+                    
     except requests.RequestException as e:
-        print(f"[ERROR] Reddit API 요청 실패: {e}")
+        logger.error(f"Reddit API 요청 실패: {e}")
     except Exception as e:
-        print(f"[ERROR] Reddit 크롤링 실패: {e}")
+        logger.error(f"Reddit 크롤링 실패: {e}")
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
@@ -1073,20 +1186,20 @@ def fetch_reddit_epic7_board(mode: str = "global"):
 
 @retry_on_failure(max_retries=2, delay=3.0)
 def fetch_epic7_official_forum(mode: str = "global"):
-    """Epic7 공식 포럼 크롤링"""
+    """Epic7 공식 포럼 크롤링 (함수명 수정됨)"""
     posts = []
     link_data = load_crawled_links(mode)
     crawled_links = link_data["links"]
     
-    print(f"[DEBUG] Epic7 공식 포럼 크롤링 시작 (mode: {mode})")
+    logger.info(f"Epic7 공식 포럼 크롤링 시작 (mode: {mode})")
     
     driver = None
     try:
         driver = get_chrome_driver()
         url = "https://epic7.gg/forum"
         driver.get(url)
-        
         time.sleep(15)
+        
         WebDriverWait(driver, 15).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
@@ -1094,10 +1207,7 @@ def fetch_epic7_official_forum(mode: str = "global"):
         driver.execute_script("window.scrollTo(0, 800);")
         time.sleep(5)
         
-        html_content = driver.page_source
-        with open(f"epic7_forum_debug_{mode}.html", "w", encoding="utf-8") as f:
-            f.write(html_content)
-        
+        # 다양한 선택자 시도
         selectors = [
             ".topic-title a",
             ".forum-post-title a",
@@ -1111,11 +1221,16 @@ def fetch_epic7_official_forum(mode: str = "global"):
             try:
                 articles = driver.find_elements(By.CSS_SELECTOR, selector)
                 if articles:
-                    print(f"[DEBUG] 공식 포럼 선택자 성공: {selector} ({len(articles)}개)")
+                    logger.info(f"공식 포럼 선택자 성공: {selector} ({len(articles)}개)")
                     break
             except NoSuchElementException:
                 continue
         
+        if not articles:
+            logger.warning("공식 포럼 게시글을 찾을 수 없음")
+            return posts
+        
+        # 게시글 처리
         for i, article in enumerate(articles[:15]):
             try:
                 title = article.text.strip()
@@ -1124,6 +1239,7 @@ def fetch_epic7_official_forum(mode: str = "global"):
                 if not title or not link or len(title) < 3:
                     continue
                 
+                # 상대 경로 처리
                 if link.startswith('/'):
                     link = 'https://epic7.gg' + link
                 
@@ -1131,200 +1247,192 @@ def fetch_epic7_official_forum(mode: str = "global"):
                     post_data = {
                         "title": title,
                         "url": link,
-                        "content": f"Epic7 공식 포럼 게시글: {title[:100]}...",
+                        "content": "Epic7 공식 포럼 게시글 내용 확인을 위해 링크를 클릭하세요.",
                         "timestamp": datetime.now().isoformat(),
-                        "source": "epic7_forum",
-                        "site": "Epic7 Official Forum"
+                        "source": "epic7_official_forum",
+                        "site": "Epic7 공식 포럼"
                     }
+                    
                     posts.append(post_data)
                     crawled_links.append(link)
-                    print(f"[NEW] Epic7 공식 포럼 새 게시글: {title[:50]}...")
-                
+                    
+                    logger.info(f"공식 포럼 새 게시글: {title[:50]}...")
+                    
             except Exception as e:
-                print(f"[ERROR] Epic7 공식 포럼 게시글 {i+1} 처리 오류: {e}")
+                logger.error(f"공식 포럼 게시글 {i+1} 처리 오류: {e}")
                 continue
-        
+                
     except Exception as e:
-        print(f"[ERROR] Epic7 공식 포럼 크롤링 실패: {e}")
-        
+        logger.error(f"공식 포럼 크롤링 실패: {e}")
     finally:
         if driver:
             driver.quit()
     
+    # 링크 데이터 저장
     link_data["links"] = crawled_links
     save_crawled_links(link_data, mode)
     
     return posts
 
 # =============================================================================
-# 메인 크롤링 함수들
+# 통합 크롤링 함수들
 # =============================================================================
 
 def crawl_korean_sites(mode: str = "korean"):
     """한국 사이트 통합 크롤링"""
-    print(f"[INFO] 한국 사이트 크롤링 시작 (mode: {mode})")
+    logger.info(f"한국 사이트 통합 크롤링 시작 (mode: {mode})")
     
     all_posts = []
     
+    # 스토브 버그 게시판
     try:
-        # 스토브 버그 게시판
-        bug_posts = fetch_stove_bug_board(mode)
-        all_posts.extend(bug_posts)
-        print(f"[INFO] 스토브 버그 게시판: {len(bug_posts)}개 게시글")
-        
-        # 스토브 자유게시판
-        general_posts = fetch_stove_general_board(mode)
-        all_posts.extend(general_posts)
-        print(f"[INFO] 스토브 자유게시판: {len(general_posts)}개 게시글")
-        
-        # 루리웹
+        stove_bug_posts = fetch_stove_bug_board(mode)
+        all_posts.extend(stove_bug_posts)
+        logger.info(f"스토브 버그 게시판: {len(stove_bug_posts)}개 게시글")
+    except Exception as e:
+        logger.error(f"스토브 버그 게시판 크롤링 실패: {e}")
+    
+    # 스토브 자유게시판
+    try:
+        stove_general_posts = fetch_stove_general_board(mode)
+        all_posts.extend(stove_general_posts)
+        logger.info(f"스토브 자유게시판: {len(stove_general_posts)}개 게시글")
+    except Exception as e:
+        logger.error(f"스토브 자유게시판 크롤링 실패: {e}")
+    
+    # 루리웹
+    try:
         ruliweb_posts = fetch_ruliweb_epic7_board(mode)
         all_posts.extend(ruliweb_posts)
-        print(f"[INFO] 루리웹: {len(ruliweb_posts)}개 게시글")
-        
-        # 아카라이브
+        logger.info(f"루리웹: {len(ruliweb_posts)}개 게시글")
+    except Exception as e:
+        logger.error(f"루리웹 크롤링 실패: {e}")
+    
+    # 아카라이브
+    try:
         arca_posts = fetch_arca_epic7_board(mode)
         all_posts.extend(arca_posts)
-        print(f"[INFO] 아카라이브: {len(arca_posts)}개 게시글")
-        
+        logger.info(f"아카라이브: {len(arca_posts)}개 게시글")
     except Exception as e:
-        print(f"[ERROR] 한국 사이트 크롤링 중 오류: {e}")
+        logger.error(f"아카라이브 크롤링 실패: {e}")
     
-    print(f"[INFO] 한국 사이트 크롤링 완료: 총 {len(all_posts)}개 게시글")
+    logger.info(f"한국 사이트 통합 크롤링 완료: 총 {len(all_posts)}개 게시글")
     return all_posts
 
 def crawl_global_sites(mode: str = "global"):
     """글로벌 사이트 통합 크롤링"""
-    print(f"[INFO] 글로벌 사이트 크롤링 시작 (mode: {mode})")
+    logger.info(f"글로벌 사이트 통합 크롤링 시작 (mode: {mode})")
     
     all_posts = []
     
+    # STOVE 글로벌 버그 게시판
     try:
-        # STOVE 글로벌 버그 게시판
-        global_bug_posts = fetch_stove_global_bug_board(mode)
-        all_posts.extend(global_bug_posts)
-        print(f"[INFO] STOVE 글로벌 버그 게시판: {len(global_bug_posts)}개 게시글")
-        
-        # STOVE 글로벌 자유게시판
-        global_general_posts = fetch_stove_global_general_board(mode)
-        all_posts.extend(global_general_posts)
-        print(f"[INFO] STOVE 글로벌 자유게시판: {len(global_general_posts)}개 게시글")
-        
-        # Reddit
+        stove_global_bug_posts = fetch_stove_global_bug_board(mode)
+        all_posts.extend(stove_global_bug_posts)
+        logger.info(f"STOVE 글로벌 버그: {len(stove_global_bug_posts)}개 게시글")
+    except Exception as e:
+        logger.error(f"STOVE 글로벌 버그 크롤링 실패: {e}")
+    
+    # STOVE 글로벌 자유게시판
+    try:
+        stove_global_general_posts = fetch_stove_global_general_board(mode)
+        all_posts.extend(stove_global_general_posts)
+        logger.info(f"STOVE 글로벌 자유게시판: {len(stove_global_general_posts)}개 게시글")
+    except Exception as e:
+        logger.error(f"STOVE 글로벌 자유게시판 크롤링 실패: {e}")
+    
+    # Reddit
+    try:
         reddit_posts = fetch_reddit_epic7_board(mode)
         all_posts.extend(reddit_posts)
-        print(f"[INFO] Reddit: {len(reddit_posts)}개 게시글")
-        
-        # Epic7 공식 포럼
+        logger.info(f"Reddit: {len(reddit_posts)}개 게시글")
+    except Exception as e:
+        logger.error(f"Reddit 크롤링 실패: {e}")
+    
+    # Epic7 공식 포럼
+    try:
         forum_posts = fetch_epic7_official_forum(mode)
         all_posts.extend(forum_posts)
-        print(f"[INFO] Epic7 공식 포럼: {len(forum_posts)}개 게시글")
-        
+        logger.info(f"Epic7 공식 포럼: {len(forum_posts)}개 게시글")
     except Exception as e:
-        print(f"[ERROR] 글로벌 사이트 크롤링 중 오류: {e}")
+        logger.error(f"Epic7 공식 포럼 크롤링 실패: {e}")
     
-    print(f"[INFO] 글로벌 사이트 크롤링 완료: 총 {len(all_posts)}개 게시글")
+    logger.info(f"글로벌 사이트 통합 크롤링 완료: 총 {len(all_posts)}개 게시글")
     return all_posts
 
-def crawl_all_sites():
+def crawl_all_sites(mode: str = "all"):
     """모든 사이트 통합 크롤링"""
-    print("[INFO] 전체 사이트 크롤링 시작")
+    logger.info(f"모든 사이트 통합 크롤링 시작 (mode: {mode})")
     
     all_posts = []
     
-    try:
-        # 한국 사이트
-        korean_posts = crawl_korean_sites("korean")
-        all_posts.extend(korean_posts)
-        
-        # 글로벌 사이트
-        global_posts = crawl_global_sites("global")
-        all_posts.extend(global_posts)
-        
-    except Exception as e:
-        print(f"[ERROR] 전체 사이트 크롤링 중 오류: {e}")
+    # 한국 사이트 크롤링
+    korean_posts = crawl_korean_sites("korean")
+    all_posts.extend(korean_posts)
     
-    print(f"[INFO] 전체 사이트 크롤링 완료: 총 {len(all_posts)}개 게시글")
+    # 글로벌 사이트 크롤링
+    global_posts = crawl_global_sites("global")
+    all_posts.extend(global_posts)
+    
+    logger.info(f"모든 사이트 통합 크롤링 완료: 총 {len(all_posts)}개 게시글")
     return all_posts
-
-def get_all_posts_for_report(mode: str = "all"):
-    """리포트용 게시글 수집"""
-    print(f"[INFO] 리포트용 게시글 수집 시작 (mode: {mode})")
-    
-    all_posts = []
-    
-    try:
-        if mode == "korean":
-            all_posts = crawl_korean_sites("korean")
-        elif mode == "global":
-            all_posts = crawl_global_sites("global")
-        else:  # all
-            all_posts = crawl_all_sites()
-        
-        # 24시간 이내 게시글만 필터링
-        recent_posts = []
-        cutoff_time = datetime.now() - timedelta(hours=24)
-        
-        for post in all_posts:
-            try:
-                post_time = datetime.fromisoformat(post['timestamp'])
-                if post_time > cutoff_time:
-                    recent_posts.append(post)
-            except:
-                continue
-        
-        print(f"[INFO] 리포트용 게시글 수집 완료: 최근 24시간 내 {len(recent_posts)}개 게시글")
-        
-    except Exception as e:
-        print(f"[ERROR] 리포트용 게시글 수집 중 오류: {e}")
-    
-    return recent_posts
 
 # =============================================================================
-# 메인 실행 함수
+# 리포트 생성 함수들
+# =============================================================================
+
+def get_all_posts_for_report(mode: str = "all"):
+    """리포트용 모든 게시글 수집"""
+    logger.info(f"리포트용 게시글 수집 시작 (mode: {mode})")
+    
+    all_posts = []
+    
+    # 한국 사이트
+    korean_posts = crawl_korean_sites("korean")
+    all_posts.extend(korean_posts)
+    
+    # 글로벌 사이트
+    global_posts = crawl_global_sites("global")
+    all_posts.extend(global_posts)
+    
+    # 시간순 정렬
+    all_posts.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    
+    logger.info(f"리포트용 게시글 수집 완료: 총 {len(all_posts)}개 게시글")
+    return all_posts
+
+# =============================================================================
+# 메인 실행 함수들
 # =============================================================================
 
 def main_crawl(mode: str = "korean"):
-    """메인 크롤링 함수"""
-    print(f"[INFO] Epic7 모니터링 크롤링 시작 - 모드: {mode}")
+    """메인 크롤링 실행 함수"""
+    logger.info(f"Epic7 모니터링 시스템 크롤링 시작 (mode: {mode})")
     
-    try:
-        if mode == "korean":
-            posts = crawl_korean_sites(mode)
-        elif mode == "global":
-            posts = crawl_global_sites(mode)
-        elif mode == "all":
-            posts = crawl_all_sites()
-        else:
-            print(f"[ERROR] 지원하지 않는 모드: {mode}")
-            return []
-        
-        print(f"[INFO] 크롤링 완료: {len(posts)}개 게시글")
-        return posts
-        
-    except Exception as e:
-        print(f"[ERROR] 메인 크롤링 중 오류: {e}")
+    if mode == "korean":
+        return crawl_korean_sites(mode)
+    elif mode == "global":
+        return crawl_global_sites(mode)
+    elif mode == "all":
+        return crawl_all_sites(mode)
+    else:
+        logger.error(f"지원되지 않는 모드: {mode}")
         return []
-
-# =============================================================================
-# 테스트 및 디버그 함수
-# =============================================================================
 
 def test_crawling():
     """크롤링 테스트 함수"""
-    print("[TEST] 크롤링 테스트 시작")
+    logger.info("크롤링 테스트 시작")
     
     # 한국 사이트 테스트
-    print("\n[TEST] 한국 사이트 테스트")
     korean_posts = crawl_korean_sites("korean")
-    print(f"한국 사이트 결과: {len(korean_posts)}개")
+    logger.info(f"한국 사이트 테스트 결과: {len(korean_posts)}개 게시글")
     
     # 글로벌 사이트 테스트
-    print("\n[TEST] 글로벌 사이트 테스트")
     global_posts = crawl_global_sites("global")
-    print(f"글로벌 사이트 결과: {len(global_posts)}개")
+    logger.info(f"글로벌 사이트 테스트 결과: {len(global_posts)}개 게시글")
     
-    print("\n[TEST] 크롤링 테스트 완료")
+    logger.info("크롤링 테스트 완료")
+    return korean_posts + global_posts
 
 if __name__ == "__main__":
     # 테스트 실행
