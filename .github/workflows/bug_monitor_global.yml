@@ -1,15 +1,6 @@
-name: 🌐 Bug Monitor Global Sites
+name: 🌐 Epic Seven Global Monitor (Chrome Enhanced)
 
 on:
-  workflow_call:
-    inputs:
-      debug_mode:
-        required: false
-        type: boolean
-      test_mode:
-        required: false
-        type: boolean
-
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
@@ -24,6 +15,7 @@ on:
         required: false
         default: 'false'
         type: boolean
+
 jobs:
   monitor-global-sites:
     runs-on: ubuntu-latest
@@ -45,17 +37,207 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 🌐 Install Chrome (Simplified)
+    - name: 🌐 Install Chrome (Enhanced Stability)
       run: |
-        sudo apt-get update
+        echo "=== Chrome 안정성 강화 설치 시작 ==="
+        
+        # 시스템 업데이트
+        sudo apt-get update -y
+        
+        # 기존 Chrome 완전 제거
+        sudo apt-get remove -y google-chrome* || true
+        sudo apt-get autoremove -y
+        
+        # Chrome 저장소 설정
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        
+        # 패키지 목록 업데이트
+        sudo apt-get update -y
+        
+        # Chrome 안정 버전 설치
         sudo apt-get install -y google-chrome-stable
-        echo "✅ Chrome: $(google-chrome --version)"
+        
+        # Chrome 버전 확인 및 고정
+        CHROME_VERSION=$(google-chrome --version)
+        echo "✅ Chrome 설치 완료: $CHROME_VERSION"
+        
+        # Chrome 자동 업데이트 비활성화
+        sudo apt-mark hold google-chrome-stable
+        
+        # 필요한 의존성 설치
+        sudo apt-get install -y libnss3 libxss1 libasound2 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libxkbcommon0 libgtk-3-0
+        
+        echo "=== Chrome 설치 완료 ==="
 
     - name: 📦 Install Python dependencies
       run: |
+        echo "=== Python 의존성 설치 시작 ==="
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        echo "✅ Python packages installed"
+        
+        # 중요 패키지 버전 확인
+        pip show selenium webdriver-manager deep-translator requests
+        
+        echo "✅ Python 패키지 설치 완료"
+
+    - name: 🔧 Advanced ChromeDriver Setup
+      run: |
+        echo "=== 고급 ChromeDriver 설정 시작 ==="
+        
+        python3 -c "
+        import sys
+        import os
+        import json
+        import requests
+        import zipfile
+        import subprocess
+        from pathlib import Path
+        
+        def get_chrome_version():
+            '''Chrome 버전 가져오기'''
+            try:
+                result = subprocess.run(['google-chrome', '--version'], capture_output=True, text=True)
+                version = result.stdout.strip().split(' ')[-1]
+                return version.split('.')[0]  # 메이저 버전만 반환
+            except:
+                return None
+        
+        def download_chromedriver_for_testing():
+            '''Chrome for Testing API 사용'''
+            try:
+                print('Chrome for Testing API 사용 중...')
+                
+                # 사용 가능한 ChromeDriver 버전 조회
+                api_url = 'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json'
+                response = requests.get(api_url)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    stable_version = data['channels']['Stable']['version']
+                    
+                    # ChromeDriver 다운로드 URL 찾기
+                    downloads = data['channels']['Stable']['downloads']
+                    if 'chromedriver' in downloads:
+                        for download in downloads['chromedriver']:
+                            if download['platform'] == 'linux64':
+                                download_url = download['url']
+                                print(f'ChromeDriver 다운로드 URL: {download_url}')
+                                
+                                # 다운로드 및 설치
+                                response = requests.get(download_url)
+                                if response.status_code == 200:
+                                    with open('chromedriver.zip', 'wb') as f:
+                                        f.write(response.content)
+                                    
+                                    with zipfile.ZipFile('chromedriver.zip', 'r') as zip_ref:
+                                        zip_ref.extractall('.')
+                                    
+                                    # 실행 권한 부여
+                                    chromedriver_path = Path('chromedriver-linux64/chromedriver')
+                                    if chromedriver_path.exists():
+                                        os.chmod(chromedriver_path, 0o755)
+                                        print(f'✅ ChromeDriver 설치 완료: {chromedriver_path}')
+                                        return True
+                
+                return False
+            except Exception as e:
+                print(f'Chrome for Testing API 에러: {e}')
+                return False
+        
+        def setup_webdriver_manager():
+            '''WebDriver Manager 설정'''
+            try:
+                print('WebDriver Manager 설정 중...')
+                from webdriver_manager.chrome import ChromeDriverManager
+                
+                driver_path = ChromeDriverManager().install()
+                print(f'✅ WebDriver Manager 설치 완료: {driver_path}')
+                return True
+            except Exception as e:
+                print(f'WebDriver Manager 에러: {e}')
+                return False
+        
+        def test_chrome_setup():
+            '''Chrome 설정 테스트'''
+            try:
+                print('Chrome 설정 테스트 중...')
+                from selenium import webdriver
+                from selenium.webdriver.chrome.options import Options
+                from selenium.webdriver.chrome.service import Service
+                
+                options = Options()
+                options.add_argument('--headless')
+                options.add_argument('--no-sandbox')
+                options.add_argument('--disable-dev-shm-usage')
+                options.add_argument('--disable-gpu')
+                options.add_argument('--window-size=1920,1080')
+                
+                # ChromeDriver 경로 찾기
+                driver_paths = [
+                    './chromedriver-linux64/chromedriver',
+                    '/usr/local/bin/chromedriver',
+                    '/usr/bin/chromedriver'
+                ]
+                
+                for driver_path in driver_paths:
+                    if os.path.exists(driver_path):
+                        try:
+                            service = Service(driver_path)
+                            driver = webdriver.Chrome(service=service, options=options)
+                            driver.get('https://www.google.com')
+                            title = driver.title
+                            driver.quit()
+                            print(f'✅ Chrome 테스트 성공: {title}')
+                            return True
+                        except Exception as e:
+                            print(f'ChromeDriver 경로 {driver_path} 테스트 실패: {e}')
+                            continue
+                
+                # WebDriver Manager 사용
+                try:
+                    driver = webdriver.Chrome(options=options)
+                    driver.get('https://www.google.com')
+                    title = driver.title
+                    driver.quit()
+                    print(f'✅ WebDriver Manager 테스트 성공: {title}')
+                    return True
+                except Exception as e:
+                    print(f'WebDriver Manager 테스트 실패: {e}')
+                
+                return False
+            except Exception as e:
+                print(f'Chrome 테스트 에러: {e}')
+                return False
+        
+        # 메인 설정 로직
+        chrome_version = get_chrome_version()
+        print(f'Chrome 버전: {chrome_version}')
+        
+        success = False
+        
+        # 방법 1: Chrome for Testing API 사용
+        if download_chromedriver_for_testing():
+            success = True
+        
+        # 방법 2: WebDriver Manager 사용
+        if not success and setup_webdriver_manager():
+            success = True
+        
+        # 테스트 실행
+        if success:
+            if test_chrome_setup():
+                print('🎉 ChromeDriver 설정 완료!')
+                sys.exit(0)
+            else:
+                print('❌ ChromeDriver 테스트 실패')
+                sys.exit(1)
+        else:
+            print('❌ ChromeDriver 설정 실패')
+            sys.exit(1)
+        "
+        
+        echo "=== ChromeDriver 설정 완료 ==="
 
     - name: 🔍 Determine execution flags
       id: mode
@@ -75,42 +257,23 @@ jobs:
         echo "=== 글로벌 사이트 모니터링 시작 ==="
         echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
         echo "ARGS: $ARGS"
+        
+        # 시스템 상태 확인
+        echo "=== 시스템 상태 확인 ==="
+        echo "Chrome 버전: $(google-chrome --version)"
+        echo "Python 버전: $(python --version)"
+        echo "현재 디렉토리: $(pwd)"
+        echo "파일 목록: $(ls -la)"
+        
+        # 메인 스크립트 실행
         python monitor_bugs.py $ARGS
+        
         echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
       env:
         DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
         DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
         PYTHONUNBUFFERED: 1
-
-    - name: 📝 Check JSON debug file
-      run: |
-        if [ -f "crawled_links.json" ]; then
-          echo "==== crawled_links.json 상태 확인 ===="
-          LINK_COUNT=$(jq '.links | length' crawled_links.json 2>/dev/null || echo 0)
-          LAST_UPDATE=$(jq -r '.last_updated' crawled_links.json 2>/dev/null || echo "N/A")
-          echo "저장된 링크 수: $LINK_COUNT"
-          echo "마지막 업데이트: $LAST_UPDATE"
-          
-          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-            echo "==== 상위 5개 링크 (디버그) ===="
-            jq -r '.links[:5][]' crawled_links.json 2>/dev/null || echo "링크 데이터 없음"
-          fi
-        else
-          echo "⚠️ crawled_links.json 파일이 존재하지 않습니다!"
-        fi
-
-    - name: 📊 Upload Debug Files (if debug mode)
-      if: github.event.inputs.debug_mode == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: debug-html-files-global-${{ github.run_number }}
-        path: |
-          *global_debug_selenium.html
-          *_debug_selenium.html
-          *_error_debug.html
-          *.log
-        retention-days: 7
 
     - name: 📈 Memory Status Check
       run: |
@@ -169,11 +332,10 @@ jobs:
         echo "워크플로우 번호: ${{ github.run_number }}"
         echo "실행 ID: ${{ github.run_id }}"
         echo "크롤링 대상: Reddit, 해외 포럼, 글로벌 커뮤니티"
-        echo ""
 
-        if [ -f "crawled_links.json" ]; then
-          LINK_COUNT=$(jq '.links | length' crawled_links.json 2>/dev/null || echo 0)
-          LAST_UPDATE=$(jq -r '.last_updated' crawled_links.json 2>/dev/null || echo "N/A")
+        if [ -f "crawled_links_global.json" ]; then
+          LINK_COUNT=$(jq '.links | length' crawled_links_global.json 2>/dev/null || echo 0)
+          LAST_UPDATE=$(jq -r '.last_updated' crawled_links_global.json 2>/dev/null || echo "N/A")
           echo "저장된 링크 수: $LINK_COUNT"
           echo "마지막 업데이트: $LAST_UPDATE"
         fi
@@ -181,7 +343,4 @@ jobs:
         DEBUG_FILES=$(ls -la *global_debug_selenium.html *_debug_selenium.html *_error_debug.html *.log 2>/dev/null | wc -l)
         echo "생성된 디버그 파일 수: $DEBUG_FILES"
 
-        echo "최종 메모리 사용량:"
-        free -h
-
-        echo "✅ 글로벌 워크플로우 성공적으로 완료"
+        echo "✅ 글로벌 워크플로우 완료"
