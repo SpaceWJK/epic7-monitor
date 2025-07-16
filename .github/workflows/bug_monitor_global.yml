@@ -1,76 +1,78 @@
-name: Bug Monitor Global
+name: 🌐 Epic Seven Global Monitor (STOVE + Reddit)
+
 on:
   schedule:
     - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
+    - name: ⬇️ Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: ⚙️ Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
-    
-    - name: Install Chrome and ChromeDriver (Compatible Version)
+        python-version: 3.10
+        cache: 'pip'
+
+    - name: 🚀 Upgrade pip & Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: 🧪 Install Chrome
       run: |
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
-        
-        # Chrome 버전 정확히 추출
-        CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
-        echo "Chrome 버전: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
-        
-        # 기존 ChromeDriver 제거
-        sudo rm -f /usr/local/bin/chromedriver
-        
-        # 정확히 매칭되는 ChromeDriver 버전 찾기
-        CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" || echo "")
-        
-        if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
-          echo "정확한 버전을 찾을 수 없어 안정 버전 사용"
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" || echo "")
-        fi
-        
-        if [ -z "$CHROMEDRIVER_VERSION" ]; then
-          CHROMEDRIVER_VERSION="119.0.6045.105"
-          echo "모든 API 실패, 하드코딩된 안정 버전 사용: $CHROMEDRIVER_VERSION"
-        fi
-        
-        echo "선택된 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
-        
-        # ChromeDriver 다운로드 및 설치
-        DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
-        
-        if wget -q --spider "$DOWNLOAD_URL"; then
-          wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-          sudo unzip /tmp/chromedriver.zip -d /tmp/
-          sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
-          echo "ChromeDriver 설치 완료: $(chromedriver --version 2>/dev/null || echo '버전 확인 실패')"
+        google-chrome --version || echo "chrome not installed properly"
+
+    - name: 🐛 Start Global Monitoring
+      run: |
+        ARGS="--mode global"
+        echo "=== Epic7 글로벌 모니터링 시작 ==="
+        echo "실행 시간: $(date +'%Y-%m-%d %H:%M:%S')"
+        python monitor_bugs.py $ARGS
+
+    - name: 📝 Check JSON debug file
+      run: |
+        if [ -f "crawled_links.json" ]; then
+          echo "==== crawled_links.json ===="
+          jq '. | length' crawled_links.json || cat crawled_links.json
         else
-          echo "다운로드 실패, 우분투 패키지 사용"
-          sudo apt-get install -y chromium-chromedriver
-          sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+          echo "crawled_links.json does not exist!"
         fi
-    
-    - name: Install Python dependencies
+
+    - name: 📂 Upload Selenium HTML Debug
+      uses: actions/upload-artifact@v3
+      with:
+        name: selenium-html-global
+        path: |
+          *global_debug_selenium.html
+          stove_debug_selenium.html
+          ruliweb_debug_selenium.html
+          *.log
+
+    - name: 📈 Memory Status
       run: |
-        pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Run monitor
-      run: python monitor_bugs.py --mode global
-      env:
-        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-    
-    - name: Commit and push if changed
+        echo "==== Memory & Disk Status ===="
+        free -h
+        df -h
+
+    - name: ✅ Git Smart Commit & Push
       run: |
-        git config --global user.email "action@github.com"
-        git config --global user.name "GitHub Action"
-        git add .
-        git diff --staged --quiet || git commit -m "Update crawled links"
-        git push
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add crawled_links.json
+        git commit -m "🌐 Update Global Links (STOVE + Reddit) - $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+        for i in {1..5}; do
+          git pull --rebase && git push && break
+          echo "Retrying git push ($i)..."
+          sleep 5
+        done

@@ -1,4 +1,4 @@
-name: Epic Seven Daily Report (Enhanced & Stable)
+name: Epic Seven Daily Report (Global Enhanced)
 
 on:
   schedule:
@@ -16,17 +16,27 @@ on:
         required: false
         default: 'false'
         type: boolean
+      crawl_mode:
+        description: 'Crawling mode (korean/global/all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - korean
+          - global
+          - all
 
 jobs:
   daily-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     
     env:
       TZ: Asia/Seoul
       DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
       DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
       DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      CRAWL_MODE: ${{ github.event.inputs.crawl_mode || 'all' }}
     
     steps:
       - name: 📥 Checkout repository
@@ -77,7 +87,7 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
-      - name: 🌐 Chrome/ChromeDriver 설치 (안정성 강화)
+      - name: 🌐 Chrome/ChromeDriver 설치 (글로벌 지원 강화)
         run: |
           echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
           
@@ -121,13 +131,17 @@ jobs:
             sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
           fi
           
+          # 글로벌 사이트 접근을 위한 추가 설정
+          echo "🌍 글로벌 사이트 접근 최적화 설정"
+          sudo apt-get install -y ca-certificates curl wget
+          
           # 설치 확인
           echo "🔍 설치 확인:"
           which chromedriver && chromedriver --version || echo "ChromeDriver 확인 실패"
           
           echo "Chrome 및 ChromeDriver 설치 완료"
 
-      - name: 📦 Python 의존성 설치 (캐시 최적화)
+      - name: 📦 Python 의존성 설치 (글로벌 지원)
         run: |
           echo "=== Python 의존성 설치 시작 ==="
           python -m pip install --upgrade pip
@@ -141,20 +155,68 @@ jobs:
             exit 1
           fi
           
+          # 글로벌 크롤링을 위한 추가 패키지 설치
+          pip install praw requests-html
+          
           # 설치된 패키지 확인
           echo "📋 설치된 주요 패키지:"
-          pip list | grep -E "(requests|selenium|beautifulsoup4|discord)" || echo "일부 패키지 누락"
+          pip list | grep -E "(requests|selenium|beautifulsoup4|discord|praw)" || echo "일부 패키지 누락"
 
-      - name: 📊 일일 감성 동향 리포트 생성
+      - name: 🔍 크롤링 모드 확인 및 설정
+        run: |
+          echo "=== 크롤링 모드 설정 ==="
+          echo "선택된 크롤링 모드: $CRAWL_MODE"
+          
+          case "$CRAWL_MODE" in
+            "korean")
+              echo "🇰🇷 한국 사이트만 크롤링"
+              echo "대상: 루리웹, 스토브 한국"
+              ;;
+            "global")
+              echo "🌍 글로벌 사이트만 크롤링"
+              echo "대상: STOVE Global, Reddit"
+              ;;
+            "all")
+              echo "🌐 모든 사이트 크롤링"
+              echo "대상: 루리웹, 스토브 한국, STOVE Global, Reddit"
+              ;;
+            *)
+              echo "❌ 잘못된 크롤링 모드, 기본값(all) 사용"
+              echo "CRAWL_MODE=all" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: 🌐 글로벌 사이트 연결 테스트
+        run: |
+          echo "=== 글로벌 사이트 연결 테스트 ==="
+          
+          # 기본 사이트 연결 테스트
+          echo "🔗 기본 사이트 연결 테스트:"
+          curl -s --max-time 10 https://page.onstove.com > /dev/null && echo "✅ 스토브 한국 연결 가능" || echo "❌ 스토브 한국 연결 실패"
+          curl -s --max-time 10 https://bbs.ruliweb.com > /dev/null && echo "✅ 루리웹 연결 가능" || echo "❌ 루리웹 연결 실패"
+          
+          # 글로벌 사이트 연결 테스트
+          echo "🌍 글로벌 사이트 연결 테스트:"
+          curl -s --max-time 10 https://page.onstove.com/epicseven/global > /dev/null && echo "✅ STOVE Global 연결 가능" || echo "❌ STOVE Global 연결 실패"
+          curl -s --max-time 10 https://www.reddit.com/r/EpicSeven > /dev/null && echo "✅ Reddit 연결 가능" || echo "❌ Reddit 연결 실패"
+          
+          # DNS 확인
+          echo "🔍 DNS 확인:"
+          nslookup page.onstove.com || echo "DNS 확인 실패"
+          nslookup www.reddit.com || echo "Reddit DNS 확인 실패"
+
+      - name: 📊 일일 감성 동향 리포트 생성 (글로벌 지원)
         env:
           DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
           DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+          CRAWL_MODE: ${{ env.CRAWL_MODE }}
         run: |
-          echo "=== 일일 리포트 생성 시작 ==="
+          echo "=== 일일 리포트 생성 시작 (글로벌 지원) ==="
           echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
           echo "강제 실행: ${{ github.event.inputs.force_report }}"
           echo "디버그 모드: ${{ github.event.inputs.debug_mode }}"
+          echo "크롤링 모드: $CRAWL_MODE"
           
           # 환경변수 확인
           if [ -z "$DISCORD_WEBHOOK_REPORT" ]; then
@@ -162,52 +224,78 @@ jobs:
             exit 1
           fi
           
+          # 크롤링 모드에 따른 실행 옵션 설정
+          CRAWL_OPTIONS=""
+          case "$CRAWL_MODE" in
+            "korean")
+              CRAWL_OPTIONS="--mode korean"
+              ;;
+            "global")
+              CRAWL_OPTIONS="--mode global"
+              ;;
+            "all")
+              CRAWL_OPTIONS="--mode all"
+              ;;
+          esac
+          
           # 일일 리포트 생성 실행
           if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
             echo "🐛 디버그 모드로 실행"
-            python generate_report.py --debug 2>&1 | tee daily_report_debug.log
+            python generate_report.py --debug $CRAWL_OPTIONS 2>&1 | tee daily_report_debug.log
           else
-            python generate_report.py
+            python generate_report.py $CRAWL_OPTIONS
           fi
           
           echo "일일 리포트 생성 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
 
-      - name: 📤 디버그 파일 업로드 (조건부)
+      - name: 📤 디버그 파일 업로드 (글로벌 지원)
         if: github.event.inputs.debug_mode == 'true' || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-report-debug-${{ github.run_number }}
+          name: daily-report-debug-global-${{ github.run_number }}
           path: |
             *.html
             *.log
             crawled_links.json
+            crawled_links_debug.json
+            content_cache.json
+            content_cache_debug.json
+            *_debug_selenium.html
           retention-days: 14
           if-no-files-found: warn
 
-      - name: 📋 시스템 상태 체크
+      - name: 📋 시스템 상태 체크 (글로벌 지원)
         if: always()
         run: |
-          echo "=== 시스템 상태 체크 ==="
+          echo "=== 시스템 상태 체크 (글로벌 지원) ==="
           echo "📅 실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "🌐 크롤링 모드: $CRAWL_MODE"
           echo "💾 메모리 사용량:"
           free -h
           echo "💿 디스크 사용량:"
           df -h / | tail -1
-          echo "🔗 저장된 링크 파일 상태:"
-          if [ -f "crawled_links.json" ]; then
-            echo "✅ crawled_links.json 존재 ($(stat -c%s crawled_links.json) bytes)"
-            echo "📊 저장된 링크 수: $(cat crawled_links.json | jq -r '.links | length' 2>/dev/null || echo 'N/A')"
-          else
-            echo "❌ crawled_links.json 없음"
-          fi
           
-          echo "🌐 네트워크 연결 테스트:"
-          curl -s --max-time 5 https://page.onstove.com > /dev/null && echo "✅ 스토브 연결 가능" || echo "❌ 스토브 연결 실패"
+          echo "🔗 저장된 링크 파일 상태:"
+          for file in crawled_links.json crawled_links_debug.json content_cache.json content_cache_debug.json; do
+            if [ -f "$file" ]; then
+              echo "✅ $file 존재 ($(stat -c%s $file) bytes)"
+              if [[ "$file" == *"crawled_links"* ]]; then
+                echo "   📊 저장된 링크 수: $(cat $file | jq -r '.links | length' 2>/dev/null || echo 'N/A')"
+              fi
+            else
+              echo "❌ $file 없음"
+            fi
+          done
+          
+          echo "🌐 네트워크 연결 재테스트:"
+          curl -s --max-time 5 https://page.onstove.com > /dev/null && echo "✅ 스토브 한국 연결 가능" || echo "❌ 스토브 한국 연결 실패"
           curl -s --max-time 5 https://bbs.ruliweb.com > /dev/null && echo "✅ 루리웹 연결 가능" || echo "❌ 루리웹 연결 실패"
+          curl -s --max-time 5 https://page.onstove.com/epicseven/global > /dev/null && echo "✅ STOVE Global 연결 가능" || echo "❌ STOVE Global 연결 실패"
+          curl -s --max-time 5 https://www.reddit.com/r/EpicSeven > /dev/null && echo "✅ Reddit 연결 가능" || echo "❌ Reddit 연결 실패"
 
-      - name: 💾 변경사항 커밋 (충돌 방지)
+      - name: 💾 변경사항 커밋 (글로벌 지원)
         run: |
-          echo "=== Git 변경사항 처리 ==="
+          echo "=== Git 변경사항 처리 (글로벌 지원) ==="
           
           # 원격 저장소 최신 상태 확인
           git fetch origin main
@@ -218,10 +306,10 @@ jobs:
             git status --porcelain
             
             # 변경사항 스테이징
-            git add crawled_links.json *.html *.log 2>/dev/null || true
+            git add crawled_links*.json content_cache*.json *.html *.log 2>/dev/null || true
             
             # 커밋 메시지 생성
-            COMMIT_MSG="📊 일일 리포트 생성 - $(date '+%Y-%m-%d %H:%M KST')"
+            COMMIT_MSG="📊 일일 리포트 생성 ($CRAWL_MODE 모드) - $(date '+%Y-%m-%d %H:%M KST')"
             if [ "${{ github.event.inputs.force_report }}" = "true" ]; then
               COMMIT_MSG="$COMMIT_MSG (강제실행)"
             fi
@@ -245,7 +333,7 @@ jobs:
                   git stash push -m "Temp stash for force sync" 2>/dev/null || true
                   git reset --hard origin/main
                   git stash pop 2>/dev/null || true
-                  git add crawled_links.json *.html *.log 2>/dev/null || true
+                  git add crawled_links*.json content_cache*.json *.html *.log 2>/dev/null || true
                 }
               fi
               
@@ -271,18 +359,32 @@ jobs:
             echo "변경 사항 없음"
           fi
 
-      - name: 📈 실행 결과 요약
+      - name: 📈 실행 결과 요약 (글로벌 지원)
         if: always()
         run: |
-          echo "=== 일일 리포트 워크플로우 완료 ==="
+          echo "=== 일일 리포트 워크플로우 완료 (글로벌 지원) ==="
           echo "📅 완료 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "🌐 크롤링 모드: $CRAWL_MODE"
           echo "📊 작업 상태: ${{ job.status }}"
           echo "🔗 실행 ID: ${{ github.run_id }}"
           echo "📝 워크플로우 번호: ${{ github.run_number }}"
           
           if [ "${{ job.status }}" = "success" ]; then
-            echo "✅ 일일 리포트 생성 및 전송 완료"
+            echo "✅ 글로벌 지원 일일 리포트 생성 및 전송 완료"
           else
-            echo "❌ 일일 리포트 처리 중 오류 발생"
+            echo "❌ 글로벌 지원 일일 리포트 처리 중 오류 발생"
             echo "🔍 로그를 확인하여 문제를 파악하세요"
           fi
+          
+          # 크롤링 모드별 결과 요약
+          case "$CRAWL_MODE" in
+            "korean")
+              echo "🇰🇷 한국 사이트 크롤링 완료"
+              ;;
+            "global")
+              echo "🌍 글로벌 사이트 크롤링 완료"
+              ;;
+            "all")
+              echo "🌐 전체 사이트 크롤링 완료"
+              ;;
+          esac

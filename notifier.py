@@ -1,7 +1,5 @@
 import requests
-import json
 from datetime import datetime
-import time
 import os
 
 def send_discord_message(webhook_url, content):
@@ -45,7 +43,7 @@ def send_bug_alert(title, url, site, severity="보통"):
 
 def send_sentiment_alert(posts):
     """
-    각 게시글을 Discord embed 카드로 건별 전송 (감성 색상/이모지)
+    각 게시글을 Discord embed 카드로 건별 전송, 사이트별 아이콘 표시
     """
     webhook_url = os.environ.get("DISCORD_WEBHOOK_SENTIMENT")
     if not webhook_url:
@@ -65,21 +63,27 @@ def send_sentiment_alert(posts):
         }.get(sentiment, "😐")
 
         site = post.get("site", "알 수 없음")
+        site_emoji = {
+            "STOVE 자유": "🚉",
+            "STOVE 버그": "🐞",
+            "루리웹": "🏯"
+        }.get(site, "🌐")
+
         title = post.get("title", "제목 없음")
         url = post.get("url", "")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         color = {
-            "긍정": 0x2ecc71,  # green
-            "부정": 0xe74c3c,  # red
-            "중립": 0xf1c40f   # yellow
+            "긍정": 0x2ecc71,
+            "부정": 0xe74c3c,
+            "중립": 0xf1c40f
         }.get(sentiment, 0x95a5a6)
 
         payload = {
             "embeds": [
                 {
                     "title": f"{emoji} Epic7 유저 동향 알림",
-                    "description": f"**{title}**\n> 📍{site}\n> 🔗 [게시글 바로가기]({url})",
+                    "description": f"**{title}** ({site_emoji} {site})\n> 🔗 [게시글 바로가기]({url})",
                     "color": color,
                     "footer": {
                         "text": f"{timestamp} | 감성 분석: {sentiment}"
@@ -143,6 +147,7 @@ if __name__ == "__main__":
     print("notifier.py 테스트 실행")
     test_posts = [
         {'title': '테스트 긍정', 'url': 'https://example.com', 'site': '루리웹', 'sentiment': '긍정'},
-        {'title': '테스트 부정', 'url': 'https://example.com', 'site': '아카라이브', 'sentiment': '부정'}
+        {'title': '테스트 부정', 'url': 'https://example.com', 'site': 'STOVE 자유', 'sentiment': '부정'},
+        {'title': '테스트 중립', 'url': 'https://example.com', 'site': 'STOVE 버그', 'sentiment': '중립'}
     ]
     send_sentiment_alert(test_posts)
