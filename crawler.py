@@ -527,7 +527,7 @@ def fetch_ruliweb_epic7_board():
                         "url": link,
                         "content": "루리웹 게시글 내용 확인을 위해 링크를 클릭하세요.",
                         "timestamp": datetime.now().isoformat(),
-                        "source": "ruliweb_epic7"
+                        "source": "ruliweb_epic7",
                         "site": "루리웹"
                     }
                     posts.append(post_data)
@@ -784,7 +784,7 @@ def fetch_reddit_epic7_board():
                     "url": permalink,
                     "content": "",  # Reddit은 게시글 전체 텍스트 필요시 추가
                     "timestamp": datetime.now().isoformat(),
-                    "source": "Reddit"
+                    "source": "Reddit",
                     "site": "Reddit"
                 }
                 posts.append(post_data)
