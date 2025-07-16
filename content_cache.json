@@ -127,5 +127,11 @@
     "timestamp": "2025-07-16T11:02:45.071491",
     "url": "https://page.onstove.com/epicseven/kr/view/10887446",
     "selector_used": "div.content-body"
+  },
+  "ca74b136a865808e290c97b2f2915017": {
+    "content": "월광 영웅 중복 획득인데 주화를 못 얻었습니다...",
+    "timestamp": "2025-07-16T02:23:08.061446",
+    "url": "https://page.onstove.com/epicseven/kr/view/10887828",
+    "selector_used": "div.s-board-content"
   }
 }
