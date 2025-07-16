@@ -1,217 +1,461 @@
-import argparse
-import sys
-import time
-from datetime import datetime
-from crawler import crawl_korean_sites, crawl_global_sites
-from classifier import classify_post
-from notifier import send_bug_alert, send_sentiment_alert, send_monitoring_status
-from sentiment_data_manager import SentimentDataManager
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Epic7 모니터링 시스템 - 메인 컨트롤러 (완전 개선 버전)
+Korean/Global/All 모드 분기 처리와 워크플로우 호환성 구현
+
+Author: Epic7 Monitoring Team
+Version: 2.0.0
+Date: 2024-01-16
+"""
+
 import os
-import traceback
+import sys
+import json
+import argparse
+import time
+import asyncio
+import concurrent.futures
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any
+import logging
+from pathlib import Path
+
+# 로컬 모듈 임포트
+from crawler import (
+    # 한국 사이트 크롤링 함수들
+    fetch_stove_bug_board,
+    fetch_stove_general_board,
+    fetch_ruliweb_epic7_board,
+    fetch_arca_epic7_board,
+    
+    # 글로벌 사이트 크롤링 함수들
+    fetch_stove_global_bug_board,
+    fetch_stove_global_general_board,
+    fetch_reddit_epic7_board,
+    fetch_epic7_forums_board,
+    
+    # 유틸리티 함수들
+    check_discord_webhooks,
+    send_discord_message,
+    load_crawled_links,
+    save_crawled_links,
+    get_file_path
+)
+
+from classifier import (
+    is_bug_post,
+    classify_post,
+    is_high_priority_bug,
+    extract_bug_severity
+)
+
+from notifier import (
+    send_bug_alert,
+    send_sentiment_alert,
+    format_korean_notification,
+    format_global_notification,
+    create_summary_embed
+)
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('monitor_bugs.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class MonitoringModes:
+    """모니터링 모드 상수"""
+    KOREAN = "korean"
+    GLOBAL = "global"
+    ALL = "all"
+    
+    @classmethod
+    def get_valid_modes(cls) -> List[str]:
+        return [cls.KOREAN, cls.GLOBAL, cls.ALL]
+
+class Epic7Monitor:
+    """Epic7 모니터링 시스템 메인 클래스"""
+    
+    def __init__(self, mode: str, debug: bool = False, test: bool = False):
+        self.mode = mode
+        self.debug = debug
+        self.test = test
+        self.start_time = datetime.now()
+        self.webhooks = check_discord_webhooks()
+        self.stats = {
+            'total_crawled': 0,
+            'new_posts': 0,
+            'bug_posts': 0,
+            'sentiment_posts': 0,
+            'errors': 0
+        }
+        
+        # 모드 검증
+        if mode not in MonitoringModes.get_valid_modes():
+            raise ValueError(f"Invalid mode: {mode}. Valid modes: {MonitoringModes.get_valid_modes()}")
+        
+        logger.info(f"Epic7Monitor 초기화 완료 - 모드: {mode}, 디버그: {debug}, 테스트: {test}")
+    
+    def get_crawling_functions(self) -> Dict[str, callable]:
+        """모드에 따른 크롤링 함수 매핑"""
+        korean_sites = {
+            'stove_bug_kr': fetch_stove_bug_board,
+            'stove_general_kr': fetch_stove_general_board,
+            'ruliweb_epic7': fetch_ruliweb_epic7_board,
+            'arca_epic7': fetch_arca_epic7_board,
+        }
+        
+        global_sites = {
+            'stove_bug_global': fetch_stove_global_bug_board,
+            'stove_general_global': fetch_stove_global_general_board,
+            'reddit_epic7': fetch_reddit_epic7_board,
+            'epic7_forums': fetch_epic7_forums_board,
+        }
+        
+        if self.mode == MonitoringModes.KOREAN:
+            return korean_sites
+        elif self.mode == MonitoringModes.GLOBAL:
+            return global_sites
+        elif self.mode == MonitoringModes.ALL:
+            return {**korean_sites, **global_sites}
+        else:
+            return {}
+    
+    def crawl_sites_parallel(self) -> List[Dict]:
+        """병렬로 사이트 크롤링 실행"""
+        crawling_functions = self.get_crawling_functions()
+        all_posts = []
+        
+        if not crawling_functions:
+            logger.warning(f"모드 '{self.mode}'에 대한 크롤링 함수가 없습니다.")
+            return all_posts
+        
+        logger.info(f"병렬 크롤링 시작: {len(crawling_functions)}개 사이트")
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            # 각 사이트별로 Future 생성
+            future_to_site = {
+                executor.submit(self.safe_crawl_site, site_name, crawl_func): site_name
+                for site_name, crawl_func in crawling_functions.items()
+            }
+            
+            # 결과 수집
+            for future in concurrent.futures.as_completed(future_to_site, timeout=300):
+                site_name = future_to_site[future]
+                try:
+                    posts = future.result()
+                    if posts:
+                        all_posts.extend(posts)
+                        logger.info(f"✅ {site_name}: {len(posts)}개 새 게시글")
+                    else:
+                        logger.info(f"⭕ {site_name}: 새 게시글 없음")
+                        
+                except Exception as e:
+                    logger.error(f"❌ {site_name} 크롤링 실패: {e}")
+                    self.stats['errors'] += 1
+        
+        self.stats['total_crawled'] = len(all_posts)
+        logger.info(f"병렬 크롤링 완료: 총 {len(all_posts)}개 게시글")
+        return all_posts
+    
+    def safe_crawl_site(self, site_name: str, crawl_func: callable) -> List[Dict]:
+        """안전한 사이트 크롤링 (재시도 메커니즘 포함)"""
+        max_retries = 3
+        retry_delay = 5  # 초
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"🔄 {site_name} 크롤링 시도 {attempt + 1}/{max_retries}")
+                
+                # 테스트 모드에서는 제한된 결과만 반환
+                if self.test:
+                    posts = crawl_func()
+                    return posts[:2] if posts else []
+                
+                posts = crawl_func()
+                
+                if posts is None:
+                    posts = []
+                
+                # 성공 시 반환
+                return posts
+                
+            except Exception as e:
+                logger.error(f"❌ {site_name} 크롤링 시도 {attempt + 1} 실패: {e}")
+                
+                if attempt < max_retries - 1:
+                    logger.info(f"⏳ {retry_delay}초 후 재시도...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # 지수 백오프
+                else:
+                    logger.error(f"💥 {site_name} 크롤링 최종 실패")
+                    
+                    # 실패 알림 전송
+                    if self.webhooks.get('bug'):
+                        error_msg = f"🚨 **크롤링 실패 알림**\n\n"
+                        error_msg += f"**사이트**: {site_name}\n"
+                        error_msg += f"**오류**: {str(e)[:200]}...\n"
+                        error_msg += f"**시간**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        error_msg += f"**모드**: {self.mode}"
+                        
+                        send_discord_message(
+                            self.webhooks['bug'],
+                            error_msg,
+                            f"Epic7 모니터링 - 크롤링 실패"
+                        )
+        
+        return []
+    
+    def classify_and_filter_posts(self, posts: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+        """게시글 분류 및 필터링"""
+        bug_posts = []
+        sentiment_posts = []
+        
+        for post in posts:
+            try:
+                # 분류 수행
+                classification = classify_post(post['title'])
+                post['classification'] = classification
+                
+                # 버그 게시글 분류
+                if classification == 'bug' or is_bug_post(post['title']) or post.get('source') == 'stove_bug':
+                    # 심각도 평가
+                    severity = extract_bug_severity(post['title'])
+                    post['severity'] = severity
+                    post['is_high_priority'] = is_high_priority_bug(post['title'])
+                    
+                    bug_posts.append(post)
+                    self.stats['bug_posts'] += 1
+                    
+                    logger.info(f"🐛 버그 게시글 발견: {post['title'][:50]}... (심각도: {severity})")
+                else:
+                    # 감성 게시글 분류
+                    sentiment_posts.append(post)
+                    self.stats['sentiment_posts'] += 1
+                    
+                    logger.debug(f"📊 감성 게시글: {post['title'][:50]}... (분류: {classification})")
+                    
+            except Exception as e:
+                logger.error(f"❌ 게시글 분류 실패: {e}")
+                logger.error(f"   게시글: {post.get('title', 'N/A')}")
+                self.stats['errors'] += 1
+        
+        self.stats['new_posts'] = len(posts)
+        
+        logger.info(f"분류 완료: 버그 {len(bug_posts)}개, 감성 {len(sentiment_posts)}개")
+        return bug_posts, sentiment_posts
+    
+    def send_notifications(self, bug_posts: List[Dict], sentiment_posts: List[Dict]):
+        """알림 전송"""
+        
+        # 버그 알림 전송
+        if bug_posts and self.webhooks.get('bug'):
+            try:
+                # 모드에 따른 포맷팅
+                if self.mode == MonitoringModes.KOREAN:
+                    formatted_message = format_korean_notification(bug_posts, 'bug')
+                elif self.mode == MonitoringModes.GLOBAL:
+                    formatted_message = format_global_notification(bug_posts, 'bug')
+                else:
+                    formatted_message = create_summary_embed(bug_posts, 'bug')
+                
+                success = send_bug_alert(self.webhooks['bug'], bug_posts)
+                
+                if success:
+                    logger.info(f"✅ 버그 알림 전송 성공: {len(bug_posts)}개 게시글")
+                else:
+                    logger.error(f"❌ 버그 알림 전송 실패")
+                    
+            except Exception as e:
+                logger.error(f"❌ 버그 알림 전송 중 오류: {e}")
+        
+        # 감성 동향 알림 전송 (한국 사이트만)
+        if sentiment_posts and self.webhooks.get('sentiment') and self.mode != MonitoringModes.GLOBAL:
+            try:
+                # 높은 관심도의 게시글만 필터링
+                high_interest_posts = [
+                    post for post in sentiment_posts
+                    if post.get('classification') in ['positive', 'negative'] and len(post.get('title', '')) > 10
+                ]
+                
+                if high_interest_posts:
+                    success = send_sentiment_alert(self.webhooks['sentiment'], high_interest_posts)
+                    
+                    if success:
+                        logger.info(f"✅ 감성 동향 알림 전송 성공: {len(high_interest_posts)}개 게시글")
+                    else:
+                        logger.error(f"❌ 감성 동향 알림 전송 실패")
+                        
+            except Exception as e:
+                logger.error(f"❌ 감성 동향 알림 전송 중 오류: {e}")
+    
+    def generate_execution_report(self) -> str:
+        """실행 보고서 생성"""
+        end_time = datetime.now()
+        execution_time = end_time - self.start_time
+        
+        report = f"""
+🔍 **Epic7 모니터링 실행 보고서**
+
+**실행 정보**
+- 모드: {self.mode.upper()}
+- 시작 시간: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
+- 종료 시간: {end_time.strftime('%Y-%m-%d %H:%M:%S')}
+- 실행 시간: {execution_time.total_seconds():.1f}초
+
+**크롤링 결과**
+- 총 크롤링 게시글: {self.stats['total_crawled']}개
+- 새 게시글: {self.stats['new_posts']}개
+- 버그 게시글: {self.stats['bug_posts']}개
+- 감성 게시글: {self.stats['sentiment_posts']}개
+- 오류 발생: {self.stats['errors']}개
+
+**시스템 상태**
+- 워크플로우 모드: {'DEBUG' if self.debug else 'TEST' if self.test else 'PRODUCTION'}
+- 크롤링 대상: {', '.join(self.get_crawling_functions().keys())}
+- 활성 웹훅: {', '.join(self.webhooks.keys())}
+
+**메모리 사용량**
+- 현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
+        
+        return report.strip()
+    
+    def run(self):
+        """메인 실행 함수"""
+        try:
+            logger.info(f"🚀 Epic7 모니터링 시작 - 모드: {self.mode}")
+            
+            # 1. 병렬 크롤링 실행
+            posts = self.crawl_sites_parallel()
+            
+            if not posts:
+                logger.info("새로운 게시글이 없습니다.")
+                return True
+            
+            # 2. 게시글 분류 및 필터링
+            bug_posts, sentiment_posts = self.classify_and_filter_posts(posts)
+            
+            # 3. 알림 전송
+            self.send_notifications(bug_posts, sentiment_posts)
+            
+            # 4. 실행 보고서 생성
+            report = self.generate_execution_report()
+            logger.info("실행 보고서:\n" + report)
+            
+            # 5. 디버그 모드에서 보고서 Discord 전송
+            if self.debug and self.webhooks.get('report'):
+                send_discord_message(
+                    self.webhooks['report'],
+                    report,
+                    f"Epic7 모니터링 실행 보고서 - {self.mode.upper()}"
+                )
+            
+            logger.info("🎉 Epic7 모니터링 성공적으로 완료")
+            return True
+            
+        except Exception as e:
+            logger.error(f"💥 Epic7 모니터링 실행 중 치명적 오류: {e}")
+            
+            # 치명적 오류 알림
+            if self.webhooks.get('bug'):
+                error_report = f"""
+🚨 **치명적 오류 발생**
+
+**오류 내용**: {str(e)[:500]}...
+**발생 시간**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**모드**: {self.mode}
+**실행 통계**: {self.stats}
+
+시스템 점검이 필요합니다.
+"""
+                send_discord_message(
+                    self.webhooks['bug'],
+                    error_report,
+                    "Epic7 모니터링 - 치명적 오류"
+                )
+            
+            return False
 
 def parse_arguments():
     """명령행 인자 파싱"""
-    parser = argparse.ArgumentParser(description='Epic7 Bug Monitor')
-    parser.add_argument('--mode', choices=['korean', 'all', 'global'], default='korean',
-                        help='모니터링 모드: korean (한국 사이트), all (모든 사이트), global (글로벌 사이트)')
-    parser.add_argument('--debug', action='store_true', help='디버그 모드')
-    parser.add_argument('--test', action='store_true', help='테스트 모드')
-    parser.add_argument('--dry-run', action='store_true', help='실제 알림 전송 없이 시뮬레이션')
+    parser = argparse.ArgumentParser(
+        description="Epic7 모니터링 시스템 - 완전 개선 버전",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+사용 예시:
+  python monitor_bugs.py --mode korean           # 한국 사이트만 모니터링
+  python monitor_bugs.py --mode global           # 글로벌 사이트만 모니터링
+  python monitor_bugs.py --mode all              # 모든 사이트 모니터링
+  python monitor_bugs.py --mode korean --debug   # 디버그 모드
+  python monitor_bugs.py --mode global --test    # 테스트 모드
+        """
+    )
+    
+    parser.add_argument(
+        '--mode',
+        choices=MonitoringModes.get_valid_modes(),
+        default=MonitoringModes.KOREAN,
+        help='모니터링 모드 선택 (default: korean)'
+    )
+    
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='디버그 모드 활성화'
+    )
+    
+    parser.add_argument(
+        '--test',
+        action='store_true',
+        help='테스트 모드 활성화 (제한된 결과만 처리)'
+    )
+    
+    parser.add_argument(
+        '--version',
+        action='version',
+        version='Epic7 Monitor v2.0.0'
+    )
+    
     return parser.parse_args()
 
-def process_posts(posts, mode='korean', debug=False, dry_run=False):
-    """게시글 처리 - 버그/일반 분리 처리"""
-    if not posts:
-        print("[INFO] 크롤링된 게시글이 없음")
-        # 빈 크롤링 상태 메시지 전송
-        if not dry_run:
-            send_sentiment_alert([])  # 빈 리스트로 상태 메시지 전송
-        return
-    
-    print(f"[INFO] 총 {len(posts)}개 게시글 처리 시작")
-    
-    bug_posts = []
-    sentiment_posts = []
-    data_manager = SentimentDataManager()
-    
-    for post in posts:
-        title = post.get('title', '')
-        url = post.get('url', '')
-        site = post.get('site', '')
-        
-        if debug:
-            print(f"[DEBUG] 처리 중: {title[:50]}...")
-        
-        # 게시글 분류
-        post_type = classify_post(title)
-        
-        if post_type == "버그":
-            # 버그 게시글 - 즉시 알림
-            bug_posts.append(post)
-            
-            if not dry_run:
-                print(f"[ALERT] 버그 발견: {title}")
-                send_bug_alert(title, url, site, severity="보통")
-                time.sleep(2)  # Discord API 제한 고려
-        
-        else:
-            # 일반 게시글 - 감성 분석 후 동향 데이터로 누적
-            sentiment = analyze_sentiment(title)
-            post['sentiment'] = sentiment
-            sentiment_posts.append(post)
-            
-            # 감성 데이터 저장
-            data_manager.add_post(
-                title=title,
-                url=url,
-                site=site,
-                sentiment=sentiment,
-                timestamp=datetime.now().isoformat()
-            )
-            
-            if debug:
-                print(f"[SENTIMENT] {sentiment}: {title[:30]}...")
-    
-    # 감성 데이터 저장
-    data_manager.save_data()
-    
-    # 단건별 동향 알림 전송 (일반 게시글들)
-    if sentiment_posts and not dry_run:
-        print(f"[INFO] {len(sentiment_posts)}개 동향 게시글 단건별 알림 전송")
-        send_sentiment_alert(sentiment_posts)
-    
-    print(f"[SUMMARY] 버그: {len(bug_posts)}개, 동향: {len(sentiment_posts)}개")
-
-def analyze_sentiment(title):
-    """간단한 감성 분석"""
-    from classifier import is_positive_post, is_negative_post
-    
-    if is_positive_post(title):
-        return "긍정"
-    elif is_negative_post(title):
-        return "부정"
-    else:
-        return "중립"
-
 def main():
-    """메인 실행 함수 - 웹훅 환경변수 처리 및 에러 핸들링 강화"""
-    start_time = time.time()
-    
+    """메인 함수"""
     try:
-        # 인자 파싱
+        # 1. 인자 파싱
         args = parse_arguments()
         
-        print(f"[INFO] Epic7 버그 모니터링 시작 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"[INFO] 모니터링 모드: {args.mode}")
-        print(f"[INFO] 디버그 모드: {'활성화' if args.debug else '비활성화'}")
-        print(f"[INFO] 테스트 모드: {'활성화' if args.test else '비활성화'}")
+        # 2. 환경 변수 확인
+        if not any(os.getenv(key) for key in ['DISCORD_WEBHOOK_BUG', 'DISCORD_WEBHOOK_SENTIMENT']):
+            logger.warning("Discord 웹훅 환경변수가 설정되지 않았습니다.")
+            logger.warning("알림 기능이 제한될 수 있습니다.")
         
-        # 환경변수 확인 및 상태 출력
-        webhook_bug = os.environ.get("DISCORD_WEBHOOK_BUG")
-        webhook_sentiment = os.environ.get("DISCORD_WEBHOOK_SENTIMENT") 
-        webhook_report = os.environ.get("DISCORD_WEBHOOK_REPORT")
+        # 3. 모니터링 시스템 초기화
+        monitor = Epic7Monitor(
+            mode=args.mode,
+            debug=args.debug,
+            test=args.test
+        )
         
-        print(f"[INFO] 버그 알림 웹훅 설정됨: {'Yes' if webhook_bug else 'No'}")
-        print(f"[INFO] 감성 동향 웹훅 설정됨: {'Yes' if webhook_sentiment else 'No'}")
-        print(f"[INFO] 일간 리포트 웹훅 설정됨: {'Yes' if webhook_report else 'No'}")
+        # 4. 모니터링 실행
+        success = monitor.run()
         
-        # 환경변수 경고
-        if not webhook_bug:
-            print("Warning: DISCORD_WEBHOOK_BUG 환경변수가 설정되지 않았습니다.")
-        if not webhook_sentiment:
-            print("Warning: DISCORD_WEBHOOK_SENTIMENT 환경변수가 설정되지 않았습니다.")
-            print("Warning: 감성 동향 알림이 비활성화됩니다.")
-        if not webhook_report:
-            print("Warning: DISCORD_WEBHOOK_REPORT 환경변수가 설정되지 않았습니다.")
+        # 5. 종료 코드 반환
+        sys.exit(0 if success else 1)
         
-        # SentimentDataManager 초기화 및 정리
-        data_manager = SentimentDataManager()
-        data_manager.cleanup_old_data()
-        print("[DEBUG] 월간 데이터 정리 완료")
-        
-        # 크롤링 실행
-        posts = []
-        
-        if args.mode == 'korean':
-            print("[INFO] 한국 사이트 크롤링 시작...")
-            print("[INFO] === 한국 사이트 크롤링 시작 ===")
-            
-            try:
-                posts = crawl_korean_sites(debug=args.debug)
-                print(f"[INFO] 한국 사이트 크롤링 완료: {len(posts)}개 게시글")
-            except Exception as e:
-                print(f"[ERROR] 한국 사이트 크롤링 실패: {e}")
-                if args.debug:
-                    traceback.print_exc()
-                
-                # 크롤링 실패 알림
-                if not args.dry_run:
-                    send_monitoring_status(f"한국 사이트 크롤링 실패: {str(e)}")
-        
-        elif args.mode == 'global':
-            print("[INFO] 글로벌 사이트 크롤링 시작...")
-    
-            try:
-                posts = crawl_global_sites(debug=args.debug)
-                print(f"[INFO] 글로벌 사이트 크롤링 완료: {len(posts)}개 게시글")
-        
-            except Exception as e:
-                print(f"[ERROR] 글로벌 사이트 크롤링 실패: {e}")
-                if args.debug:
-                    traceback.print_exc()
-        
-            # 크롤링 실패 알림
-                if not args.dry_run:
-                    send_monitoring_status(f"글로벌 사이트 크롤링 실패: {str(e)}")
-
-        elif args.mode == 'all':
-            print("[INFO] 전체 사이트 크롤링 시작...")
-    
-            try:
-                # 한국 사이트
-                korean_posts = crawl_korean_sites(debug=args.debug)
-                print(f"[INFO] 한국 사이트: {len(korean_posts)}개")
-        
-                # 글로벌 사이트 (이제 구현됨)
-                global_posts = crawl_global_sites(debug=args.debug)
-                print(f"[INFO] 글로벌 사이트: {len(global_posts)}개")
-        
-                posts = korean_posts + global_posts
-                print(f"[INFO] 전체 크롤링 완료: {len(posts)}개 게시글")
-        
-            except Exception as e:
-                print(f"[ERROR] 전체 사이트 크롤링 실패: {e}")
-                if args.debug:
-                    traceback.print_exc()
-               
-        # 게시글 처리
-        process_posts(posts, mode=args.mode, debug=args.debug, dry_run=args.dry_run)
-        
-        # 실행 시간 계산
-        execution_time = time.time() - start_time
-        print(f"[INFO] 모니터링 완료 - 실행 시간: {execution_time:.2f}초")
-        
-        # 성공 상태 메시지 (디버그 모드에서만)
-        if args.debug and not args.dry_run:
-            status_msg = f"모니터링 완료: {len(posts)}개 게시글 처리 ({execution_time:.2f}초)"
-            send_monitoring_status(status_msg)
-    
     except KeyboardInterrupt:
-        print("\n[INFO] 사용자에 의해 중단됨")
-        sys.exit(0)
+        logger.info("사용자에 의해 모니터링이 중단되었습니다.")
+        sys.exit(130)
         
     except Exception as e:
-        print(f"[ERROR] 심각한 오류 발생: {e}")
-        if args.debug:
-            traceback.print_exc()
-        
-        # 오류 알림 전송
-        try:
-            if not args.dry_run:
-                send_monitoring_status(f"시스템 오류 발생: {str(e)}")
-        except:
-            pass
-        
+        logger.error(f"예상치 못한 오류 발생: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

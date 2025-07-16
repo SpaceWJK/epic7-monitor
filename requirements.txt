@@ -8,5 +8,11 @@ lxml==4.9.3
 # 번역 기능
 deep-translator==1.11.4
 
+# Discord 알림
+discord-webhook==1.3.0
+
 # 향후 Discord 봇 기능 (필요시 추가)
 # discord.py==2.3.2
+
+# 날짜 및 시간 처리 
+python-dateutil==2.8.2

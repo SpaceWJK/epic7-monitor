@@ -1,348 +1,698 @@
-# generate_report.py
+# generate_report.py - 코드 배열 수정 및 번역 기능 제외 버전
+# Epic7 모니터링 시스템 - 통계 데이터 전용 리포트 생성기
 
-from classifier import classify_post, is_positive_post, is_negative_post, is_neutral_post
-from notifier import send_daily_report
-from sentiment_data_manager import SentimentDataManager
+import json
 import os
 from datetime import datetime, timedelta
-import traceback
+from typing import Dict, List, Optional, Tuple, Any
+import requests
+from dataclasses import dataclass, asdict
+from collections import defaultdict, Counter
+import statistics
+import re
+import hashlib
+import time
 
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_REPORT")
+# 크롤링 및 분류 모듈 임포트
+from crawler import load_crawled_links, load_content_cache
+from classifier import classify_post, is_bug_post, is_positive_post, is_negative_post
 
-def main():
-    """일일 감성 동향 보고서 생성 (글로벌 지원 및 구문 오류 수정)"""
-    try:
-        print(f"[INFO] 일일 감성 동향 보고서 생성 시작 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"[INFO] Discord 웹훅 설정됨: {'Yes' if WEBHOOK_URL else 'No'}")
+@dataclass
+class ReportData:
+    """리포트 데이터 구조"""
+    date: str
+    total_posts: int
+    korean_posts: int
+    global_posts: int
+    bug_posts: int
+    positive_posts: int
+    negative_posts: int
+    neutral_posts: int
+    top_sources: Dict[str, int]
+    trend_analysis: Dict[str, Any]
+    insights: List[str]
+    recommendations: List[str]
+
+class GlobalDataManager:
+    """글로벌 데이터 통합 관리자"""
+    
+    def __init__(self):
+        self.korean_sources = [
+            "stove_bug", "stove_general", 
+            "ruliweb_epic7", "arca_epic7"
+        ]
+        self.global_sources = [
+            "stove_global_bug", "stove_global_general", 
+            "reddit_epic7", "global_forum"
+        ]
+        self.data_cache = {}
+        self.trend_cache = {}
         
-        # 강제 실행 모드 확인
-        force_report = os.environ.get("FORCE_REPORT", "false").lower() == "true"
-        debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
-        
-        if debug_mode:
-            print("🐛 디버그 모드로 실행")
-        
-        # SentimentDataManager 초기화
-        data_manager = SentimentDataManager()
-        
-        # 전날 00:00 ~ 23:59 모든 데이터 조회
-        yesterday_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-        yesterday_end = yesterday_start + timedelta(days=1)
-        
-        # 구문 오류 수정: 변수 정의 추가
-        yesterday = yesterday_start.strftime('%Y-%m-%d')
-        yesterday_data = data_manager.get_daily_data(yesterday)
-        
-        if debug_mode:
-            print(f"[DEBUG] 전날 데이터 조회: {yesterday} -> {len(yesterday_data)}개")
-        
-        # 강제 실행이 아닌 경우, 데이터가 없으면 현재 데이터 사용
-        if not yesterday_data and not force_report:
-            today = datetime.now().strftime('%Y-%m-%d')
-            yesterday_data = data_manager.get_daily_data(today)
-            print(f"[INFO] 전날 데이터 없음, 현재 데이터 사용: {len(yesterday_data)}개")
-        
-        # 들여쓰기 오류 수정
-        if not yesterday_data:
-            print("[INFO] 분석할 감성 데이터가 없습니다.")
-            if not force_report:
-                print("[INFO] 데이터 없음 - 상태 메시지 전송")
-                send_daily_report(WEBHOOK_URL, "데이터 없음")
-                return
-            else:
-                print("[INFO] 강제 실행 모드 - 빈 보고서 생성")
-        
-        print(f"[INFO] 총 {len(yesterday_data)}개 감성 데이터 분석 중...")
-        
-        # 글로벌 지원: 소스별 분류 추가
-        source_stats = {
-            "Korean": {
-                "ruliweb_epic7": [],
-                "stove_bug": [],
-                "stove_general": []
-            },
-            "Global": {
-                "STOVE Global Bug": [],
-                "STOVE Global General": [],
-                "Reddit": []
-            }
+    def load_all_data(self, hours: int = 24) -> Dict[str, List[Dict]]:
+        """모든 소스에서 데이터 로드"""
+        all_data = {
+            "korean": [],
+            "global": [],
+            "combined": []
         }
         
-        # 감성 카테고리별 분류 (글로벌 지원)
-        sentiment_report = {
-            "긍정": {
-                "Korean": [],
-                "Global": [],
-                "total": []
-            },
-            "중립": {
-                "Korean": [],
-                "Global": [],
-                "total": []
-            },
-            "부정": {
-                "Korean": [],
-                "Global": [],
-                "total": []
-            }
-        }
-        
-        bug_count = {"Korean": 0, "Global": 0, "total": 0}
-        
-        for data_item in yesterday_data:
+        # 한국 사이트 데이터 로드
+        try:
+            korean_links = self._load_links_file("crawled_links_korean.json")
+            korean_cache = self._load_cache_file("content_cache_korean.json")
+            
+            for link in korean_links.get("links", []):
+                if self._is_within_timeframe(link, hours):
+                    post_data = self._get_post_data(link, korean_cache)
+                    if post_data:
+                        all_data["korean"].append(post_data)
+                        all_data["combined"].append(post_data)
+                        
+        except Exception as e:
+            print(f"[ERROR] 한국 사이트 데이터 로드 실패: {e}")
+            
+        # 글로벌 사이트 데이터 로드
+        try:
+            global_links = self._load_links_file("crawled_links_global.json")
+            global_cache = self._load_cache_file("content_cache_global.json")
+            
+            for link in global_links.get("links", []):
+                if self._is_within_timeframe(link, hours):
+                    post_data = self._get_post_data(link, global_cache)
+                    if post_data:
+                        all_data["global"].append(post_data)
+                        all_data["combined"].append(post_data)
+                        
+        except Exception as e:
+            print(f"[ERROR] 글로벌 사이트 데이터 로드 실패: {e}")
+            
+        # 폴백: 통합 파일 사용
+        if not all_data["korean"] and not all_data["global"]:
             try:
-                category = data_item.get("category", "중립")
-                source = data_item.get("source", "")
+                fallback_links = self._load_links_file("crawled_links.json")
+                fallback_cache = self._load_cache_file("content_cache.json")
                 
-                # 소스별 분류 (글로벌 지원)
-                region = get_source_region(source)
+                for link in fallback_links.get("links", []):
+                    if self._is_within_timeframe(link, hours):
+                        post_data = self._get_post_data(link, fallback_cache)
+                        if post_data:
+                            all_data["combined"].append(post_data)
+                            
+            except Exception as e:
+                print(f"[ERROR] 폴백 데이터 로드 실패: {e}")
                 
-                # 소스별 통계 업데이트
-                if region in source_stats and source in source_stats[region]:
-                    source_stats[region][source].append(data_item)
+        return all_data
+        
+    def _load_links_file(self, filename: str) -> Dict:
+        """링크 파일 로드"""
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[ERROR] {filename} 로드 실패: {e}")
                 
-                # 버그 관련 게시글은 개수만 카운트
-                if category == "버그":
-                    bug_count[region] += 1
-                    bug_count["total"] += 1
-                    continue
+        return {"links": [], "last_updated": datetime.now().isoformat()}
+        
+    def _load_cache_file(self, filename: str) -> Dict:
+        """캐시 파일 로드"""
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[ERROR] {filename} 로드 실패: {e}")
                 
-                # 감성 카테고리별 분류 (지역별 구분)
-                if category in sentiment_report:
-                    post_data = {
-                        "title": data_item.get("title", ""),
-                        "url": data_item.get("url", ""),
-                        "source": source,
-                        "timestamp": data_item.get("timestamp", ""),
-                        "category": category,
-                        "region": region
-                    }
-                    sentiment_report[category][region].append(post_data)
-                    sentiment_report[category]["total"].append(post_data)
+        return {}
+        
+    def _is_within_timeframe(self, link_data: Any, hours: int) -> bool:
+        """시간 범위 내 데이터 확인"""
+        try:
+            if isinstance(link_data, dict):
+                timestamp_str = link_data.get('timestamp', '')
+            else:
+                # 문자열 링크인 경우 현재 시간 사용
+                return True
+                
+            if not timestamp_str:
+                return True
+                
+            link_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            cutoff_time = datetime.now() - timedelta(hours=hours)
+            
+            return link_time > cutoff_time
+            
+        except:
+            return True
+            
+    def _get_post_data(self, link_data: Any, cache: Dict) -> Optional[Dict]:
+        """게시글 데이터 추출"""
+        try:
+            if isinstance(link_data, dict):
+                url = link_data.get('url', '')
+                title = link_data.get('title', '')
+                source = link_data.get('source', 'unknown')
+                timestamp = link_data.get('timestamp', datetime.now().isoformat())
+            else:
+                url = link_data
+                title = ''
+                source = 'unknown'
+                timestamp = datetime.now().isoformat()
+                
+            # 캐시에서 내용 가져오기
+            url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()
+            cached_item = cache.get(url_hash, {})
+            content = cached_item.get('content', '')
+            
+            # 제목이 없으면 캐시에서 가져오기
+            if not title and cached_item.get('title'):
+                title = cached_item['title']
+                
+            if not title:
+                title = "제목 없음"
+                
+            return {
+                'url': url,
+                'title': title,
+                'content': content,
+                'source': source,
+                'timestamp': timestamp
+            }
+            
+        except Exception as e:
+            print(f"[ERROR] 게시글 데이터 추출 실패: {e}")
+            return None
+
+class TrendAnalyzer:
+    """트렌드 분석기"""
+    
+    def __init__(self):
+        self.trend_data = {}
+        self.analysis_cache = {}
+        
+    def analyze_sentiment_trends(self, data: List[Dict], hours: int = 24) -> Dict[str, Any]:
+        """감성 트렌드 분석"""
+        hourly_sentiment = defaultdict(lambda: {
+            'positive': 0, 'negative': 0, 'neutral': 0, 'bug': 0
+        })
+        
+        for post in data:
+            try:
+                timestamp = datetime.fromisoformat(post['timestamp'].replace('Z', '+00:00'))
+                hour_key = timestamp.strftime('%Y-%m-%d-%H')
+                
+                title = post.get('title', '')
+                content = post.get('content', '')
+                text = f"{title} {content}"
+                
+                # 분류
+                if is_bug_post(title):
+                    hourly_sentiment[hour_key]['bug'] += 1
+                elif is_positive_post(title):
+                    hourly_sentiment[hour_key]['positive'] += 1
+                elif is_negative_post(title):
+                    hourly_sentiment[hour_key]['negative'] += 1
                 else:
-                    # 기타 카테고리는 중립으로 분류
-                    post_data = {
-                        "title": data_item.get("title", ""),
-                        "url": data_item.get("url", ""),
-                        "source": source,
-                        "timestamp": data_item.get("timestamp", ""),
-                        "category": "중립",
-                        "region": region
-                    }
-                    sentiment_report["중립"][region].append(post_data)
-                    sentiment_report["중립"]["total"].append(post_data)
+                    hourly_sentiment[hour_key]['neutral'] += 1
                     
             except Exception as e:
-                print(f"[ERROR] 데이터 처리 중 오류: {e}")
+                print(f"[ERROR] 감성 분석 실패: {e}")
                 continue
+                
+        # 트렌드 계산
+        trend_analysis = {
+            'hourly_data': dict(hourly_sentiment),
+            'overall_sentiment': self._calculate_overall_sentiment(hourly_sentiment),
+            'peak_hours': self._find_peak_hours(hourly_sentiment),
+            'sentiment_velocity': self._calculate_sentiment_velocity(hourly_sentiment)
+        }
         
-        # 감성 분석 결과 요약 (글로벌 지원)
-        total_sentiment = sum(len(sentiment_report[cat]["total"]) for cat in sentiment_report)
-        total_analyzed = total_sentiment + bug_count["total"]
+        return trend_analysis
         
-        print(f"[INFO] 글로벌 감성 분석 결과:")
-        print(f"  📊 총 분석 대상: {total_analyzed}개 게시글")
-        print(f"  🇰🇷 한국 사이트: {get_region_total(sentiment_report, 'Korean') + bug_count['Korean']}개")
-        print(f"  🌍 글로벌 사이트: {get_region_total(sentiment_report, 'Global') + bug_count['Global']}개")
+    def analyze_source_trends(self, data: List[Dict]) -> Dict[str, Any]:
+        """소스별 트렌드 분석"""
+        source_counts = Counter()
+        source_sentiment = defaultdict(lambda: {
+            'positive': 0, 'negative': 0, 'neutral': 0, 'bug': 0
+        })
         
-        if total_sentiment > 0:
-            print(f"  😊 긍정: {len(sentiment_report['긍정']['total'])}개 ({len(sentiment_report['긍정']['total'])/total_sentiment*100:.1f}%)")
-            print(f"  😐 중립: {len(sentiment_report['중립']['total'])}개 ({len(sentiment_report['중립']['total'])/total_sentiment*100:.1f}%)")
-            print(f"  😞 부정: {len(sentiment_report['부정']['total'])}개 ({len(sentiment_report['부정']['total'])/total_sentiment*100:.1f}%)")
-        else:
-            print(f"  😊 긍정: 0개")
-            print(f"  😐 중립: 0개")
-            print(f"  😞 부정: 0개")
-        
-        print(f"  🐛 버그: {bug_count['total']}개 (실시간 알림 처리)")
-        print(f"  📈 감성 총합: {total_sentiment}개")
-        
-        # 소스별 상세 통계 출력
-        print_source_statistics(source_stats)
-        
-        # 글로벌 감성 동향 분석
-        sentiment_analysis = analyze_global_sentiment_trends(sentiment_report)
-        
-        # Discord 일일 감성 보고서 전송 (글로벌 지원)
-        if WEBHOOK_URL:
-            try:
-                send_daily_global_sentiment_report(WEBHOOK_URL, sentiment_report, sentiment_analysis, bug_count, source_stats)
-                print("[SUCCESS] 일일 글로벌 감성 동향 보고서 전송 완료")
-            except Exception as e:
-                print(f"[ERROR] 일일 감성 보고서 전송 실패: {e}")
-                traceback.print_exc()
-        else:
-            print("[ERROR] DISCORD_WEBHOOK_REPORT 환경변수가 설정되지 않음")
+        for post in data:
+            source = post.get('source', 'unknown')
+            title = post.get('title', '')
             
-    except Exception as e:
-        print(f"[ERROR] 일일 감성 보고서 생성 중 치명적 오류: {e}")
-        traceback.print_exc()
+            source_counts[source] += 1
+            
+            if is_bug_post(title):
+                source_sentiment[source]['bug'] += 1
+            elif is_positive_post(title):
+                source_sentiment[source]['positive'] += 1
+            elif is_negative_post(title):
+                source_sentiment[source]['negative'] += 1
+            else:
+                source_sentiment[source]['neutral'] += 1
+                
+        return {
+            'source_counts': dict(source_counts),
+            'source_sentiment': dict(source_sentiment),
+            'most_active_sources': source_counts.most_common(5),
+            'source_analysis': self._analyze_source_patterns(source_sentiment)
+        }
+        
+    def _calculate_overall_sentiment(self, hourly_data: Dict) -> Dict[str, float]:
+        """전체 감성 점수 계산"""
+        total_positive = sum(hour['positive'] for hour in hourly_data.values())
+        total_negative = sum(hour['negative'] for hour in hourly_data.values())
+        total_neutral = sum(hour['neutral'] for hour in hourly_data.values())
+        total_bug = sum(hour['bug'] for hour in hourly_data.values())
+        
+        total_posts = total_positive + total_negative + total_neutral + total_bug
+        
+        if total_posts == 0:
+            return {'positive': 0, 'negative': 0, 'neutral': 0, 'bug': 0}
+            
+        return {
+            'positive': (total_positive / total_posts) * 100,
+            'negative': (total_negative / total_posts) * 100,
+            'neutral': (total_neutral / total_posts) * 100,
+            'bug': (total_bug / total_posts) * 100
+        }
+        
+    def _find_peak_hours(self, hourly_data: Dict) -> Dict[str, str]:
+        """피크 시간 찾기"""
+        max_activity = 0
+        peak_hour = ""
+        
+        for hour, data in hourly_data.items():
+            total_activity = sum(data.values())
+            if total_activity > max_activity:
+                max_activity = total_activity
+                peak_hour = hour
+                
+        return {
+            'peak_hour': peak_hour,
+            'peak_activity': max_activity
+        }
+        
+    def _calculate_sentiment_velocity(self, hourly_data: Dict) -> Dict[str, float]:
+        """감성 변화 속도 계산"""
+        if len(hourly_data) < 2:
+            return {'velocity': 0.0, 'direction': 'stable'}
+            
+        hours = sorted(hourly_data.keys())
+        sentiment_scores = []
+        
+        for hour in hours:
+            data = hourly_data[hour]
+            total = sum(data.values())
+            
+            if total > 0:
+                sentiment_score = (data['positive'] - data['negative']) / total
+                sentiment_scores.append(sentiment_score)
+                
+        if len(sentiment_scores) < 2:
+            return {'velocity': 0.0, 'direction': 'stable'}
+            
+        velocity = sentiment_scores[-1] - sentiment_scores[0]
+        direction = 'improving' if velocity > 0.1 else 'declining' if velocity < -0.1 else 'stable'
+        
+        return {
+            'velocity': velocity,
+            'direction': direction
+        }
+        
+    def _analyze_source_patterns(self, source_sentiment: Dict) -> Dict[str, Any]:
+        """소스 패턴 분석"""
+        patterns = {}
+        
+        for source, sentiment in source_sentiment.items():
+            total = sum(sentiment.values())
+            
+            if total > 0:
+                patterns[source] = {
+                    'total_posts': total,
+                    'bug_ratio': sentiment['bug'] / total,
+                    'positive_ratio': sentiment['positive'] / total,
+                    'negative_ratio': sentiment['negative'] / total,
+                    'dominant_sentiment': max(sentiment.items(), key=lambda x: x[1])[0]
+                }
+                
+        return patterns
 
-def get_source_region(source):
-    """소스명으로 지역 구분"""
-    korean_sources = ["ruliweb_epic7", "stove_bug", "stove_general"]
-    global_sources = ["STOVE Global Bug", "STOVE Global General", "Reddit"]
+class InsightGenerator:
+    """인사이트 생성기"""
     
-    if source in korean_sources:
-        return "Korean"
-    elif source in global_sources:
-        return "Global"
-    else:
-        return "Korean"  # 기본값
+    def __init__(self):
+        self.insight_templates = {
+            'bug_trend': "버그 리포트가 {period}에 {change}% {direction}했습니다.",
+            'sentiment_change': "전체 감성이 {previous}에서 {current}로 변화했습니다.",
+            'peak_activity': "가장 활발한 시간은 {hour}이며, 총 {count}개의 게시글이 작성되었습니다.",
+            'source_dominance': "{source}가 전체 게시글의 {percentage}%를 차지하며 가장 활발한 소스입니다."
+        }
+        
+    def generate_insights(self, data: List[Dict], trend_analysis: Dict) -> List[str]:
+        """인사이트 생성"""
+        insights = []
+        
+        try:
+            # 버그 트렌드 인사이트
+            bug_posts = [post for post in data if is_bug_post(post.get('title', ''))]
+            if bug_posts:
+                bug_insight = f"지난 24시간 동안 총 {len(bug_posts)}개의 버그 리포트가 발견되었습니다."
+                insights.append(bug_insight)
+                
+            # 감성 트렌드 인사이트
+            overall_sentiment = trend_analysis.get('overall_sentiment', {})
+            if overall_sentiment:
+                dominant_sentiment = max(overall_sentiment.items(), key=lambda x: x[1])
+                sentiment_insight = f"전체 감성 중 {dominant_sentiment[0]}가 {dominant_sentiment[1]:.1f}%로 가장 높습니다."
+                insights.append(sentiment_insight)
+                
+            # 피크 시간 인사이트
+            peak_info = trend_analysis.get('peak_hours', {})
+            if peak_info.get('peak_hour'):
+                peak_insight = f"가장 활발한 시간은 {peak_info['peak_hour'][-2:]}시이며, {peak_info['peak_activity']}개의 게시글이 작성되었습니다."
+                insights.append(peak_insight)
+                
+            # 소스 분석 인사이트
+            source_analysis = trend_analysis.get('source_analysis', {})
+            if source_analysis:
+                most_active_source = max(source_analysis.items(), key=lambda x: x[1]['total_posts'])
+                source_insight = f"{most_active_source[0]} 소스가 {most_active_source[1]['total_posts']}개 게시글로 가장 활발합니다."
+                insights.append(source_insight)
+                
+            # 글로벌 vs 한국 비교
+            korean_posts = [post for post in data if post.get('source', '').startswith('stove_') or 'ruliweb' in post.get('source', '')]
+            global_posts = [post for post in data if 'global' in post.get('source', '') or 'reddit' in post.get('source', '')]
+            
+            if korean_posts and global_posts:
+                ratio = len(korean_posts) / len(global_posts)
+                if ratio > 2:
+                    insights.append(f"한국 사이트 활동이 글로벌 사이트보다 {ratio:.1f}배 활발합니다.")
+                elif ratio < 0.5:
+                    insights.append(f"글로벌 사이트 활동이 한국 사이트보다 {1/ratio:.1f}배 활발합니다.")
+                    
+        except Exception as e:
+            print(f"[ERROR] 인사이트 생성 실패: {e}")
+            insights.append("인사이트 생성 중 오류가 발생했습니다.")
+            
+        return insights[:10]  # 최대 10개 인사이트
+        
+    def generate_recommendations(self, data: List[Dict], insights: List[str]) -> List[str]:
+        """권장사항 생성"""
+        recommendations = []
+        
+        try:
+            # 버그 리포트 기반 권장사항
+            bug_posts = [post for post in data if is_bug_post(post.get('title', ''))]
+            if len(bug_posts) > 10:
+                recommendations.append("버그 리포트가 많이 증가했습니다. 개발팀 검토가 필요합니다.")
+                
+            # 감성 기반 권장사항
+            negative_posts = [post for post in data if is_negative_post(post.get('title', ''))]
+            if len(negative_posts) > len(data) * 0.3:
+                recommendations.append("부정적인 게시글이 30% 이상입니다. 커뮤니티 관리가 필요합니다.")
+                
+            # 소스 다양성 권장사항
+            sources = set(post.get('source', '') for post in data)
+            if len(sources) < 3:
+                recommendations.append("모니터링 소스가 제한적입니다. 추가 소스 확장을 고려하세요.")
+                
+            # 활동 패턴 권장사항
+            if len(data) < 50:
+                recommendations.append("전체 게시글 수가 적습니다. 크롤링 범위 확장을 고려하세요.")
+                
+        except Exception as e:
+            print(f"[ERROR] 권장사항 생성 실패: {e}")
+            recommendations.append("권장사항 생성 중 오류가 발생했습니다.")
+            
+        return recommendations[:5]  # 최대 5개 권장사항
 
-def get_region_total(sentiment_report, region):
-    """지역별 감성 게시글 총 개수"""
-    return sum(len(sentiment_report[cat][region]) for cat in sentiment_report)
-
-def print_source_statistics(source_stats):
-    """소스별 통계 출력"""
-    print(f"\n[INFO] 소스별 상세 통계:")
+class ReportGenerator:
+    """통합 리포트 생성기"""
     
-    for region, sources in source_stats.items():
-        print(f"  📍 {region}:")
-        for source, posts in sources.items():
-            print(f"    • {source}: {len(posts)}개")
-
-def analyze_global_sentiment_trends(sentiment_report):
-    """글로벌 감성 동향 분석 및 인사이트 생성"""
-    try:
-        total = sum(len(sentiment_report[cat]["total"]) for cat in sentiment_report)
+    def __init__(self):
+        self.data_manager = GlobalDataManager()
+        self.trend_analyzer = TrendAnalyzer()
+        self.insight_generator = InsightGenerator()
         
-        if total == 0:
-            return {
-                "trend": "데이터 부족",
-                "insight": "분석할 게시글이 없습니다.",
-                "recommendation": "데이터 수집 상태를 확인해보세요.",
-                "korean_trend": "데이터 없음",
-                "global_trend": "데이터 없음"
-            }
+    def generate_daily_report(self, hours: int = 24) -> ReportData:
+        """일일 리포트 생성"""
+        print(f"[INFO] {hours}시간 데이터 기반 리포트 생성 시작...")
         
-        # 전체 감성 비율
-        positive_ratio = len(sentiment_report['긍정']['total']) / total
-        negative_ratio = len(sentiment_report['부정']['total']) / total
-        neutral_ratio = len(sentiment_report['중립']['total']) / total
+        # 데이터 로드
+        all_data = self.data_manager.load_all_data(hours)
+        combined_data = all_data['combined']
         
-        # 지역별 감성 비율
-        korean_total = get_region_total(sentiment_report, 'Korean')
-        global_total = get_region_total(sentiment_report, 'Global')
+        print(f"[INFO] 총 {len(combined_data)}개 게시글 분석 중...")
         
-        korean_trend = "데이터 없음"
-        global_trend = "데이터 없음"
+        # 기본 통계 계산
+        total_posts = len(combined_data)
+        korean_posts = len(all_data['korean'])
+        global_posts = len(all_data['global'])
         
-        if korean_total > 0:
-            korean_positive = len(sentiment_report['긍정']['Korean']) / korean_total
-            korean_negative = len(sentiment_report['부정']['Korean']) / korean_total
-            korean_trend = determine_trend(korean_positive, korean_negative)
+        # 분류별 통계
+        bug_posts = len([post for post in combined_data if is_bug_post(post.get('title', ''))])
+        positive_posts = len([post for post in combined_data if is_positive_post(post.get('title', ''))])
+        negative_posts = len([post for post in combined_data if is_negative_post(post.get('title', ''))])
+        neutral_posts = total_posts - bug_posts - positive_posts - negative_posts
         
-        if global_total > 0:
-            global_positive = len(sentiment_report['긍정']['Global']) / global_total
-            global_negative = len(sentiment_report['부정']['Global']) / global_total
-            global_trend = determine_trend(global_positive, global_negative)
+        # 소스별 통계
+        source_counts = Counter(post.get('source', 'unknown') for post in combined_data)
+        top_sources = dict(source_counts.most_common(10))
         
-        # 전체 동향 결정
-        overall_trend = determine_trend(positive_ratio, negative_ratio)
+        # 트렌드 분석
+        sentiment_trends = self.trend_analyzer.analyze_sentiment_trends(combined_data, hours)
+        source_trends = self.trend_analyzer.analyze_source_trends(combined_data)
+        
+        # 통합 트렌드 분석
+        trend_analysis = {
+            **sentiment_trends,
+            **source_trends
+        }
         
         # 인사이트 생성
-        insight = generate_global_insight(positive_ratio, negative_ratio, neutral_ratio, korean_total, global_total)
+        insights = self.insight_generator.generate_insights(combined_data, trend_analysis)
+        recommendations = self.insight_generator.generate_recommendations(combined_data, insights)
         
-        # 권장사항 생성
-        recommendation = generate_global_recommendation(positive_ratio, negative_ratio, korean_trend, global_trend)
+        # 리포트 데이터 생성
+        report_data = ReportData(
+            date=datetime.now().strftime('%Y-%m-%d'),
+            total_posts=total_posts,
+            korean_posts=korean_posts,
+            global_posts=global_posts,
+            bug_posts=bug_posts,
+            positive_posts=positive_posts,
+            negative_posts=negative_posts,
+            neutral_posts=neutral_posts,
+            top_sources=top_sources,
+            trend_analysis=trend_analysis,
+            insights=insights,
+            recommendations=recommendations
+        )
         
-        return {
-            "trend": overall_trend,
-            "insight": insight,
-            "recommendation": recommendation,
-            "korean_trend": korean_trend,
-            "global_trend": global_trend,
-            "ratios": {
-                "positive": positive_ratio,
-                "negative": negative_ratio,
-                "neutral": neutral_ratio
-            },
-            "region_stats": {
-                "korean_total": korean_total,
-                "global_total": global_total
+        print(f"[INFO] 리포트 생성 완료: {total_posts}개 게시글 분석")
+        return report_data
+        
+    def format_report_for_discord(self, report_data: ReportData) -> str:
+        """Discord용 리포트 포맷팅"""
+        try:
+            lines = []
+            
+            # 헤더
+            lines.append("🔍 **Epic7 일일 모니터링 리포트**")
+            lines.append(f"📅 **날짜**: {report_data.date}")
+            lines.append("=" * 40)
+            
+            # 기본 통계
+            lines.append("📊 **기본 통계**")
+            lines.append(f"• 총 게시글: {report_data.total_posts}개")
+            lines.append(f"• 한국 사이트: {report_data.korean_posts}개")
+            lines.append(f"• 글로벌 사이트: {report_data.global_posts}개")
+            lines.append("")
+            
+            # 분류별 통계
+            lines.append("🏷️ **분류별 통계**")
+            lines.append(f"• 🐛 버그 리포트: {report_data.bug_posts}개")
+            lines.append(f"• 😊 긍정적: {report_data.positive_posts}개")
+            lines.append(f"• 😞 부정적: {report_data.negative_posts}개")
+            lines.append(f"• 😐 중립적: {report_data.neutral_posts}개")
+            lines.append("")
+            
+            # 상위 소스
+            if report_data.top_sources:
+                lines.append("🏆 **상위 활동 소스**")
+                for source, count in list(report_data.top_sources.items())[:5]:
+                    source_name = self._get_source_display_name(source)
+                    lines.append(f"• {source_name}: {count}개")
+                lines.append("")
+                
+            # 핵심 인사이트
+            if report_data.insights:
+                lines.append("💡 **핵심 인사이트**")
+                for insight in report_data.insights[:5]:
+                    lines.append(f"• {insight}")
+                lines.append("")
+                
+            # 권장사항
+            if report_data.recommendations:
+                lines.append("🎯 **권장사항**")
+                for recommendation in report_data.recommendations[:3]:
+                    lines.append(f"• {recommendation}")
+                lines.append("")
+                
+            # 푸터
+            lines.append("─" * 40)
+            lines.append(f"🤖 **생성시간**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            print(f"[ERROR] Discord 리포트 포맷팅 실패: {e}")
+            return f"❌ 리포트 생성 중 오류가 발생했습니다: {str(e)}"
+            
+    def _get_source_display_name(self, source: str) -> str:
+        """소스 표시명 변환"""
+        source_names = {
+            'stove_bug': '🏪 스토브 버그게시판',
+            'stove_general': '🏪 스토브 자유게시판',
+            'stove_global_bug': '🌍 스토브 글로벌 버그',
+            'stove_global_general': '🌍 스토브 글로벌 자유',
+            'ruliweb_epic7': '🎮 루리웹 에픽세븐',
+            'arca_epic7': '🔥 아카라이브 에픽세븐',
+            'reddit_epic7': '🌐 Reddit EpicSeven',
+            'global_forum': '🌍 글로벌 포럼'
+        }
+        
+        return source_names.get(source, source)
+
+class DiscordReporter:
+    """Discord 리포트 전송기"""
+    
+    def __init__(self):
+        self.webhook_url = os.environ.get('DISCORD_WEBHOOK_REPORT')
+        self.max_message_length = 1900
+        
+    def send_daily_report(self, report_data: ReportData) -> bool:
+        """일일 리포트 전송"""
+        if not self.webhook_url:
+            print("[WARNING] Discord 웹훅 URL이 설정되지 않았습니다.")
+            return False
+            
+        try:
+            generator = ReportGenerator()
+            report_text = generator.format_report_for_discord(report_data)
+            
+            # 메시지 길이 확인 및 분할
+            if len(report_text) > self.max_message_length:
+                messages = self._split_message(report_text)
+                for i, message in enumerate(messages):
+                    success = self._send_message(
+                        message, 
+                        f"Epic7 일일 리포트 ({i+1}/{len(messages)})"
+                    )
+                    if not success:
+                        return False
+                    time.sleep(1)  # 메시지 간 대기
+            else:
+                success = self._send_message(report_text, "Epic7 일일 리포트")
+                if not success:
+                    return False
+                    
+            print("[INFO] Discord 일일 리포트 전송 완료")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Discord 리포트 전송 실패: {e}")
+            return False
+            
+    def _split_message(self, text: str) -> List[str]:
+        """메시지 분할"""
+        lines = text.split('\n')
+        messages = []
+        current_message = ""
+        
+        for line in lines:
+            if len(current_message + line + '\n') > self.max_message_length:
+                if current_message:
+                    messages.append(current_message.strip())
+                current_message = line + '\n'
+            else:
+                current_message += line + '\n'
+                
+        if current_message:
+            messages.append(current_message.strip())
+            
+        return messages
+        
+    def _send_message(self, message: str, title: str) -> bool:
+        """메시지 전송"""
+        try:
+            data = {
+                "embeds": [{
+                    "title": title,
+                    "description": message,
+                    "color": 0x00ff00,
+                    "timestamp": datetime.now().isoformat()
+                }]
             }
-        }
-        
-    except Exception as e:
-        print(f"[ERROR] 글로벌 감성 동향 분석 중 오류: {e}")
-        return {
-            "trend": "분석 실패",
-            "insight": "감성 동향 분석 중 오류가 발생했습니다.",
-            "recommendation": "시스템 로그를 확인하세요.",
-            "korean_trend": "분석 실패",
-            "global_trend": "분석 실패"
-        }
+            
+            response = requests.post(self.webhook_url, json=data, timeout=10)
+            return response.status_code == 204
+            
+        except Exception as e:
+            print(f"[ERROR] Discord 메시지 전송 실패: {e}")
+            return False
 
-def determine_trend(positive_ratio, negative_ratio):
-    """감성 비율로 트렌드 결정"""
-    if positive_ratio > 0.5:
-        return "긍정적"
-    elif negative_ratio > 0.4:
-        return "부정적"
-    elif positive_ratio + negative_ratio < 0.4:
-        return "중립적"
-    else:
-        return "혼재"
+# 하위 호환성을 위한 함수들
+def get_all_posts_for_report(hours: int = 24) -> List[Dict]:
+    """리포트용 게시글 수집 (하위 호환성)"""
+    manager = GlobalDataManager()
+    all_data = manager.load_all_data(hours)
+    return all_data['combined']
 
-def generate_global_insight(positive_ratio, negative_ratio, neutral_ratio, korean_total, global_total):
-    """글로벌 인사이트 생성"""
-    total_posts = korean_total + global_total
-    
-    if total_posts == 0:
-        return "분석할 게시글이 없습니다."
-    
-    korean_ratio = korean_total / total_posts if total_posts > 0 else 0
-    global_ratio = global_total / total_posts if total_posts > 0 else 0
-    
-    insight = f"전체 {total_posts}개 게시글 중 "
-    insight += f"한국 사이트 {korean_ratio*100:.1f}%, 글로벌 사이트 {global_ratio*100:.1f}%로 구성. "
-    
-    if positive_ratio > 0.5:
-        insight += f"긍정적 반응이 {positive_ratio*100:.1f}%로 높은 편입니다."
-    elif negative_ratio > 0.4:
-        insight += f"부정적 반응이 {negative_ratio*100:.1f}%로 주의가 필요합니다."
-    else:
-        insight += f"중립적 분위기({neutral_ratio*100:.1f}%)로 안정적입니다."
-    
-    return insight
-
-def generate_global_recommendation(positive_ratio, negative_ratio, korean_trend, global_trend):
-    """글로벌 권장사항 생성"""
-    if negative_ratio > 0.3:
-        recommendation = "부정적 피드백 증가 - 한국/글로벌 커뮤니티 모니터링 강화 필요"
-    elif positive_ratio > 0.6:
-        recommendation = "긍정적 분위기 유지 - 글로벌 확산 이벤트 고려"
-    elif korean_trend == "부정적" and global_trend == "긍정적":
-        recommendation = "한국 커뮤니티 집중 관리 - 글로벌 성공 사례 벤치마킹"
-    elif korean_trend == "긍정적" and global_trend == "부정적":
-        recommendation = "글로벌 커뮤니티 개선 - 한국 성공 사례 글로벌 적용"
-    else:
-        recommendation = "전반적으로 안정적 - 현재 수준 유지"
-    
-    return recommendation
-
-def send_daily_global_sentiment_report(webhook_url, sentiment_report, analysis, bug_count, source_stats):
-    """일일 글로벌 감성 동향 보고서 전송"""
+def send_daily_report():
+    """일일 리포트 전송 (메인 함수)"""
     try:
-        # 글로벌 감성 보고서 데이터 구성
-        report_data = {
-            "sentiment_report": sentiment_report,
-            "analysis": analysis,
-            "bug_count": bug_count,
-            "source_stats": source_stats,
-            "exclude_bugs": True,
-            "data_source": "stored",
-            "report_type": "global"  # 글로벌 리포트 플래그
-        }
+        print("[INFO] 일일 리포트 생성 시작...")
         
-        # 기존 send_daily_report 함수 활용
-        send_daily_report(webhook_url, report_data)
+        # 리포트 생성
+        generator = ReportGenerator()
+        report_data = generator.generate_daily_report(24)
         
+        # Discord 전송
+        reporter = DiscordReporter()
+        success = reporter.send_daily_report(report_data)
+        
+        if success:
+            print("[INFO] 일일 리포트 전송 완료")
+            
+            # 리포트 데이터 저장
+            report_file = f"daily_report_{datetime.now().strftime('%Y%m%d')}.json"
+            with open(report_file, 'w', encoding='utf-8') as f:
+                json.dump(asdict(report_data), f, ensure_ascii=False, indent=2)
+            print(f"[INFO] 리포트 데이터 저장: {report_file}")
+            
+        else:
+            print("[ERROR] 일일 리포트 전송 실패")
+            
     except Exception as e:
-        print(f"[ERROR] 글로벌 감성 보고서 전송 중 오류: {e}")
-        raise
+        print(f"[ERROR] 일일 리포트 처리 중 오류: {e}")
+        
+        # 에러 알림
+        error_webhook = os.environ.get('DISCORD_WEBHOOK_BUG')
+        if error_webhook:
+            try:
+                error_data = {
+                    "embeds": [{
+                        "title": "❌ 일일 리포트 생성 실패",
+                        "description": f"오류 내용: {str(e)[:1000]}",
+                        "color": 0xff0000,
+                        "timestamp": datetime.now().isoformat()
+                    }]
+                }
+                requests.post(error_webhook, json=error_data, timeout=10)
+            except:
+                pass
 
 if __name__ == "__main__":
-    main()
+    send_daily_report()
