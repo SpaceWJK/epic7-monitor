@@ -37,354 +37,440 @@ jobs:
       DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
       DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
       CRAWL_MODE: ${{ github.event.inputs.crawl_mode || 'all' }}
-    
+      FORCE_REPORT: ${{ github.event.inputs.force_report || 'false' }}
+      DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 3
-          token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: 🔄 Git 충돌 완전 해결 및 동기화
-        run: |
-          echo "=== Git 충돌 완전 해결 시작 ==="
-          git config --global user.email "epic7-report@github.com"
-          git config --global user.name "Epic7 Daily Reporter"
-          
-          # 현재 상태 저장
-          echo "현재 브랜치: $(git branch --show-current)"
-          echo "현재 커밋: $(git rev-parse HEAD)"
-          
-          # 원격 저장소 최신 정보 가져오기
-          git fetch origin main
-          
-          # 로컬 변경사항 임시 저장
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "로컬 변경사항 임시 저장 중..."
-            git stash push -m "Auto-stash before daily report $(date)"
-          fi
-          
-          # 강제 동기화 (충돌 방지)
-          echo "원격 저장소와 강제 동기화 중..."
-          git reset --hard origin/main
-          git clean -fd
-          
-          # 임시 저장된 변경사항이 있다면 복원 시도
-          if git stash list | grep -q "Auto-stash before daily report"; then
-            echo "임시 저장된 변경사항 복원 시도 중..."
-            git stash pop || {
-              echo "충돌 발생, 수동 해결 필요 없음 - 최신 상태 유지"
-              git stash drop
-            }
-          fi
-          
-          echo "Git 동기화 완료"
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🐍 Python 환경 설정 (최적화)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
+    - name: 🔄 Sync with remote
+      run: |
+        git config user.name "epic7-daily-report"
+        git config user.email "epic7-daily@github.com"
+        git pull --rebase origin main || echo "No conflicts"
 
-      - name: 🌐 Chrome/ChromeDriver 설치 (글로벌 지원 강화)
-        run: |
-          echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
-          
-          # Chrome 설치
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-          
-          # Chrome 버전 확인
-          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
-          echo "✅ Chrome 설치됨: $CHROME_VERSION (주버전: $CHROME_MAJOR_VERSION)"
-          
-          # 기존 ChromeDriver 제거
-          sudo rm -f /usr/local/bin/chromedriver /usr/bin/chromedriver
-          
-          # ChromeDriver 설치 (다중 방법)
-          echo "🔍 ChromeDriver 설치 중..."
-          
-          # 방법 1: 정확한 버전 매칭
-          CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR_VERSION}" 2>/dev/null || echo "")
-          
-          # 방법 2: 안정 버전 사용
-          if [ -z "$CHROMEDRIVER_VERSION" ] || [ "$CHROMEDRIVER_VERSION" = "Not Found" ]; then
-            CHROMEDRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE" 2>/dev/null || echo "121.0.6167.85")
-            echo "⚠️ 안정 버전 사용: $CHROMEDRIVER_VERSION"
-          fi
-          
-          # ChromeDriver 다운로드 및 설치
-          DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip"
-          
-          if wget -q --spider "$DOWNLOAD_URL" 2>/dev/null; then
-            echo "📥 ChromeDriver 다운로드: $CHROMEDRIVER_VERSION"
-            wget -q -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-            sudo unzip -q /tmp/chromedriver.zip -d /tmp/
-            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
-            sudo chmod +x /usr/local/bin/chromedriver
-            echo "✅ ChromeDriver 설치 완료"
-          else
-            echo "❌ 다운로드 실패, 시스템 패키지 사용"
-            sudo apt-get install -y chromium-chromedriver
-            sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
-          fi
-          
-          # 글로벌 사이트 접근을 위한 추가 설정
-          echo "🌍 글로벌 사이트 접근 최적화 설정"
-          sudo apt-get install -y ca-certificates curl wget
-          
-          # 설치 확인
-          echo "🔍 설치 확인:"
-          which chromedriver && chromedriver --version || echo "ChromeDriver 확인 실패"
-          
-          echo "Chrome 및 ChromeDriver 설치 완료"
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
 
-      - name: 📦 Python 의존성 설치 (글로벌 지원)
-        run: |
-          echo "=== Python 의존성 설치 시작 ==="
-          python -m pip install --upgrade pip
+    - name: 🌐 Install Chrome and ChromeDriver (Enhanced)
+      run: |
+        echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
+        
+        # Chrome 설치
+        sudo apt-get update -y
+        sudo apt-get install -y google-chrome-stable
+        
+        # Chrome 버전 확인
+        CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
+        echo "✅ Chrome 버전: $CHROME_VERSION (Major: $CHROME_MAJOR_VERSION)"
+        
+        # ChromeDriver 설치 (3단계 폴백 메커니즘)
+        install_chromedriver() {
+          echo "🔧 ChromeDriver 설치 시도 중..."
           
-          # requirements.txt 존재 확인
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-            echo "✅ 의존성 설치 완료"
-          else
-            echo "❌ requirements.txt 파일을 찾을 수 없음"
-            exit 1
-          fi
-          
-          # 글로벌 크롤링을 위한 추가 패키지 설치
-          pip install praw requests-html
-          
-          # 설치된 패키지 확인
-          echo "📋 설치된 주요 패키지:"
-          pip list | grep -E "(requests|selenium|beautifulsoup4|discord|praw)" || echo "일부 패키지 누락"
-
-      - name: 🔍 크롤링 모드 확인 및 설정
-        run: |
-          echo "=== 크롤링 모드 설정 ==="
-          echo "선택된 크롤링 모드: $CRAWL_MODE"
-          
-          case "$CRAWL_MODE" in
-            "korean")
-              echo "🇰🇷 한국 사이트만 크롤링"
-              echo "대상: 루리웹, 스토브 한국"
-              ;;
-            "global")
-              echo "🌍 글로벌 사이트만 크롤링"
-              echo "대상: STOVE Global, Reddit"
-              ;;
-            "all")
-              echo "🌐 모든 사이트 크롤링"
-              echo "대상: 루리웹, 스토브 한국, STOVE Global, Reddit"
-              ;;
-            *)
-              echo "❌ 잘못된 크롤링 모드, 기본값(all) 사용"
-              echo "CRAWL_MODE=all" >> $GITHUB_ENV
-              ;;
-          esac
-
-      - name: 🌐 글로벌 사이트 연결 테스트
-        run: |
-          echo "=== 글로벌 사이트 연결 테스트 ==="
-          
-          # 기본 사이트 연결 테스트
-          echo "🔗 기본 사이트 연결 테스트:"
-          curl -s --max-time 10 https://page.onstove.com > /dev/null && echo "✅ 스토브 한국 연결 가능" || echo "❌ 스토브 한국 연결 실패"
-          curl -s --max-time 10 https://bbs.ruliweb.com > /dev/null && echo "✅ 루리웹 연결 가능" || echo "❌ 루리웹 연결 실패"
-          
-          # 글로벌 사이트 연결 테스트
-          echo "🌍 글로벌 사이트 연결 테스트:"
-          curl -s --max-time 10 https://page.onstove.com/epicseven/global > /dev/null && echo "✅ STOVE Global 연결 가능" || echo "❌ STOVE Global 연결 실패"
-          curl -s --max-time 10 https://www.reddit.com/r/EpicSeven > /dev/null && echo "✅ Reddit 연결 가능" || echo "❌ Reddit 연결 실패"
-          
-          # DNS 확인
-          echo "🔍 DNS 확인:"
-          nslookup page.onstove.com || echo "DNS 확인 실패"
-          nslookup www.reddit.com || echo "Reddit DNS 확인 실패"
-
-      - name: 📊 일일 감성 동향 리포트 생성 (글로벌 지원)
-        env:
-          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
-          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-          CRAWL_MODE: ${{ env.CRAWL_MODE }}
-        run: |
-          echo "=== 일일 리포트 생성 시작 (글로벌 지원) ==="
-          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "강제 실행: ${{ github.event.inputs.force_report }}"
-          echo "디버그 모드: ${{ github.event.inputs.debug_mode }}"
-          echo "크롤링 모드: $CRAWL_MODE"
-          
-          # 환경변수 확인
-          if [ -z "$DISCORD_WEBHOOK_REPORT" ]; then
-            echo "❌ DISCORD_WEBHOOK_REPORT 환경변수가 설정되지 않음"
-            exit 1
-          fi
-          
-          # 크롤링 모드에 따른 실행 옵션 설정
-          CRAWL_OPTIONS=""
-          case "$CRAWL_MODE" in
-            "korean")
-              CRAWL_OPTIONS="--mode korean"
-              ;;
-            "global")
-              CRAWL_OPTIONS="--mode global"
-              ;;
-            "all")
-              CRAWL_OPTIONS="--mode all"
-              ;;
-          esac
-          
-          # 일일 리포트 생성 실행
-          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-            echo "🐛 디버그 모드로 실행"
-            python generate_report.py --debug $CRAWL_OPTIONS 2>&1 | tee daily_report_debug.log
-          else
-            python generate_report.py $CRAWL_OPTIONS
-          fi
-          
-          echo "일일 리포트 생성 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
-
-      - name: 📤 디버그 파일 업로드 (글로벌 지원)
-        if: github.event.inputs.debug_mode == 'true' || failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-report-debug-global-${{ github.run_number }}
-          path: |
-            *.html
-            *.log
-            crawled_links.json
-            crawled_links_debug.json
-            content_cache.json
-            content_cache_debug.json
-            *_debug_selenium.html
-          retention-days: 14
-          if-no-files-found: warn
-
-      - name: 📋 시스템 상태 체크 (글로벌 지원)
-        if: always()
-        run: |
-          echo "=== 시스템 상태 체크 (글로벌 지원) ==="
-          echo "📅 실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "🌐 크롤링 모드: $CRAWL_MODE"
-          echo "💾 메모리 사용량:"
-          free -h
-          echo "💿 디스크 사용량:"
-          df -h / | tail -1
-          
-          echo "🔗 저장된 링크 파일 상태:"
-          for file in crawled_links.json crawled_links_debug.json content_cache.json content_cache_debug.json; do
-            if [ -f "$file" ]; then
-              echo "✅ $file 존재 ($(stat -c%s $file) bytes)"
-              if [[ "$file" == *"crawled_links"* ]]; then
-                echo "   📊 저장된 링크 수: $(cat $file | jq -r '.links | length' 2>/dev/null || echo 'N/A')"
+          # 방법 1: Chrome for Testing API 사용 (최신 방식)
+          if [ "$CHROME_MAJOR_VERSION" -ge "115" ]; then
+            echo "📡 Chrome for Testing API 사용 (Chrome 115+)"
+            CHROMEDRIVER_URL="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
+            
+            # Chrome for Testing에서 ChromeDriver 다운로드
+            curl -s "$CHROMEDRIVER_URL" | jq -r '.channels.Stable.downloads.chromedriver[] | select(.platform=="linux64") | .url' | head -1 > /tmp/chromedriver_url.txt
+            
+            if [ -s /tmp/chromedriver_url.txt ]; then
+              DOWNLOAD_URL=$(cat /tmp/chromedriver_url.txt)
+              echo "📥 다운로드 URL: $DOWNLOAD_URL"
+              
+              wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+              if [ $? -eq 0 ]; then
+                sudo unzip -o /tmp/chromedriver.zip -d /tmp/
+                sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
+                sudo chmod +x /usr/local/bin/chromedriver
+                echo "✅ Chrome for Testing API 설치 성공"
+                return 0
               fi
+            fi
+          fi
+          
+          # 방법 2: GitHub ChromeDriver 릴리즈 사용
+          echo "📡 GitHub ChromeDriver 릴리즈 사용"
+          GITHUB_URL="https://api.github.com/repos/GoogleChrome/chrome-launcher/releases/latest"
+          
+          # ChromeDriver 버전 매핑
+          case "$CHROME_MAJOR_VERSION" in
+            "138"|"139"|"140"|"141"|"142") CHROMEDRIVER_VERSION="138.0.6200.0" ;;
+            "137") CHROMEDRIVER_VERSION="137.0.6545.0" ;;
+            "136") CHROMEDRIVER_VERSION="136.0.6475.0" ;;
+            "135") CHROMEDRIVER_VERSION="135.0.6457.0" ;;
+            *) CHROMEDRIVER_VERSION="138.0.6200.0" ;;
+          esac
+          
+          DOWNLOAD_URL="https://github.com/GoogleChrome/chrome-launcher/releases/download/v${CHROMEDRIVER_VERSION}/chromedriver-linux64.zip"
+          
+          wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
+          if [ $? -eq 0 ]; then
+            sudo unzip -o /tmp/chromedriver.zip -d /tmp/
+            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/ 2>/dev/null || sudo mv /tmp/chromedriver /usr/local/bin/
+            sudo chmod +x /usr/local/bin/chromedriver
+            echo "✅ GitHub 릴리즈 설치 성공"
+            return 0
+          fi
+          
+          # 방법 3: webdriver-manager 사용 (최후 수단)
+          echo "📡 webdriver-manager 사용 (최후 수단)"
+          pip install webdriver-manager
+          python -c "
+from webdriver_manager.chrome import ChromeDriverManager
+import shutil
+import os
+
+try:
+    chromedriver_path = ChromeDriverManager().install()
+    shutil.copy(chromedriver_path, '/usr/local/bin/chromedriver')
+    os.chmod('/usr/local/bin/chromedriver', 0o755)
+    print('✅ webdriver-manager 설치 성공')
+except Exception as e:
+    print(f'❌ webdriver-manager 설치 실패: {e}')
+    exit(1)
+"
+          if [ $? -eq 0 ]; then
+            echo "✅ webdriver-manager 설치 성공"
+            return 0
+          fi
+          
+          echo "❌ 모든 ChromeDriver 설치 방법 실패"
+          return 1
+        }
+        
+        # ChromeDriver 설치 실행
+        install_chromedriver
+        
+        # 설치 확인
+        if command -v chromedriver &> /dev/null; then
+          CHROMEDRIVER_VERSION=$(chromedriver --version)
+          echo "✅ ChromeDriver 설치 완료: $CHROMEDRIVER_VERSION"
+        else
+          echo "❌ ChromeDriver 설치 실패"
+          exit 1
+        fi
+        
+        # 권한 및 경로 확인
+        echo "🔍 ChromeDriver 상태 확인:"
+        ls -la /usr/local/bin/chromedriver
+        which chromedriver
+        chromedriver --version
+        
+        echo "✅ Chrome 및 ChromeDriver 설치 완료"
+
+    - name: 📦 Install Python dependencies
+      run: |
+        echo "=== Python 의존성 설치 ==="
+        python -m pip install --upgrade pip
+        
+        if [ -f requirements.txt ]; then
+          echo "📋 requirements.txt 사용"
+          pip install -r requirements.txt
+        else
+          echo "📋 기본 패키지 설치"
+          pip install requests beautifulsoup4 selenium webdriver-manager lxml deep-translator python-dateutil
+        fi
+        
+        echo "✅ Python 의존성 설치 완료"
+
+    - name: 🔍 Environment Check
+      run: |
+        echo "=== 환경 점검 ==="
+        echo "🐍 Python: $(python --version)"
+        echo "🌐 Chrome: $(google-chrome --version)"
+        echo "🔧 ChromeDriver: $(chromedriver --version)"
+        echo "📅 현재 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "🎯 크롤링 모드: $CRAWL_MODE"
+        echo "🔄 강제 리포트: $FORCE_REPORT"
+        echo "🐛 디버그 모드: $DEBUG_MODE"
+        
+        # 디스코드 웹훅 확인
+        if [ -n "$DISCORD_WEBHOOK_REPORT" ]; then
+          echo "✅ DISCORD_WEBHOOK_REPORT 설정됨"
+        else
+          echo "⚠️ DISCORD_WEBHOOK_REPORT 미설정"
+        fi
+        
+        if [ -n "$DISCORD_WEBHOOK_SENTIMENT" ]; then
+          echo "✅ DISCORD_WEBHOOK_SENTIMENT 설정됨"
+        else
+          echo "⚠️ DISCORD_WEBHOOK_SENTIMENT 미설정"
+        fi
+        
+        echo "✅ 환경 점검 완료"
+
+    - name: 🔄 Pre-report Data Collection
+      run: |
+        echo "=== 사전 데이터 수집 ==="
+        
+        # 기존 데이터 백업
+        if [ -f "sentiment_data.json" ]; then
+          cp sentiment_data.json sentiment_data_backup.json
+          echo "📂 sentiment_data.json 백업 완료"
+        fi
+        
+        # 데이터 수집을 위한 임시 크롤링
+        python -c "
+import sys
+sys.path.append('.')
+
+try:
+    from crawler import crawl_korean_sites, crawl_global_sites
+    from classifier import classify_post
+    import json
+    from datetime import datetime, timedelta
+    
+    print('🔍 사전 데이터 수집 시작...')
+    
+    # 모드별 데이터 수집
+    all_posts = []
+    
+    if '$CRAWL_MODE' in ['korean', 'all']:
+        print('🇰🇷 한국 사이트 데이터 수집...')
+        korean_posts = crawl_korean_sites('korean')
+        all_posts.extend(korean_posts)
+        print(f'✅ 한국 사이트: {len(korean_posts)}개 게시글')
+    
+    if '$CRAWL_MODE' in ['global', 'all']:
+        print('🌍 글로벌 사이트 데이터 수집...')
+        global_posts = crawl_global_sites('global')
+        all_posts.extend(global_posts)
+        print(f'✅ 글로벌 사이트: {len(global_posts)}개 게시글')
+    
+    print(f'📊 총 수집 게시글: {len(all_posts)}개')
+    
+    # 감성 데이터 분류
+    sentiment_data = {'positive': [], 'negative': [], 'bug': [], 'neutral': []}
+    
+    for post in all_posts:
+        try:
+            classification = classify_post(post.get('title', ''))
+            sentiment_data[classification].append(post)
+        except Exception as e:
+            print(f'⚠️ 게시글 분류 실패: {e}')
+            sentiment_data['neutral'].append(post)
+    
+    # 결과 저장
+    with open('daily_report_data.json', 'w', encoding='utf-8') as f:
+        json.dump(sentiment_data, f, ensure_ascii=False, indent=2)
+    
+    print(f'✅ 감성 분석 완료:')
+    print(f'   긍정: {len(sentiment_data[\"positive\"])}개')
+    print(f'   부정: {len(sentiment_data[\"negative\"])}개')
+    print(f'   버그: {len(sentiment_data[\"bug\"])}개')
+    print(f'   중립: {len(sentiment_data[\"neutral\"])}개')
+    
+except Exception as e:
+    print(f'❌ 사전 데이터 수집 실패: {e}')
+    import traceback
+    traceback.print_exc()
+    exit(1)
+"
+        
+        echo "✅ 사전 데이터 수집 완료"
+
+    - name: 📊 Generate Daily Report
+      run: |
+        echo "=== 일일 리포트 생성 ==="
+        
+        # 리포트 생성 실행
+        python -c "
+import sys
+sys.path.append('.')
+
+try:
+    from generate_report import generate_daily_report
+    from datetime import datetime
+    
+    print('📊 일일 리포트 생성 시작...')
+    
+    # 리포트 생성
+    report_data = generate_daily_report(
+        mode='$CRAWL_MODE',
+        force_report=('$FORCE_REPORT' == 'true'),
+        debug_mode=('$DEBUG_MODE' == 'true')
+    )
+    
+    if report_data:
+        print('✅ 일일 리포트 생성 성공')
+        print(f'📋 리포트 데이터: {len(report_data)}개 항목')
+    else:
+        print('⚠️ 리포트 데이터가 없습니다.')
+    
+except Exception as e:
+    print(f'❌ 일일 리포트 생성 실패: {e}')
+    import traceback
+    traceback.print_exc()
+    
+    # 폴백: 기본 리포트 생성
+    print('🔄 기본 리포트 생성 시도...')
+    try:
+        import json
+        from datetime import datetime
+        
+        with open('daily_report_data.json', 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 기본 리포트 생성
+        report = {
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'total_posts': sum(len(posts) for posts in data.values()),
+            'positive_posts': len(data.get('positive', [])),
+            'negative_posts': len(data.get('negative', [])),
+            'bug_posts': len(data.get('bug', [])),
+            'neutral_posts': len(data.get('neutral', []))
+        }
+        
+        print('✅ 기본 리포트 생성 성공')
+        print(f'📊 리포트 요약: {report}')
+        
+    except Exception as e2:
+        print(f'❌ 기본 리포트 생성도 실패: {e2}')
+        exit(1)
+"
+        
+        echo "✅ 일일 리포트 생성 완료"
+
+    - name: 📤 Send Discord Report
+      run: |
+        echo "=== Discord 리포트 전송 ==="
+        
+        if [ -z "$DISCORD_WEBHOOK_REPORT" ]; then
+          echo "⚠️ DISCORD_WEBHOOK_REPORT가 설정되지 않음"
+          exit 0
+        fi
+        
+        # Discord 리포트 전송
+        python -c "
+import sys
+sys.path.append('.')
+
+try:
+    from notifier import send_daily_report
+    import json
+    from datetime import datetime
+    
+    print('📤 Discord 리포트 전송 시작...')
+    
+    # 리포트 데이터 로드
+    with open('daily_report_data.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    # Discord 전송
+    result = send_daily_report(data, debug_mode=('$DEBUG_MODE' == 'true'))
+    
+    if result:
+        print('✅ Discord 리포트 전송 성공')
+    else:
+        print('❌ Discord 리포트 전송 실패')
+        exit(1)
+    
+except Exception as e:
+    print(f'❌ Discord 리포트 전송 실패: {e}')
+    import traceback
+    traceback.print_exc()
+    exit(1)
+"
+        
+        echo "✅ Discord 리포트 전송 완료"
+
+    - name: 📋 Upload Debug Files
+      if: github.event.inputs.debug_mode == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: daily-report-debug-${{ github.run_number }}
+        path: |
+          daily_report_data.json
+          sentiment_data.json
+          *debug*.html
+          *debug*.log
+        retention-days: 7
+
+    - name: 💾 Commit Report Data
+      run: |
+        echo "=== 리포트 데이터 커밋 ==="
+        git config --global user.email "epic7-daily@github.com"
+        git config --global user.name "Epic7 Daily Reporter"
+        
+        # 변경사항 추가
+        git add -A
+        
+        if git diff --staged --quiet; then
+          echo "📂 변경사항이 없습니다."
+        else
+          # 커밋 메시지 생성
+          COMMIT_MSG="📊 Daily Report - $(date '+%Y-%m-%d %H:%M KST')"
+          if [ "$DEBUG_MODE" == "true" ]; then
+            COMMIT_MSG="$COMMIT_MSG (DEBUG)"
+          fi
+          
+          git commit -m "$COMMIT_MSG"
+          
+          # 푸시 재시도 로직
+          for i in {1..3}; do
+            echo "📤 푸시 시도 $i/3"
+            if git push origin main; then
+              echo "✅ Git 푸시 성공"
+              break
             else
-              echo "❌ $file 없음"
+              echo "❌ Git 푸시 실패, 재시도 중..."
+              git pull --rebase origin main
+              sleep 5
             fi
           done
-          
-          echo "🌐 네트워크 연결 재테스트:"
-          curl -s --max-time 5 https://page.onstove.com > /dev/null && echo "✅ 스토브 한국 연결 가능" || echo "❌ 스토브 한국 연결 실패"
-          curl -s --max-time 5 https://bbs.ruliweb.com > /dev/null && echo "✅ 루리웹 연결 가능" || echo "❌ 루리웹 연결 실패"
-          curl -s --max-time 5 https://page.onstove.com/epicseven/global > /dev/null && echo "✅ STOVE Global 연결 가능" || echo "❌ STOVE Global 연결 실패"
-          curl -s --max-time 5 https://www.reddit.com/r/EpicSeven > /dev/null && echo "✅ Reddit 연결 가능" || echo "❌ Reddit 연결 실패"
+        fi
+        
+        echo "✅ 리포트 데이터 커밋 완료"
 
-      - name: 💾 변경사항 커밋 (글로벌 지원)
-        run: |
-          echo "=== Git 변경사항 처리 (글로벌 지원) ==="
-          
-          # 원격 저장소 최신 상태 확인
-          git fetch origin main
-          
-          # 변경사항이 있는지 확인
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "변경 사항 발견, 커밋 진행"
-            git status --porcelain
-            
-            # 변경사항 스테이징
-            git add crawled_links*.json content_cache*.json *.html *.log 2>/dev/null || true
-            
-            # 커밋 메시지 생성
-            COMMIT_MSG="📊 일일 리포트 생성 ($CRAWL_MODE 모드) - $(date '+%Y-%m-%d %H:%M KST')"
-            if [ "${{ github.event.inputs.force_report }}" = "true" ]; then
-              COMMIT_MSG="$COMMIT_MSG (강제실행)"
-            fi
-            if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-              COMMIT_MSG="$COMMIT_MSG (디버그)"
-            fi
-            
-            # 충돌 방지 푸시 (최대 3회 시도)
-            for attempt in {1..3}; do
-              echo "푸시 시도 $attempt/3"
-              
-              # 원격 변경사항이 있는지 확인
-              git fetch origin main
-              if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-                echo "원격 저장소에 새로운 변경사항 발견, 리베이스 시도"
-                
-                # 안전한 리베이스
-                git pull --rebase origin main || {
-                  echo "리베이스 실패, 강제 동기화 후 재시도"
-                  git rebase --abort 2>/dev/null || true
-                  git stash push -m "Temp stash for force sync" 2>/dev/null || true
-                  git reset --hard origin/main
-                  git stash pop 2>/dev/null || true
-                  git add crawled_links*.json content_cache*.json *.html *.log 2>/dev/null || true
-                }
-              fi
-              
-              # 커밋 및 푸시
-              git commit -m "$COMMIT_MSG" 2>/dev/null || {
-                echo "커밋할 변경사항이 없음"
-                break
-              }
-              
-              if git push origin main; then
-                echo "✅ Git 푸시 성공"
-                break
-              else
-                echo "❌ Git 푸시 실패, 재시도 중..."
-                if [ $attempt -eq 3 ]; then
-                  echo "💥 최대 재시도 횟수 도달, 푸시 실패"
-                  exit 1
-                fi
-                sleep 5
-              fi
-            done
+    - name: 🔄 Cleanup and Restore
+      if: always()
+      run: |
+        echo "=== 정리 및 복원 ==="
+        
+        # 임시 파일 정리
+        rm -f /tmp/chromedriver.zip
+        rm -f /tmp/chromedriver_url.txt
+        rm -f daily_report_data.json
+        
+        # 백업 파일 복원
+        if [ -f "sentiment_data_backup.json" ]; then
+          if [ ! -f "sentiment_data.json" ]; then
+            mv sentiment_data_backup.json sentiment_data.json
+            echo "📂 sentiment_data.json 복원"
           else
-            echo "변경 사항 없음"
+            rm -f sentiment_data_backup.json
           fi
+        fi
+        
+        echo "✅ 정리 및 복원 완료"
 
-      - name: 📈 실행 결과 요약 (글로벌 지원)
-        if: always()
-        run: |
-          echo "=== 일일 리포트 워크플로우 완료 (글로벌 지원) ==="
-          echo "📅 완료 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-          echo "🌐 크롤링 모드: $CRAWL_MODE"
-          echo "📊 작업 상태: ${{ job.status }}"
-          echo "🔗 실행 ID: ${{ github.run_id }}"
-          echo "📝 워크플로우 번호: ${{ github.run_number }}"
-          
-          if [ "${{ job.status }}" = "success" ]; then
-            echo "✅ 글로벌 지원 일일 리포트 생성 및 전송 완료"
-          else
-            echo "❌ 글로벌 지원 일일 리포트 처리 중 오류 발생"
-            echo "🔍 로그를 확인하여 문제를 파악하세요"
-          fi
-          
-          # 크롤링 모드별 결과 요약
-          case "$CRAWL_MODE" in
-            "korean")
-              echo "🇰🇷 한국 사이트 크롤링 완료"
-              ;;
-            "global")
-              echo "🌍 글로벌 사이트 크롤링 완료"
-              ;;
-            "all")
-              echo "🌐 전체 사이트 크롤링 완료"
-              ;;
-          esac
+    - name: 📈 Final Report Summary
+      if: always()
+      run: |
+        echo "=== 최종 리포트 요약 ==="
+        echo "📅 실행 날짜: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "🎯 크롤링 모드: $CRAWL_MODE"
+        echo "🔄 강제 리포트: $FORCE_REPORT"
+        echo "🐛 디버그 모드: $DEBUG_MODE"
+        echo "⚡ 작업 상태: ${{ job.status }}"
+        echo "🚀 워크플로우 번호: ${{ github.run_number }}"
+        echo "🔗 실행 ID: ${{ github.run_id }}"
+        
+        # 메모리 및 디스크 사용량
+        echo "💾 메모리 사용량:"
+        free -h
+        echo "💿 디스크 사용량:"
+        df -h
+        
+        echo "✅ Epic7 일일 리포트 워크플로우 완료"

@@ -1,4 +1,4 @@
-name: 🌐 Bug Monitor Korean Sites
+name: 🌐 Bug Monitor Korean Sites (Fixed)
 
 on:
   workflow_call:
@@ -6,30 +6,37 @@ on:
       debug_mode:
         required: false
         type: boolean
+        default: false
       test_mode:
         required: false
         type: boolean
-
-  # (참고) 이걸 같이 두면 standalone으로도 실행 가능
+        default: false
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/30 * * * *'  # 30분마다 실행
   workflow_dispatch:
     inputs:
       debug_mode:
         description: 'Enable debug mode'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       test_mode:
         description: 'Enable test mode'
         required: false
-        default: 'false'
+        default: false
         type: boolean
+
 jobs:
   monitor-korean-sites:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 45  # 타임아웃 시간 연장
+    
+    env:
+      TZ: Asia/Seoul
+      DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+      
     steps:
     - name: 📥 Checkout repository
       uses: actions/checkout@v4
@@ -43,111 +50,134 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 🌐 Install Chrome (Simplified)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
-        echo "✅ Chrome: $(google-chrome --version)"
-
     - name: 📦 Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        echo "✅ Python packages installed"
+        pip install webdriver-manager  # Chrome Driver 관리
 
-    - name: 🔍 Determine execution flags
-      id: mode
+    - name: 🌐 Install Chrome and ChromeDriver (Robust)
       run: |
-        ARGS="--mode korean"
-        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-          ARGS="$ARGS --debug"
-        fi
-        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
-          ARGS="$ARGS --test"
-        fi
-        echo "ARGS=$ARGS" >> $GITHUB_ENV
-        echo "🎯 실행 인자: $ARGS"
+        # Google Chrome 최신 설치
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        
+        # Chrome 버전 확인
+        CHROME_VERSION=$(google-chrome --version)
+        echo "설치된 Chrome 버전: $CHROME_VERSION"
+        
+        # Chrome for Testing API를 통한 ChromeDriver 다운로드
+        python -c "
+        import requests
+        import zipfile
+        import os
+        import stat
+        import subprocess
+        
+        try:
+            # Chrome for Testing API 사용
+            api_url = 'https://googlechromelabs.github.io/chrome-for-testing/latest-patch-versions-per-build-with-downloads.json'
+            response = requests.get(api_url, timeout=30)
+            data = response.json()
+            
+            # Chrome 버전 확인
+            chrome_version = subprocess.check_output(['google-chrome', '--version']).decode().strip()
+            major_version = chrome_version.split()[2].split('.')[0]
+            
+            # 해당 버전의 ChromeDriver 찾기
+            target_version = None
+            for version in data['builds'].keys():
+                if version.startswith(major_version + '.'):
+                    target_version = version
+                    break
+            
+            if not target_version:
+                target_version = max(data['builds'].keys(), key=lambda x: [int(i) for i in x.split('.')])
+            
+            # ChromeDriver 다운로드 URL 찾기
+            for download in data['builds'][target_version]['downloads']['chromedriver']:
+                if download['platform'] == 'linux64':
+                    chromedriver_url = download['url']
+                    break
+            
+            print(f'ChromeDriver 다운로드 URL: {chromedriver_url}')
+            
+            # 다운로드 및 설치
+            driver_response = requests.get(chromedriver_url, timeout=120)
+            with open('/tmp/chromedriver.zip', 'wb') as f:
+                f.write(driver_response.content)
+            
+            with zipfile.ZipFile('/tmp/chromedriver.zip', 'r') as zip_ref:
+                zip_ref.extractall('/tmp/chromedriver')
+            
+            # 실행 권한 부여
+            chromedriver_path = '/tmp/chromedriver/chromedriver-linux64/chromedriver'
+            os.chmod(chromedriver_path, 0o755)
+            
+            # /usr/local/bin에 복사
+            import shutil
+            shutil.copy(chromedriver_path, '/usr/local/bin/chromedriver')
+            
+            print('ChromeDriver 설치 완료')
+            
+        except Exception as e:
+            print(f'Chrome for Testing API 실패: {e}')
+            # Fallback: webdriver-manager 사용
+            from webdriver_manager.chrome import ChromeDriverManager
+            ChromeDriverManager().install()
+        "
+        
+        # ChromeDriver 설치 확인
+        chromedriver --version
 
-    - name: 🚀 Run Korean Sites Monitoring
+    - name: 🔍 Run Korean Sites Monitoring
       run: |
         echo "=== 한국 사이트 모니터링 시작 ==="
-        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S KST')"
-        echo "ARGS: $ARGS"
-        python monitor_bugs.py $ARGS
-        echo "모니터링 완료: $(date '+%Y-%m-%d %H:%M:%S KST')"
-      env:
-        DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-        DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
-        DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-        PYTHONUNBUFFERED: 1
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "ARGS: --mode korean ${{ inputs.debug_mode == true && '--debug' || '' }} ${{ inputs.test_mode == true && '--test' || '' }}"
+        
+        python monitor_bugs.py --mode korean \
+          ${{ inputs.debug_mode == true && '--debug' || '' }} \
+          ${{ inputs.test_mode == true && '--test' || '' }}
 
-    - name: 📊 Upload Debug Files (if debug mode)
-      if: github.event.inputs.debug_mode == 'true'
+    - name: 📤 Upload debug files (if failed)
+      if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: debug-html-files-${{ github.run_number }}
+        name: korean-debug-files
         path: |
-          *_debug_selenium.html
-          *_error_debug.html
-        retention-days: 7
+          *.html
+          *.log
+          *.json
+        retention-days: 3
 
-    - name: 💾 Smart Git Commit
+    - name: 💬 Notify on failure
+      if: failure()
       run: |
-        echo "=== Git 변경사항 처리 ==="
-        git config --global user.email "epic7-korean@github.com"
-        git config --global user.name "Epic7 Korean Monitor"
-
-        git add -A
-        if git diff --staged --quiet; then
-          echo "변경 사항 없음"
-          exit 0
+        if [ -n "${{ secrets.DISCORD_WEBHOOK_BUG }}" ]; then
+          python -c "
+          import requests
+          import json
+          from datetime import datetime
+          
+          webhook_url = '${{ secrets.DISCORD_WEBHOOK_BUG }}'
+          message = {
+              'embeds': [{
+                  'title': '🚨 한국 사이트 모니터링 실패',
+                  'description': '한국 사이트 크롤링 중 오류가 발생했습니다.',
+                  'color': 0xff0000,
+                  'fields': [
+                      {'name': '워크플로우', 'value': 'Korean Sites Monitor', 'inline': True},
+                      {'name': '실행 시간', 'value': datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'inline': True},
+                      {'name': '상태', 'value': '실패', 'inline': True}
+                  ],
+                  'timestamp': datetime.now().isoformat()
+              }]
+          }
+          
+          response = requests.post(webhook_url, json=message, timeout=10)
+          print(f'Discord 알림 전송 상태: {response.status_code}')
+          "
         fi
-
-        COMMIT_MSG="🔄 [KOREAN] 크롤링 상태 업데이트 - $(date '+%Y-%m-%d %H:%M KST')"
-        if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-          COMMIT_MSG="$COMMIT_MSG (DEBUG)"
-        fi
-        if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
-          COMMIT_MSG="$COMMIT_MSG (TEST)"
-        fi
-
-        git commit -m "$COMMIT_MSG"
-
-        for i in {1..5}; do
-          echo "푸시 시도 $i/5"
-          if git push origin main; then
-            echo "Git 푸시 완료"
-            break
-          else
-            echo "Git 푸시 실패, 재시도 ($i/5)"
-            git fetch origin main
-            git rebase origin/main || {
-              echo "리베이스 실패, 강제 초기화"
-              git reset --hard origin/main
-            }
-            sleep $((i * 2))
-          fi
-        done
-
-    - name: 📈 System Status Report
-      if: always()
-      run: |
-        echo "=== 시스템 상태 보고 ==="
-        echo "작업 상태: ${{ job.status }}"
-        echo "워크플로우 번호: ${{ github.run_number }}"
-        echo "실행 ID: ${{ github.run_id }}"
-
-        if [ -f "crawled_links.json" ]; then
-          LINK_COUNT=$(jq '.links | length' crawled_links.json 2>/dev/null || echo 0)
-          LAST_UPDATE=$(jq -r '.last_updated' crawled_links.json 2>/dev/null || echo "N/A")
-          echo "저장된 링크 수: $LINK_COUNT"
-          echo "마지막 업데이트: $LAST_UPDATE"
-        fi
-
-        DEBUG_FILES=$(ls -la *_debug_selenium.html *_error_debug.html 2>/dev/null | wc -l)
-        echo "생성된 디버그 파일 수: $DEBUG_FILES"
-
-        echo "최종 메모리 사용량:"
-        free -h
-
-        echo "✅ 워크플로우 성공적으로 완료"
