@@ -1,6 +1,16 @@
-name: Bug Monitor Korean Sites (Optimized)
+name: 🌐 Bug Monitor Korean Sites
 
 on:
+  workflow_call:
+    inputs:
+      debug_mode:
+        required: false
+        type: boolean
+      test_mode:
+        required: false
+        type: boolean
+
+  # (참고) 이걸 같이 두면 standalone으로도 실행 가능
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
@@ -15,7 +25,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-
 jobs:
   monitor-korean-sites:
     runs-on: ubuntu-latest

@@ -1,6 +1,15 @@
-name: 🌐 Epic Seven Global Monitor (STOVE + Reddit + Forums)
+name: 🌐 Bug Monitor Global Sites
 
 on:
+  workflow_call:
+    inputs:
+      debug_mode:
+        required: false
+        type: boolean
+      test_mode:
+        required: false
+        type: boolean
+
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
@@ -15,7 +24,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-
 jobs:
   monitor-global-sites:
     runs-on: ubuntu-latest
