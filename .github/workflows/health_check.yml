@@ -226,16 +226,16 @@ jobs:
           # Selenium 드라이버 테스트
           echo "🔧 Selenium 드라이버 테스트"
           python -c "
-          import sys
-          sys.path.append('.')
-          try:
-            from crawler import get_chrome_driver
-            driver = get_chrome_driver()
-            driver.get('https://google.com')
-            print('✅ Selenium 드라이버 테스트 성공')
-            driver.quit()
-          except Exception as e:
-            print(f'⚠️ Selenium 드라이버 테스트 실패: {e}')
+import sys
+sys.path.append('.')
+try:
+  from crawler import get_chrome_driver
+  driver = get_chrome_driver()
+  driver.get('https://google.com')
+  print('✅ Selenium 드라이버 테스트 성공')
+  driver.quit()
+except Exception as e:
+  print(f'⚠️ Selenium 드라이버 테스트 실패: {e}')
           " || echo "⚠️ Selenium 드라이버 테스트 중 오류 발생"
           
           echo "✅ 시스템 헬스체크 완료"
@@ -252,26 +252,26 @@ jobs:
           DISK_INFO=$(df -h / | tail -1 | awk '{print $3 "/" $2}')
           
           # 리포트 생성
-          cat > health_report.md << EOF
-          # Epic7 모니터링 시스템 헬스체크 리포트
-          
-          **생성 시간:** $(date '+%Y-%m-%d %H:%M:%S')
-          
-          ## 🖥️ 시스템 정보
-          - Chrome 버전: $CHROME_VERSION
-          - ChromeDriver 버전: $CHROMEDRIVER_VERSION
-          - Python 버전: $PYTHON_VERSION
-          - 메모리 사용량: $MEMORY_INFO
-          - 디스크 사용량: $DISK_INFO
-          
-          ## 🔧 컴포넌트 상태
-          - crawler.py: $([ -f "crawler.py" ] && echo "✅ 존재" || echo "❌ 없음")
-          - classifier.py: $([ -f "classifier.py" ] && echo "✅ 존재" || echo "❌ 없음")
-          - notifier.py: $([ -f "notifier.py" ] && echo "✅ 존재" || echo "❌ 없음")
-          - monitor_bugs.py: $([ -f "monitor_bugs.py" ] && echo "✅ 존재" || echo "❌ 없음")
-          
-          ## 📊 JSON 데이터 상태
-          EOF
+          cat > health_report.md << 'EOF'
+# Epic7 모니터링 시스템 헬스체크 리포트
+
+**생성 시간:** $(date '+%Y-%m-%d %H:%M:%S')
+
+## 🖥️ 시스템 정보
+- Chrome 버전: $CHROME_VERSION
+- ChromeDriver 버전: $CHROMEDRIVER_VERSION
+- Python 버전: $PYTHON_VERSION
+- 메모리 사용량: $MEMORY_INFO
+- 디스크 사용량: $DISK_INFO
+
+## 🔧 컴포넌트 상태
+- crawler.py: $([ -f "crawler.py" ] && echo "✅ 존재" || echo "❌ 없음")
+- classifier.py: $([ -f "classifier.py" ] && echo "✅ 존재" || echo "❌ 없음")
+- notifier.py: $([ -f "notifier.py" ] && echo "✅ 존재" || echo "❌ 없음")
+- monitor_bugs.py: $([ -f "monitor_bugs.py" ] && echo "✅ 존재" || echo "❌ 없음")
+
+## 📊 JSON 데이터 상태
+EOF
           
           for file in crawled_links*.json; do
             if [ -f "$file" ]; then
@@ -311,48 +311,48 @@ jobs:
           fi
           
           # Discord 메시지 생성
-          DISCORD_MESSAGE=$(cat << EOF
-          {
-            "embeds": [
-              {
-                "title": "${STATUS_EMOJI} Epic7 모니터링 시스템 헬스체크",
-                "description": "시스템 상태 점검이 **${STATUS_TEXT}**했습니다.",
-                "color": ${STATUS_COLOR},
-                "fields": [
-                  {
-                    "name": "📅 실행 시간",
-                    "value": "$(date '+%Y-%m-%d %H:%M:%S')",
-                    "inline": true
-                  },
-                  {
-                    "name": "🖥️ Chrome 버전",
-                    "value": "$(google-chrome --version 2>/dev/null || echo 'N/A')",
-                    "inline": true
-                  },
-                  {
-                    "name": "🔧 ChromeDriver 버전",
-                    "value": "$(chromedriver --version 2>/dev/null || echo 'N/A')",
-                    "inline": true
-                  },
-                  {
-                    "name": "💾 메모리 사용량",
-                    "value": "$(free -h | grep Mem | awk '{print $3 "/" $2}')",
-                    "inline": true
-                  },
-                  {
-                    "name": "💿 디스크 사용량",
-                    "value": "$(df -h / | tail -1 | awk '{print $3 "/" $2}')",
-                    "inline": true
-                  }
-                ],
-                "footer": {
-                  "text": "Epic7 모니터링 시스템"
-                },
-                "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-              }
-            ]
-          }
-          EOF
+          DISCORD_MESSAGE=$(cat << 'EOF'
+{
+  "embeds": [
+    {
+      "title": "${STATUS_EMOJI} Epic7 모니터링 시스템 헬스체크",
+      "description": "시스템 상태 점검이 **${STATUS_TEXT}**했습니다.",
+      "color": ${STATUS_COLOR},
+      "fields": [
+        {
+          "name": "📅 실행 시간",
+          "value": "$(date '+%Y-%m-%d %H:%M:%S')",
+          "inline": true
+        },
+        {
+          "name": "🖥️ Chrome 버전",
+          "value": "$(google-chrome --version 2>/dev/null || echo 'N/A')",
+          "inline": true
+        },
+        {
+          "name": "🔧 ChromeDriver 버전",
+          "value": "$(chromedriver --version 2>/dev/null || echo 'N/A')",
+          "inline": true
+        },
+        {
+          "name": "💾 메모리 사용량",
+          "value": "$(free -h | grep Mem | awk '{print $3 "/" $2}')",
+          "inline": true
+        },
+        {
+          "name": "💿 디스크 사용량",
+          "value": "$(df -h / | tail -1 | awk '{print $3 "/" $2}')",
+          "inline": true
+        }
+      ],
+      "footer": {
+        "text": "Epic7 모니터링 시스템"
+      },
+      "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+    }
+  ]
+}
+EOF
           )
           
           # Discord Webhook 전송

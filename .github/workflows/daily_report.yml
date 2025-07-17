@@ -199,18 +199,18 @@ jobs:
             echo "⚠️ generate_report.py 파일이 없습니다. 기본 리포트를 생성합니다."
             
             # 기본 리포트 생성
-            cat > daily_report.md << EOF
-            # Epic7 일일 리포트
-            
-            **생성 시간:** $(date '+%Y-%m-%d %H:%M:%S')
-            **리포트 기간:** $REPORT_PERIOD 시간
-            
-            ## 📊 시스템 상태
-            - 시스템 상태: 정상 작동
-            - 마지막 크롤링: $(date '+%Y-%m-%d %H:%M:%S')
-            
-            ## 📁 데이터 파일 상태
-            EOF
+            cat > daily_report.md << 'EOF'
+# Epic7 일일 리포트
+
+**생성 시간:** $(date '+%Y-%m-%d %H:%M:%S')
+**리포트 기간:** $REPORT_PERIOD 시간
+
+## 📊 시스템 상태
+- 시스템 상태: 정상 작동
+- 마지막 크롤링: $(date '+%Y-%m-%d %H:%M:%S')
+
+## 📁 데이터 파일 상태
+EOF
             
             # JSON 파일 정보 추가
             for file in crawled_links*.json; do
@@ -256,53 +256,51 @@ jobs:
           JSON_COUNT=$(find . -name "crawled_links*.json" | wc -l)
           
           # Discord 메시지 생성
-          DISCORD_MESSAGE=$(cat << EOF
-          {
-            "embeds": [
-              {
-                "title": "${STATUS_EMOJI} Epic7 일일 리포트",
-                "description": "${REPORT_PERIOD}시간 동안의 모니터링 결과입니다.",
-                "color": ${STATUS_COLOR},
-                "fields": [
-                  {
-                    "name": "📅 리포트 기간",
-                    "value": "${REPORT_PERIOD}시간",
-                    "inline": true
-                  },
-                  {
-                    "name": "📊 생성 시간",
-                    "value": "$(date '+%Y-%m-%d %H:%M:%S')",
-                    "inline": true
-                  },
-                  {
-                    "name": "📁 데이터 파일",
-                    "value": "${JSON_COUNT}개의 JSON 파일",
-                    "inline": true
-                  },
-                  {
-                    "name": "🖥️ 시스템 상태",
-                    "value": "정상 작동",
-                    "inline": true
-                  },
-                  {
-                    "name": "💾 메모리 사용량",
-                    "value": "$(free -h | grep Mem | awk '{print $3 "/" $2}')",
-                    "inline": true
-                  },
-                  {
-                    "name": "🔧 Chrome 버전",
-                    "value": "$(google-chrome --version 2>/dev/null | cut -d' ' -f3 || echo 'N/A')",
-                    "inline": true
-                  }
-                ],
-                "footer": {
-                  "text": "Epic7 모니터링 시스템 - 일일 리포트"
-                },
-                "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-              }
-            ]
-          }
-          EOF
+          DISCORD_MESSAGE=$(cat << 'EOF'
+{
+  "embeds": [{
+    "title": "${STATUS_EMOJI} Epic7 일일 리포트",
+    "description": "${REPORT_PERIOD}시간 동안의 모니터링 결과입니다.",
+    "color": ${STATUS_COLOR},
+    "fields": [
+      {
+        "name": "📅 리포트 기간",
+        "value": "${REPORT_PERIOD}시간",
+        "inline": true
+      },
+      {
+        "name": "📊 생성 시간",
+        "value": "$(date '+%Y-%m-%d %H:%M:%S')",
+        "inline": true
+      },
+      {
+        "name": "📁 데이터 파일",
+        "value": "${JSON_COUNT}개의 JSON 파일",
+        "inline": true
+      },
+      {
+        "name": "🖥️ 시스템 상태",
+        "value": "정상 작동",
+        "inline": true
+      },
+      {
+        "name": "💾 메모리 사용량",
+        "value": "$(free -h | grep Mem | awk '{print $3 "/" $2}')",
+        "inline": true
+      },
+      {
+        "name": "🔧 Chrome 버전",
+        "value": "$(google-chrome --version 2>/dev/null | cut -d' ' -f3 || echo 'N/A')",
+        "inline": true
+      }
+    ],
+    "footer": {
+      "text": "Epic7 모니터링 시스템 - 일일 리포트"
+    },
+    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+  }]
+}
+EOF
           )
           
           # Discord Webhook 전송

@@ -19,7 +19,7 @@ import hashlib
 import re
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urljoin, urlparse
 
 # Selenium 관련 import

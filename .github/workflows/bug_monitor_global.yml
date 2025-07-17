@@ -204,7 +204,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: global-monitor-results
+        name: global-monitor-results-${{ github.run_number }}
         path: |
           *.json
           *.html
@@ -221,7 +221,7 @@ jobs:
                "$DISCORD_WEBHOOK_BUG"
         fi
 
-    - name: 🏁 모니터링 완료
+    - name: 🌐 모니터링 완료
       run: |
         echo "글로벌 사이트 모니터링 완료"
         echo "상태: ${{ job.status == 'success' && '성공' || '실패' }}"
