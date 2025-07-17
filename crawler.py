@@ -191,14 +191,118 @@ def retry_on_failure(max_retries: int = 3, delay: float = 2.0):
                 raise last_exception
         return wrapper
     return decorator
-
+    
 # =============================================================================
-# Chrome 드라이버 관리 (Chrome 138+ 호환성)
+# Chrome Driver 자동 다운로드 및 3단계 폴백 메커니즘 (신규 추가)
 # =============================================================================
 
-@retry_on_failure(max_retries=3, delay=1.0)
+def get_chrome_version() -> Optional[str]:
+    """시스템에 설치된 Chrome 버전 확인"""
+    try:
+        # Linux/Ubuntu
+        result = subprocess.run(['google-chrome', '--version'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            version = result.stdout.strip().split()[-1]
+            return version.split('.')[0]  # 메이저 버전만 반환
+    except:
+        pass
+    
+    try:
+        # chromium 시도
+        result = subprocess.run(['chromium-browser', '--version'], 
+                               capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            version = result.stdout.strip().split()[-1]
+            return version.split('.')[0]
+    except:
+        pass
+    
+    # 기본값 반환
+    return "138"
+
+def download_chrome_driver(version: str = "138") -> Optional[str]:
+    """Chrome Driver 자동 다운로드"""
+    try:
+        # Chrome for Testing API 사용
+        api_url = f"https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
+        
+        logger.info(f"Chrome Driver 다운로드 시도: Chrome {version}")
+        
+        # API에서 호환 버전 찾기
+        response = requests.get(api_url, timeout=30)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # 호환 버전 찾기
+        compatible_version = None
+        for version_info in reversed(data['versions']):
+            if version_info['version'].startswith(version):
+                compatible_version = version_info
+                break
+        
+        if not compatible_version:
+            logger.warning(f"Chrome {version} 호환 Driver를 찾을 수 없음")
+            return None
+        
+        # Linux64 ChromeDriver 다운로드 URL 찾기
+        download_url = None
+        for download in compatible_version['downloads'].get('chromedriver', []):
+            if download['platform'] == 'linux64':
+                download_url = download['url']
+                break
+        
+        if not download_url:
+            logger.warning("Linux64 ChromeDriver 다운로드 URL을 찾을 수 없음")
+            return None
+        
+        # 다운로드 및 설치
+        logger.info(f"ChromeDriver 다운로드: {download_url}")
+        
+        download_response = requests.get(download_url, timeout=120)
+        download_response.raise_for_status()
+        
+        # 임시 파일에 저장
+        temp_zip = '/tmp/chromedriver.zip'
+        with open(temp_zip, 'wb') as f:
+            f.write(download_response.content)
+        
+        # 압축 해제
+        extract_path = '/tmp/chromedriver_extracted'
+        os.makedirs(extract_path, exist_ok=True)
+        
+        with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
+            zip_ref.extractall(extract_path)
+        
+        # chromedriver 실행 파일 찾기
+        chromedriver_path = None
+        for root, dirs, files in os.walk(extract_path):
+            for file in files:
+                if file == 'chromedriver':
+                    chromedriver_path = os.path.join(root, file)
+                    break
+            if chromedriver_path:
+                break
+        
+        if not chromedriver_path:
+            logger.error("압축 해제된 chromedriver 파일을 찾을 수 없음")
+            return None
+        
+        # 실행 권한 부여
+        os.chmod(chromedriver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+        
+        logger.info(f"ChromeDriver 다운로드 완료: {chromedriver_path}")
+        return chromedriver_path
+        
+    except Exception as e:
+        logger.error(f"ChromeDriver 다운로드 실패: {str(e)}")
+        return None
+
 def get_chrome_driver():
-    """Chrome 드라이버 초기화 (Chrome 138+ 호환성 완전 적용)"""
+    """Chrome Driver 초기화 (3단계 폴백 메커니즘 적용)"""
+    
+    # Chrome Options 설정
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -217,11 +321,14 @@ def get_chrome_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
+    # Chrome 버전 확인
+    chrome_version = get_chrome_version()
+    
     # User Agent 설정
     user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+        f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version}.0.0.0 Safari/537.36',
+        f'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version}.0.0.0 Safari/537.36',
+        f'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version}.0.0.0 Safari/537.36'
     ]
     options.add_argument(f'--user-agent={random.choice(user_agents)}')
     
@@ -238,38 +345,96 @@ def get_chrome_driver():
     }
     options.add_experimental_option('prefs', prefs)
     
-    # ChromeDriver 경로 시도
-    possible_paths = [
-        '/usr/local/bin/chromedriver',
-        '/usr/bin/chromedriver',
-        '/snap/bin/chromium.chromedriver',
-        '/opt/chrome/chromedriver'
+    # =============================================================================
+    # Stage 1: 자동 다운로드 시도
+    # =============================================================================
+    logger.info("Stage 1: Chrome Driver 자동 다운로드 시도")
+    try:
+        downloaded_path = download_chrome_driver(chrome_version)
+        if downloaded_path and os.path.exists(downloaded_path):
+            service = Service(downloaded_path)
+            driver = webdriver.Chrome(service=service, options=options)
+            driver.set_page_load_timeout(45)
+            driver.implicitly_wait(15)
+            logger.info("Stage 1 성공: 자동 다운로드 ChromeDriver 초기화 완료")
+            return driver
+    except Exception as e:
+        logger.warning(f"Stage 1 실패: {str(e)[:100]}")
+    
+    # =============================================================================
+    # Stage 2: 로컬 캐시 사용
+    # =============================================================================
+    logger.info("Stage 2: 로컬 캐시 ChromeDriver 사용 시도")
+    cached_paths = [
+        '/tmp/chromedriver_extracted/chromedriver-linux64/chromedriver',
+        '/tmp/chromedriver_extracted/chromedriver',
+        '/tmp/chromedriver'
     ]
     
-    for path in possible_paths:
+    for cached_path in cached_paths:
         try:
-            if os.path.exists(path):
-                service = Service(path)
+            if os.path.exists(cached_path):
+                # 실행 권한 확인 및 부여
+                os.chmod(cached_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                
+                service = Service(cached_path)
                 driver = webdriver.Chrome(service=service, options=options)
                 driver.set_page_load_timeout(45)
                 driver.implicitly_wait(15)
-                logger.info(f"ChromeDriver 초기화 성공: {path}")
+                logger.info(f"Stage 2 성공: 로컬 캐시 ChromeDriver 사용 - {cached_path}")
                 return driver
         except Exception as e:
-            logger.debug(f"ChromeDriver 경로 {path} 실패: {str(e)[:100]}...")
+            logger.debug(f"Stage 2 캐시 경로 {cached_path} 실패: {str(e)[:100]}")
+            continue
+    
+    # =============================================================================
+    # Stage 3: 수동 설치된 ChromeDriver 사용
+    # =============================================================================
+    logger.info("Stage 3: 수동 설치된 ChromeDriver 사용 시도")
+    manual_paths = [
+        '/usr/local/bin/chromedriver',
+        '/usr/bin/chromedriver',
+        '/snap/bin/chromium.chromedriver',
+        '/opt/chrome/chromedriver',
+        '/usr/local/share/chromedriver',
+        '/opt/google/chrome/chromedriver'
+    ]
+    
+    for manual_path in manual_paths:
+        try:
+            if os.path.exists(manual_path):
+                service = Service(manual_path)
+                driver = webdriver.Chrome(service=service, options=options)
+                driver.set_page_load_timeout(45)
+                driver.implicitly_wait(15)
+                logger.info(f"Stage 3 성공: 수동 설치 ChromeDriver 사용 - {manual_path}")
+                return driver
+        except Exception as e:
+            logger.debug(f"Stage 3 수동 경로 {manual_path} 실패: {str(e)[:100]}")
             continue
     
     # 시스템 기본 ChromeDriver 시도
+    logger.info("최종 시도: 시스템 기본 ChromeDriver")
     try:
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(45)
         driver.implicitly_wait(15)
-        logger.info("시스템 기본 ChromeDriver 초기화 성공")
+        logger.info("최종 시도 성공: 시스템 기본 ChromeDriver 사용")
         return driver
     except Exception as e:
-        logger.debug(f"시스템 기본 ChromeDriver 실패: {str(e)[:100]}...")
-       
-    raise Exception("ChromeDriver 초기화 실패 - 시스템 ChromeDriver를 확인하세요.")
+        logger.error(f"최종 시도 실패: {str(e)[:100]}")
+    
+    # 모든 시도 실패
+    error_msg = """
+    ChromeDriver 초기화 실패 - 3단계 폴백 모두 실패
+    
+    해결 방법:
+    1. sudo apt-get update && sudo apt-get install -y google-chrome-stable
+    2. Chrome 버전 확인 후 호환 ChromeDriver 수동 설치
+    3. /usr/local/bin/chromedriver 경로에 설치
+    """
+    logger.error(error_msg)
+    raise Exception(error_msg)
 
 # =============================================================================
 # Discord 관련 함수들 (누락된 함수 완전 구현)

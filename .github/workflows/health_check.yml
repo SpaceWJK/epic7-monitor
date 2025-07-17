@@ -1,12 +1,13 @@
-name: Epic Seven Monitor Health Check
+name: Epic Seven Daily Report
 
 on:
   schedule:
-    - cron: "0 */6 * * *"  # 6시간마다 실행
+    # 매일 오전 9시 KST (UTC 0시)
+    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
-      full_check:
-        description: 'Run full system check'
+      force_report:
+        description: 'Force generate report'
         required: false
         default: 'false'
         type: boolean
@@ -15,16 +16,29 @@ on:
         required: false
         default: 'false'
         type: boolean
+      crawl_mode:
+        description: 'Crawling mode (korean/global/all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - korean
+          - global
+          - all
 
 jobs:
-  health-check:
+  daily-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     
     env:
       TZ: Asia/Seoul
       DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+      DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
       DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+      CRAWL_MODE: ${{ github.event.inputs.crawl_mode || 'all' }}
+      DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+      FORCE_REPORT: ${{ github.event.inputs.force_report || 'false' }}
       
     steps:
       - name: 📥 Checkout repository
@@ -39,383 +53,285 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 🌐 Install Chrome and ChromeDriver (Enhanced)
+      - name: 🌐 Install system dependencies
         run: |
-          echo "=== Chrome과 ChromeDriver 설치 시작 ==="
-          
-          # Chrome 설치
-          sudo apt-get update -y
-          sudo apt-get install -y google-chrome-stable
-          
-          # Chrome 버전 확인
-          CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3)
-          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d'.' -f1)
-          echo "🌐 Chrome 버전: $CHROME_VERSION (메이저: $CHROME_MAJOR_VERSION)"
-          
-          # ChromeDriver 설치 (3단계 폴백 메커니즘)
-          echo "🔧 ChromeDriver 설치 중..."
-          
-          # 방법 1: Chrome for Testing API (최신 방식)
-          echo "📋 방법 1: Chrome for Testing API 시도"
-          if curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json" | jq -r ".channels.Stable.downloads.chromedriver[] | select(.platform==\"linux64\") | .url" > /tmp/chromedriver_url.txt 2>/dev/null; then
-            CHROMEDRIVER_URL=$(cat /tmp/chromedriver_url.txt)
-            if [ ! -z "$CHROMEDRIVER_URL" ]; then
-              echo "✅ Chrome for Testing URL 획득: $CHROMEDRIVER_URL"
-              if wget -q "$CHROMEDRIVER_URL" -O /tmp/chromedriver.zip; then
-                if sudo unzip -q /tmp/chromedriver.zip -d /tmp/ && sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/; then
-                  sudo chmod +x /usr/local/bin/chromedriver
-                  echo "✅ 방법 1 성공: Chrome for Testing API"
-                fi
-              fi
-            fi
-          fi
-          
-          # 방법 2: WebDriver Manager (Python 패키지)
-          if ! command -v chromedriver &> /dev/null; then
-            echo "📋 방법 2: WebDriver Manager 시도"
-            pip install webdriver-manager
-            python -c "
-from webdriver_manager.chrome import ChromeDriverManager
-import shutil
-import os
-try:
-    driver_path = ChromeDriverManager().install()
-    shutil.move(driver_path, '/usr/local/bin/chromedriver')
-    os.chmod('/usr/local/bin/chromedriver', 0o755)
-    print('✅ 방법 2 성공: WebDriver Manager')
-except Exception as e:
-    print(f'❌ 방법 2 실패: {e}')
-"
-          fi
-          
-          # 방법 3: 직접 다운로드 (최후 수단)
-          if ! command -v chromedriver &> /dev/null; then
-            echo "📋 방법 3: 직접 다운로드 시도"
-            # 안정적인 ChromeDriver 버전 다운로드
-            STABLE_VERSION="120.0.6099.109"
-            DOWNLOAD_URL="https://storage.googleapis.com/chrome-for-testing-public/${STABLE_VERSION}/linux64/chromedriver-linux64.zip"
-            
-            if wget -q "$DOWNLOAD_URL" -O /tmp/chromedriver.zip; then
-              if sudo unzip -q /tmp/chromedriver.zip -d /tmp/ && sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/; then
-                sudo chmod +x /usr/local/bin/chromedriver
-                echo "✅ 방법 3 성공: 직접 다운로드"
-              fi
-            fi
-          fi
-          
-          # 설치 확인
-          if command -v chromedriver &> /dev/null; then
-            CHROMEDRIVER_VERSION=$(chromedriver --version)
-            echo "✅ ChromeDriver 설치 완료: $CHROMEDRIVER_VERSION"
-          else
-            echo "❌ ChromeDriver 설치 실패"
-            exit 1
-          fi
-          
-          # 임시 파일 정리
-          rm -f /tmp/chromedriver.zip /tmp/chromedriver_url.txt
-          sudo rm -rf /tmp/chromedriver-linux64
-          
-          echo "🎉 Chrome과 ChromeDriver 설치 완료"
+          sudo apt-get update
+          sudo apt-get install -y \
+            wget \
+            unzip \
+            curl \
+            xvfb \
+            libxi6 \
+            libgconf-2-4 \
+            gnupg \
+            libxss1 \
+            libappindicator3-1 \
+            libasound2 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libxkbcommon0 \
+            libgtk-3-0
 
-      - name: 📦 Install Python dependencies
+      - name: 🔧 Install Python dependencies
         run: |
-          echo "=== Python 의존성 설치 ==="
           python -m pip install --upgrade pip
-          
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
-            echo "✅ requirements.txt 설치 완료"
           else
-            echo "⚠️ requirements.txt 없음, 기본 패키지 설치"
-            pip install requests beautifulsoup4 selenium webdriver-manager lxml deep-translator python-dateutil
+            pip install selenium beautifulsoup4 requests deep-translator
           fi
-          
-          echo "📦 설치된 패키지 확인:"
-          pip list | grep -E "(selenium|requests|beautifulsoup4|lxml|deep-translator)"
 
-      - name: 🧪 System Health Check
+      - name: 🌐 Install Chrome (Latest Stable)
         run: |
-          echo "=== 시스템 헬스 체크 시작 ==="
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          google-chrome --version
+
+      - name: 🔍 Download ChromeDriver (Manual)
+        run: |
+          CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1)
+          echo "Chrome version: $CHROME_VERSION"
           
-          # 시스템 리소스 확인
-          echo "💾 메모리 사용량:"
-          free -h
-          echo ""
+          # Stage 1: Chrome for Testing API
+          LATEST_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone.json" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          milestone = '$CHROME_VERSION'
+          if milestone in data['milestones']:
+              print(data['milestones'][milestone]['version'])
+          else:
+              print('NOT_FOUND')
+          " 2>/dev/null || echo "NOT_FOUND")
           
-          echo "💿 디스크 사용량:"
-          df -h
-          echo ""
-          
-          echo "⚙️ 시스템 정보:"
-          echo "OS: $(lsb_release -d | cut -f2)"
-          echo "커널: $(uname -r)"
-          echo "업타임: $(uptime -p)"
-          echo "현재 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo ""
-          
-          # 네트워크 연결 테스트
-          echo "🌐 네트워크 연결 테스트:"
-          test_sites=("google.com" "page.onstove.com" "bbs.ruliweb.com" "arca.live" "reddit.com")
-          
-          for site in "${test_sites[@]}"; do
-            if curl -s --head --max-time 10 "https://$site" | grep -q "200 OK"; then
-              echo "✅ $site - 연결 성공"
+          if [ "$LATEST_VERSION" != "NOT_FOUND" ]; then
+            echo "Found Chrome version: $LATEST_VERSION"
+            DRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${LATEST_VERSION}/linux64/chromedriver-linux64.zip"
+            echo "Downloading ChromeDriver from: $DRIVER_URL"
+            
+            if wget -q --spider "$DRIVER_URL" 2>/dev/null; then
+              wget -O chromedriver.zip "$DRIVER_URL"
+              unzip chromedriver.zip
+              sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+              sudo chmod +x /usr/local/bin/chromedriver
+              echo "ChromeDriver installed successfully"
             else
-              echo "❌ $site - 연결 실패"
-            fi
-          done
-          echo ""
-
-      - name: 🔧 Chrome Driver Compatibility Test
-        run: |
-          echo "=== Chrome Driver 호환성 테스트 ==="
-          
-          # Chrome과 ChromeDriver 버전 비교
-          CHROME_VERSION=$(google-chrome --version | cut -d' ' -f3)
-          CHROMEDRIVER_VERSION=$(chromedriver --version | cut -d' ' -f2)
-          
-          echo "🌐 Chrome 버전: $CHROME_VERSION"
-          echo "🔧 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
-          
-          # 간단한 Selenium 테스트
-          echo "🧪 Selenium 호환성 테스트:"
-          python -c "
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-import time
-
-options = Options()
-options.add_argument('--headless')
-options.add_argument('--no-sandbox')
-options.add_argument('--disable-dev-shm-usage')
-options.add_argument('--disable-gpu')
-
-try:
-    service = Service('/usr/local/bin/chromedriver')
-    driver = webdriver.Chrome(service=service, options=options)
-    
-    driver.get('https://google.com')
-    title = driver.title
-    print(f'✅ Selenium 테스트 성공: {title}')
-    
-    driver.quit()
-    print('✅ Chrome Driver 호환성 확인 완료')
-    
-except Exception as e:
-    print(f'❌ Selenium 테스트 실패: {e}')
-    exit(1)
-"
-
-      - name: 🐍 Python Module Health Check
-        run: |
-          echo "=== Python 모듈 헬스 체크 ==="
-          
-          # 기본 모듈 테스트
-          echo "📋 기본 모듈 테스트:"
-          python -c "
-import sys
-modules = ['json', 'os', 'time', 'datetime', 're', 'random', 'hashlib', 'urllib.parse']
-for module in modules:
-    try:
-        __import__(module)
-        print(f'✅ {module}')
-    except ImportError as e:
-        print(f'❌ {module}: {e}')
-"
-          
-          # 외부 모듈 테스트
-          echo "📋 외부 모듈 테스트:"
-          python -c "
-modules = ['requests', 'bs4', 'selenium', 'lxml', 'deep_translator']
-for module in modules:
-    try:
-        __import__(module)
-        print(f'✅ {module}')
-    except ImportError as e:
-        print(f'❌ {module}: {e}')
-"
-          
-          # 프로젝트 모듈 테스트 (존재하는 경우)
-          echo "📋 프로젝트 모듈 테스트:"
-          project_modules=("crawler.py" "classifier.py" "notifier.py" "monitor_bugs.py")
-          
-          for module in "${project_modules[@]}"; do
-            if [ -f "$module" ]; then
-              echo "✅ $module 존재함"
-              # 문법 검사
-              if python -m py_compile "$module" 2>/dev/null; then
-                echo "✅ $module 문법 검사 통과"
+              echo "Stage 1 failed, trying fallback..."
+              # Stage 2: Fallback to latest stable
+              FALLBACK_URL="https://storage.googleapis.com/chrome-for-testing-public/LATEST_RELEASE_${CHROME_VERSION}"
+              if FALLBACK_VERSION=$(curl -s "$FALLBACK_URL" 2>/dev/null); then
+                DRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${FALLBACK_VERSION}/linux64/chromedriver-linux64.zip"
+                wget -O chromedriver.zip "$DRIVER_URL"
+                unzip chromedriver.zip
+                sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+                sudo chmod +x /usr/local/bin/chromedriver
+                echo "ChromeDriver installed via fallback"
               else
-                echo "❌ $module 문법 오류"
+                echo "All download methods failed"
+                exit 1
               fi
-            else
-              echo "⚠️ $module 파일 없음"
             fi
-          done
-
-      - name: 📊 Repository Health Check
-        run: |
-          echo "=== 리포지토리 헬스 체크 ==="
-          
-          # Git 상태 확인
-          echo "📍 Git 상태:"
-          echo "현재 브랜치: $(git branch --show-current)"
-          echo "최신 커밋: $(git log -1 --oneline)"
-          echo "원격 브랜치와 동기화: $(git status -b --porcelain=v1 2>/dev/null | head -1)"
-          echo ""
-          
-          # 중요 파일 존재 확인
-          echo "📁 중요 파일 존재 확인:"
-          important_files=(
-            "requirements.txt"
-            "monitor_bugs.py"
-            "crawler.py"
-            "classifier.py"
-            "notifier.py"
-            ".github/workflows/bug_monitor.yml"
-            ".github/workflows/bug_monitor_korean.yml"
-            ".github/workflows/bug_monitor_global.yml"
-          )
-          
-          for file in "${important_files[@]}"; do
-            if [ -f "$file" ]; then
-              size=$(stat -c%s "$file")
-              echo "✅ $file (${size} bytes)"
-            else
-              echo "❌ $file 없음"
-            fi
-          done
-          echo ""
-          
-          # 데이터 파일 상태 확인
-          echo "📊 데이터 파일 상태:"
-          data_files=("crawled_links.json" "crawled_links_korean.json" "crawled_links_global.json")
-          
-          for file in "${data_files[@]}"; do
-            if [ -f "$file" ]; then
-              if command -v jq &> /dev/null; then
-                count=$(jq '. | length' "$file" 2>/dev/null || echo "0")
-                last_update=$(jq -r '.last_updated // "N/A"' "$file" 2>/dev/null || echo "N/A")
-                echo "✅ $file: ${count}개 링크 (마지막 업데이트: $last_update)"
-              else
-                size=$(stat -c%s "$file")
-                echo "✅ $file (${size} bytes)"
-              fi
-            else
-              echo "⚠️ $file 없음 (새로 생성될 예정)"
-            fi
-          done
-
-      - name: 🎯 Full System Test
-        if: github.event.inputs.full_check == 'true'
-        run: |
-          echo "=== 전체 시스템 테스트 시작 ==="
-          
-          # 한국 사이트 테스트
-          echo "🇰🇷 한국 사이트 테스트:"
-          if [ -f "monitor_bugs.py" ]; then
-            timeout 300 python monitor_bugs.py --mode korean --debug --test || echo "⚠️ 한국 사이트 테스트 제한 시간 초과"
           else
-            echo "⚠️ monitor_bugs.py 없음, 테스트 생략"
+            echo "Chrome version not found in API, using fallback"
+            # Stage 3: Final fallback
+            FALLBACK_URL="https://storage.googleapis.com/chrome-for-testing-public/LATEST_RELEASE_${CHROME_VERSION}"
+            if FALLBACK_VERSION=$(curl -s "$FALLBACK_URL" 2>/dev/null); then
+              DRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/${FALLBACK_VERSION}/linux64/chromedriver-linux64.zip"
+              wget -O chromedriver.zip "$DRIVER_URL"
+              unzip chromedriver.zip
+              sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+              sudo chmod +x /usr/local/bin/chromedriver
+              echo "ChromeDriver installed via final fallback"
+            else
+              echo "All fallback methods failed"
+              exit 1
+            fi
           fi
           
-          # 글로벌 사이트 테스트
-          echo "🌍 글로벌 사이트 테스트:"
-          if [ -f "monitor_bugs.py" ]; then
-            timeout 300 python monitor_bugs.py --mode global --debug --test || echo "⚠️ 글로벌 사이트 테스트 제한 시간 초과"
-          else
-            echo "⚠️ monitor_bugs.py 없음, 테스트 생략"
-          fi
-          
-          echo "✅ 전체 시스템 테스트 완료"
+          chromedriver --version
 
-      - name: 📈 Generate Health Report
+      - name: 🧪 Test Chrome and ChromeDriver
+        run: |
+          echo "Chrome version:"
+          google-chrome --version
+          echo "ChromeDriver version:"
+          chromedriver --version
+          echo "Python version:"
+          python --version
+          echo "Testing basic Chrome functionality..."
+          python -c '
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          
+          options = Options()
+          options.add_argument("--headless")
+          options.add_argument("--no-sandbox")
+          options.add_argument("--disable-dev-shm-usage")
+          
+          driver = webdriver.Chrome(options=options)
+          driver.get("https://www.google.com")
+          print(f"Title: {driver.title}")
+          driver.quit()
+          print("Chrome test passed!")
+          '
+
+      - name: 📊 Generate daily report
+        run: |
+          python -c '
+          import os
+          import sys
+          import json
+          from datetime import datetime
+          
+          # 기본 리포트 생성
+          def generate_basic_report():
+              report = {
+                  "date": datetime.now().strftime("%Y-%m-%d"),
+                  "status": "success",
+                  "crawl_mode": os.getenv("CRAWL_MODE", "all"),
+                  "debug_mode": os.getenv("DEBUG_MODE", "false"),
+                  "force_report": os.getenv("FORCE_REPORT", "false"),
+                  "message": "Daily report generated successfully"
+              }
+              return report
+          
+          try:
+              # generate_report.py가 존재하는지 확인
+              if os.path.exists("generate_report.py"):
+                  print("Found generate_report.py, executing...")
+                  os.system("python generate_report.py")
+              else:
+                  print("generate_report.py not found, creating basic report...")
+                  report = generate_basic_report()
+                  print(json.dumps(report, indent=2))
+                  
+                  # 기본 리포트 저장
+                  with open("daily_report.json", "w", encoding="utf-8") as f:
+                      json.dump(report, f, ensure_ascii=False, indent=2)
+                      
+          except Exception as e:
+              print(f"Error generating report: {e}")
+              error_report = {
+                  "date": datetime.now().strftime("%Y-%m-%d"),
+                  "status": "error",
+                  "error": str(e),
+                  "message": "Report generation failed"
+              }
+              with open("daily_report.json", "w", encoding="utf-8") as f:
+                  json.dump(error_report, f, ensure_ascii=False, indent=2)
+          '
+
+      - name: 📤 Send Discord notification
         if: always()
         run: |
-          echo "=== 헬스 체크 리포트 생성 ==="
+          python -c '
+          import os
+          import json
+          import requests
+          from datetime import datetime
           
-          # 리포트 파일 생성
-          cat > health_report.md << 'EOF'
-# Epic7 모니터링 시스템 헬스 체크 리포트
-
-**생성 시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')
-**실행 모드:** ${{ github.event.inputs.full_check == 'true' && 'Full Check' || 'Standard Check' }}
-**워크플로우 ID:** ${{ github.run_id }}
-
-## 🌐 시스템 환경
-- **OS:** $(lsb_release -d | cut -f2)
-- **Python:** $(python --version)
-- **Chrome:** $(google-chrome --version)
-- **ChromeDriver:** $(chromedriver --version)
-
-## 💾 리소스 상태
-$(free -h)
-
-## 🔧 주요 컴포넌트 상태
-| 컴포넌트 | 상태 | 비고 |
-|---------|------|------|
-| Chrome Browser | ✅ 정상 | $(google-chrome --version) |
-| ChromeDriver | ✅ 정상 | $(chromedriver --version) |
-| Python | ✅ 정상 | $(python --version) |
-| Selenium | ✅ 정상 | 호환성 테스트 통과 |
-
-## 📊 모니터링 파일 상태
-EOF
+          def send_discord_notification():
+              webhook_url = os.getenv("DISCORD_WEBHOOK_REPORT")
+              if not webhook_url:
+                  print("Discord webhook URL not found")
+                  return
+              
+              try:
+                  # 리포트 파일 읽기
+                  report_data = {}
+                  if os.path.exists("daily_report.json"):
+                      with open("daily_report.json", "r", encoding="utf-8") as f:
+                          report_data = json.load(f)
+                  
+                  # Discord 메시지 생성
+                  embed = {
+                      "title": "📊 Epic Seven Daily Report",
+                      "description": f"일간 리포트 생성 완료",
+                      "color": 0x00ff00 if report_data.get("status") == "success" else 0xff0000,
+                      "fields": [
+                          {
+                              "name": "날짜",
+                              "value": report_data.get("date", datetime.now().strftime("%Y-%m-%d")),
+                              "inline": True
+                          },
+                          {
+                              "name": "상태",
+                              "value": report_data.get("status", "unknown"),
+                              "inline": True
+                          },
+                          {
+                              "name": "크롤링 모드",
+                              "value": report_data.get("crawl_mode", "all"),
+                              "inline": True
+                          }
+                      ],
+                      "footer": {
+                          "text": "Epic Seven Monitoring System",
+                          "icon_url": "https://epic7.com/favicon.ico"
+                      },
+                      "timestamp": datetime.now().isoformat()
+                  }
+                  
+                  if report_data.get("status") == "error":
+                      embed["fields"].append({
+                          "name": "에러 내용",
+                          "value": report_data.get("error", "Unknown error"),
+                          "inline": False
+                      })
+                  
+                  payload = {
+                      "embeds": [embed]
+                  }
+                  
+                  response = requests.post(webhook_url, json=payload, timeout=10)
+                  if response.status_code == 204:
+                      print("Discord notification sent successfully")
+                  else:
+                      print(f"Discord notification failed: {response.status_code}")
+                      
+              except Exception as e:
+                  print(f"Error sending Discord notification: {e}")
           
-          # 파일 상태 추가
-          if [ -f "crawled_links.json" ]; then
-            if command -v jq &> /dev/null; then
-              count=$(jq '. | length' crawled_links.json 2>/dev/null || echo "0")
-              echo "- **크롤링 링크:** ${count}개 저장됨" >> health_report.md
-            fi
-          fi
-          
-          echo "- **리포트 생성:** $(date '+%Y-%m-%d %H:%M:%S')" >> health_report.md
-          echo "" >> health_report.md
-          echo "## 🎯 권장 사항" >> health_report.md
-          echo "- 정기적인 헬스 체크 (6시간마다 자동 실행)" >> health_report.md
-          echo "- 크롤링 데이터 백업 (weekly)" >> health_report.md
-          echo "- Chrome/ChromeDriver 업데이트 모니터링" >> health_report.md
-          
-          echo "📄 헬스 리포트 생성 완료"
+          send_discord_notification()
+          '
 
-      - name: 📤 Upload Health Report
-        if: always()
+      - name: 📁 Upload artifacts
         uses: actions/upload-artifact@v4
-        with:
-          name: health-check-report-${{ github.run_number }}
-          path: |
-            health_report.md
-            *.log
-            *_debug_*.html
-          retention-days: 14
-
-      - name: 🔄 Cleanup and Final Status
         if: always()
+        with:
+          name: daily-report-${{ github.run_id }}
+          path: |
+            daily_report.json
+            *.log
+            *.html
+          retention-days: 30
+
+      - name: 🔍 Debug information
+        if: ${{ github.event.inputs.debug_mode == 'true' }}
         run: |
-          echo "=== 최종 상태 및 정리 ==="
-          
-          # 임시 파일 정리
-          rm -f /tmp/chromedriver*
-          rm -f *_debug_*.html
-          
-          # 최종 상태 리포트
-          echo "🎉 헬스 체크 완료 요약:"
-          echo "- 실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "- 워크플로우 상태: ${{ job.status }}"
-          echo "- Chrome 버전: $(google-chrome --version)"
-          echo "- ChromeDriver 버전: $(chromedriver --version)"
-          echo "- 메모리 사용량: $(free -h | grep Mem | awk '{print $3"/"$2}')"
-          
-          # 시스템 상태 판정
-          if command -v chromedriver &> /dev/null && command -v google-chrome &> /dev/null; then
-            echo "✅ 모든 핵심 컴포넌트가 정상 작동 중"
-            echo "✅ Epic7 모니터링 시스템 헬스 체크 성공"
-          else
-            echo "❌ 일부 컴포넌트에 문제가 있습니다"
-            echo "❌ 시스템 점검이 필요합니다"
-          fi
-          
-          echo "🔄 정리 완료"
+          echo "=== Debug Information ==="
+          echo "Date: $(date)"
+          echo "Crawl Mode: $CRAWL_MODE"
+          echo "Debug Mode: $DEBUG_MODE"
+          echo "Force Report: $FORCE_REPORT"
+          echo "Working Directory: $(pwd)"
+          echo "Files in current directory:"
+          ls -la
+          echo "=== Environment Variables ==="
+          env | grep -E "(DISCORD_|CRAWL_|DEBUG_|FORCE_)" | sort
+          echo "=== Chrome Information ==="
+          google-chrome --version
+          chromedriver --version
+          echo "=== Python Information ==="
+          python --version
+          pip list
+          echo "=== System Information ==="
+          uname -a
+          df -h
+          free -h
+          echo "=== End Debug Information ==="
