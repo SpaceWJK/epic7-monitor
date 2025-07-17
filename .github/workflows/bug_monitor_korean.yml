@@ -1,4 +1,4 @@
-name: 🌐 Bug Monitor Korean Sites
+name: 🇰🇷 Bug Monitor Korean Sites
 
 on:
   workflow_call:
@@ -180,7 +180,7 @@ jobs:
         
         echo "✅ Chrome 및 ChromeDriver 설치 완료"
 
-    - name: 📦 Install dependencies
+    - name: 📦 Install Python dependencies
       run: |
         echo "=== Python 의존성 설치 시작 ==="
         python -m pip install --upgrade pip
@@ -192,153 +192,36 @@ jobs:
         fi
         echo "✅ Python dependencies installed"
 
-    - name: 🧪 Quick system check
-      run: |
-        echo "=== 시스템 상태 확인 ==="
-        echo "🐍 Python 버전: $(python --version)"
-        echo "🌐 Chrome 버전: $(google-chrome --version)"
-        echo "🔧 ChromeDriver 버전: $(chromedriver --version)"
-        echo "💾 메모리 사용량: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
-        echo "⏰ 현재 시간: $(date '+%Y-%m-%d %H:%M:%S')"
-
-    - name: 🇰🇷 Run Korean sites monitoring
+    - name: 🇰🇷 한국 사이트 모니터링 실행
       run: |
         echo "=== 한국 사이트 모니터링 시작 ==="
-        echo "⏰ 시작 시간: $(date '+%Y-%m-%d %H:%M:%S')"
-        
-        # 모니터링 실행
-        if [ -f "monitor_bugs.py" ]; then
-          if [ "${{ inputs.debug_mode }}" == "true" ]; then
-            echo "🔍 디버그 모드로 실행"
-            python monitor_bugs.py --mode korean --debug
-          elif [ "${{ inputs.test_mode }}" == "true" ]; then
-            echo "🧪 테스트 모드로 실행"
-            python monitor_bugs.py --mode korean --test
-          else
-            echo "🚀 일반 모드로 실행"
-            python monitor_bugs.py --mode korean
-          fi
-        else
-          echo "❌ monitor_bugs.py 파일을 찾을 수 없습니다."
-          exit 1
-        fi
-        
-        echo "✅ 한국 사이트 모니터링 완료"
+        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "ARGS: --mode korean --debug"
+        echo "시작" && python monitor_bugs.py --mode korean --debug
+        echo "완료"
 
-    - name: 📊 Generate monitoring report
-      run: |
-        echo "=== 모니터링 리포트 생성 ==="
-        
-        # 리포트 기본 정보
-        EXECUTION_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-        CHROME_VERSION=$(google-chrome --version 2>/dev/null || echo "N/A")
-        CHROMEDRIVER_VERSION=$(chromedriver --version 2>/dev/null || echo "N/A")
-        
-        # JSON 파일 상태 확인
-        KOREAN_LINKS_COUNT=0
-        if [ -f "crawled_links_korean.json" ]; then
-          KOREAN_LINKS_COUNT=$(python3 -c "import json; data=json.load(open('crawled_links_korean.json')); print(len(data.get('links', [])))" 2>/dev/null || echo "0")
-        fi
-        
-        # 리포트 생성
-        cat > korean_monitoring_report.md << EOF
-        # Epic7 한국 사이트 모니터링 리포트
-        
-        **실행 시간:** $EXECUTION_TIME
-        **모드:** Korean Sites Only
-        **디버그 모드:** ${{ inputs.debug_mode }}
-        **테스트 모드:** ${{ inputs.test_mode }}
-        
-        ## 🖥️ 시스템 정보
-        - Chrome 버전: $CHROME_VERSION
-        - ChromeDriver 버전: $CHROMEDRIVER_VERSION
-        - Python 버전: $(python --version)
-        - 메모리 사용량: $(free -h | grep Mem | awk '{print $3 "/" $2}')
-        
-        ## 📊 모니터링 결과
-        - 한국 사이트 크롤링된 링크: $KOREAN_LINKS_COUNT 개
-        - 모니터링 대상 사이트:
-          - STOVE 에픽세븐 버그 게시판
-          - STOVE 에픽세븐 자유 게시판
-          - 루리웹 에픽세븐 게시판
-          - 아카라이브 에픽세븐 게시판
-        
-        ## 📁 데이터 파일 상태
-        EOF
-        
-        # 데이터 파일 정보 추가
-        for file in crawled_links_korean.json content_cache_korean.json; do
-          if [ -f "$file" ]; then
-            echo "- $file: ✅ 존재 (크기: $(stat -c%s "$file") bytes)" >> korean_monitoring_report.md
-          else
-            echo "- $file: ❌ 없음" >> korean_monitoring_report.md
-          fi
-        done
-        
-        echo "" >> korean_monitoring_report.md
-        echo "## 🎯 모니터링 결과 요약" >> korean_monitoring_report.md
-        echo "한국 사이트 모니터링이 성공적으로 완료되었습니다." >> korean_monitoring_report.md
-        
-        echo "📄 한국 사이트 모니터링 리포트 생성 완료"
-
-    - name: 📤 Upload monitoring artifacts
+    - name: 📊 결과 업로드
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: korean-monitoring-${{ github.run_number }}
+        name: korean-monitor-results
         path: |
-          korean_monitoring_report.md
-          crawled_links_korean.json
-          content_cache_korean.json
-          *debug*.html
+          *.json
+          *.html
           *.log
-        retention-days: 3
+        retention-days: 7
 
-    - name: 🔄 Commit and push changes
+    - name: 📤 Discord 알림 전송
+      if: failure()
       run: |
-        echo "=== Git 변경사항 커밋 및 푸시 ==="
-        
-        # Git 설정
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        
-        # 변경사항 추가
-        git add -A
-        
-        # 커밋 메시지 생성
-        COMMIT_MESSAGE="🇰🇷 Korean sites monitoring - $(date '+%Y-%m-%d %H:%M:%S')"
-        if [ "${{ inputs.debug_mode }}" == "true" ]; then
-          COMMIT_MESSAGE="$COMMIT_MESSAGE (Debug Mode)"
-        fi
-        if [ "${{ inputs.test_mode }}" == "true" ]; then
-          COMMIT_MESSAGE="$COMMIT_MESSAGE (Test Mode)"
-        fi
-        
-        # 변경사항이 있는지 확인
-        if git diff --staged --quiet; then
-          echo "📝 변경사항 없음"
-        else
-          echo "📝 변경사항 커밋 중..."
-          git commit -m "$COMMIT_MESSAGE"
-          git push origin main
-          echo "✅ 변경사항 푸시 완료"
+        if [ ! -z "$DISCORD_WEBHOOK_BUG" ]; then
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"🚨 **한국 사이트 모니터링 실패**\\n\\n**시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')\\n**상태:** 실패\\n**로그:** GitHub Actions에서 확인 가능\"}" \
+               "$DISCORD_WEBHOOK_BUG"
         fi
 
-    - name: 🔄 Cleanup
-      if: always()
+    - name: 🏁 모니터링 완료
       run: |
-        echo "=== 정리 작업 시작 ==="
-        
-        # 임시 파일 정리
-        rm -f /tmp/chromedriver.zip
-        rm -rf /tmp/chromedriver-linux64/
-        
-        echo "✅ 정리 완료"
-        echo "=========================================="
-        echo "   한국 사이트 모니터링 완료"
-        echo "=========================================="
-        echo "🇰🇷 모니터링 모드: Korean Sites"
-        echo "🔍 디버그 모드: ${{ inputs.debug_mode }}"
-        echo "🧪 테스트 모드: ${{ inputs.test_mode }}"
-        echo "⏰ 완료 시간: $(date '+%Y-%m-%d %H:%M:%S')"
-        echo "✅ 한국 사이트 모니터링이 성공적으로 완료되었습니다."
-        echo "=========================================="
+        echo "한국 사이트 모니터링 완료"
+        echo "상태: ${{ job.status == 'success' && '성공' || '실패' }}"
