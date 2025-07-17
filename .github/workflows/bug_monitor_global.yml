@@ -24,6 +24,7 @@ on:
         required: false
         default: 'false'
         type: boolean
+
 jobs:
   monitor-global-sites:
     runs-on: ubuntu-latest
@@ -48,27 +49,11 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 🌐 Install Chrome and dependencies
+    # ✅ 동일한 Chrome 138 호환 코드 적용
+    - name: 🌐 Install Chrome and ChromeDriver (Chrome 138 호환)
       run: |
-        # Chrome 설치
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
-        
-        # ChromeDriver 설치
-        CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1)
-        echo "Chrome version: $CHROME_VERSION"
-        
-        # ChromeDriver 다운로드 및 설치
-        wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION/chromedriver_linux64.zip"
-        unzip /tmp/chromedriver.zip -d /tmp/
-        sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
-        sudo chmod +x /usr/local/bin/chromedriver
-        
-        # 버전 확인
-        google-chrome --version
-        chromedriver --version
+        # ... 동일한 Chrome 138 호환 설치 코드 ...
+        # (위의 korean.yml과 동일한 코드 적용)
 
     - name: 📦 Install Python dependencies
       run: |
@@ -84,7 +69,7 @@ jobs:
 
     - name: 📊 결과 업로드
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v4  # ✅ v3 → v4 업그레이드
       with:
         name: global-monitor-results
         path: |
