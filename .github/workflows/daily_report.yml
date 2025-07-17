@@ -44,395 +44,204 @@ jobs:
     - name: 📥 Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 2
         token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: 🔄 Sync with remote
-      run: |
-        git config user.name "epic7-daily-report"
-        git config user.email "epic7-daily@github.com"
-        git pull --rebase origin main || echo "No conflicts"
-
+        
     - name: 🐍 Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 🌐 Install Chrome and ChromeDriver (Enhanced)
+    - name: 🌐 Install Chrome and ChromeDriver (Chrome for Testing 기반)
       run: |
-        echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
+        echo "=== Chrome과 ChromeDriver 설치 시작 ==="
         
-        # Chrome 설치
         sudo apt-get update -y
-        sudo apt-get install -y google-chrome-stable
-        
-        # Chrome 버전 확인
-        CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
-        echo "✅ Chrome 버전: $CHROME_VERSION (Major: $CHROME_MAJOR_VERSION)"
-        
-        # ChromeDriver 설치 (3단계 폴백 메커니즘)
-        install_chromedriver() {
-          echo "🔧 ChromeDriver 설치 시도 중..."
+        sudo apt-get install -y --no-install-recommends \
+          fonts-liberation \
+          libasound2 \
+          libatk-bridge2.0-0 \
+          libatspi2.0-0 \
+          libcups2 \
+          libdrm-dev \
+          libgbm-dev \
+          libglib2.0-0 \
+          libnspr4 \
+          libnss3 \
+          libxcomposite1 \
+          libxdamage1 \
+          libxext6 \
+          libxfixes3 \
+          libxkbcommon0 \
+          libxrandr2 \
+          libxshmfence6 \
+          libxtst6 \
+          xdg-utils \
+          wget
+
+        INSTALL_SUCCESS=false
+
+        echo "📋 방법 1: Chrome for Testing API 사용 (권장)"
+        if chrome_version_output=$(google-chrome --version 2>&1); then
+          CURRENT_CHROME_MAJOR_VERSION=$(echo "$chrome_version_output" | sed -E 's/Google Chrome ([0-9]+)\..*/\1/')
+          echo "현재 설치된 Chrome Major Version: $CURRENT_CHROME_MAJOR_VERSION"
+        else
+          CURRENT_CHROME_MAJOR_VERSION=""
+          echo "Chrome이 설치되어 있지 않거나 버전을 확인할 수 없습니다. 최신 버전을 시도합니다."
+        fi
+
+        if [ -n "$CURRENT_CHROME_MAJOR_VERSION" ]; then
+          LATEST_DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+            python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['version'])" | \
+            awk -F'.' '{print $1}')
           
-          # 방법 1: Chrome for Testing API 사용 (최신 방식)
-          if [ "$CHROME_MAJOR_VERSION" -ge "115" ]; then
-            echo "📡 Chrome for Testing API 사용 (Chrome 115+)"
-            CHROMEDRIVER_URL="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
+          if [ -n "$LATEST_DRIVER_VERSION" ]; then
+            CHROME_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chrome-linux'][0]['url'])")
             
-            # Chrome for Testing에서 ChromeDriver 다운로드
-            curl -s "$CHROMEDRIVER_URL" | jq -r '.channels.Stable.downloads.chromedriver[] | select(.platform=="linux64") | .url' | head -1 > /tmp/chromedriver_url.txt
+            CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chromedriver-linux64'][0]['url'])")
             
-            if [ -s /tmp/chromedriver_url.txt ]; then
-              DOWNLOAD_URL=$(cat /tmp/chromedriver_url.txt)
-              echo "📥 다운로드 URL: $DOWNLOAD_URL"
+            if [ -n "$CHROME_URL" ] && [ -n "$CHROMEDRIVER_URL" ]; then
+              echo "Chrome 다운로드: $CHROME_URL"
+              echo "ChromeDriver 다운로드: $CHROMEDRIVER_URL"
+
+              wget -q "$CHROME_URL" -O /tmp/chrome-linux.zip
+              sudo unzip -qq /tmp/chrome-linux.zip -d /opt/
+              sudo ln -sf /opt/chrome-linux/chrome /usr/local/bin/google-chrome
+              sudo chmod +x /usr/local/bin/google-chrome
               
-              wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-              if [ $? -eq 0 ]; then
-                sudo unzip -o /tmp/chromedriver.zip -d /tmp/
-                sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/
-                sudo chmod +x /usr/local/bin/chromedriver
-                echo "✅ Chrome for Testing API 설치 성공"
-                return 0
+              wget -q "$CHROMEDRIVER_URL" -O /tmp/chromedriver.zip
+              sudo unzip -qq /tmp/chromedriver.zip -d /usr/local/bin/
+              sudo mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+              sudo chmod +x /usr/local/bin/chromedriver
+
+              if google-chrome --version >/dev/null 2>&1 && chromedriver --version >/dev/null 2>&1; then
+                echo "✅ 방법 1 성공: Chrome for Testing API를 통한 설치"
+                INSTALL_SUCCESS=true
+              else
+                echo "❌ 방법 1 실패: 설치는 되었으나 버전 확인 실패"
               fi
+            else
+              echo "❌ 방법 1 실패: Chrome 또는 ChromeDriver URL을 찾을 수 없음"
+            fi
+          else
+            echo "❌ 방법 1 실패: 최신 Chrome Major Version을 찾을 수 없음"
+          fi
+        else
+          echo "현재 Chrome 버전 확인 불가. 강제 설치 시도."
+          CHROME_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chrome-linux'][0]['url'])")
+          
+          CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+            python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chromedriver-linux64'][0]['url'])")
+
+          if [ -n "$CHROME_URL" ] && [ -n "$CHROMEDRIVER_URL" ]; then
+            echo "Chrome 다운로드: $CHROME_URL"
+            echo "ChromeDriver 다운로드: $CHROMEDRIVER_URL"
+
+            wget -q "$CHROME_URL" -O /tmp/chrome-linux.zip
+            sudo unzip -qq /tmp/chrome-linux.zip -d /opt/
+            sudo ln -sf /opt/chrome-linux/chrome /usr/local/bin/google-chrome
+            sudo chmod +x /usr/local/bin/google-chrome
+            
+            wget -q "$CHROMEDRIVER_URL" -O /tmp/chromedriver.zip
+            sudo unzip -qq /tmp/chromedriver.zip -d /usr/local/bin/
+            sudo mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+            sudo chmod +x /usr/local/bin/chromedriver
+
+            if google-chrome --version >/dev/null 2>&1 && chromedriver --version >/dev/null 2>&1; then
+              echo "✅ 방법 1 성공: Chrome for Testing API를 통한 설치"
+              INSTALL_SUCCESS=true
+            else
+              echo "❌ 방법 1 실패: 설치는 되었으나 버전 확인 실패"
             fi
           fi
-          
-          # 방법 2: GitHub ChromeDriver 릴리즈 사용
-          echo "📡 GitHub ChromeDriver 릴리즈 사용"
-          GITHUB_URL="https://api.github.com/repos/GoogleChrome/chrome-launcher/releases/latest"
-          
-          # ChromeDriver 버전 매핑
-          case "$CHROME_MAJOR_VERSION" in
-            "138"|"139"|"140"|"141"|"142") CHROMEDRIVER_VERSION="138.0.6200.0" ;;
-            "137") CHROMEDRIVER_VERSION="137.0.6545.0" ;;
-            "136") CHROMEDRIVER_VERSION="136.0.6475.0" ;;
-            "135") CHROMEDRIVER_VERSION="135.0.6457.0" ;;
-            *) CHROMEDRIVER_VERSION="138.0.6200.0" ;;
-          esac
-          
-          DOWNLOAD_URL="https://github.com/GoogleChrome/chrome-launcher/releases/download/v${CHROMEDRIVER_VERSION}/chromedriver-linux64.zip"
-          
-          wget -O /tmp/chromedriver.zip "$DOWNLOAD_URL"
-          if [ $? -eq 0 ]; then
-            sudo unzip -o /tmp/chromedriver.zip -d /tmp/
-            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/ 2>/dev/null || sudo mv /tmp/chromedriver /usr/local/bin/
-            sudo chmod +x /usr/local/bin/chromedriver
-            echo "✅ GitHub 릴리즈 설치 성공"
-            return 0
-          fi
-          
-          # 방법 3: webdriver-manager 사용 (최후 수단)
-          echo "📡 webdriver-manager 사용 (최후 수단)"
-          pip install webdriver-manager
-          cat <<EOF | python3
-from webdriver_manager.chrome import ChromeDriverManager
-import shutil
-import os
+        fi
 
-try:
-    chromedriver_path = ChromeDriverManager().install()
-    shutil.copy(chromedriver_path, '/usr/local/bin/chromedriver')
-    os.chmod('/usr/local/bin/chromedriver', 0o755)
-    print('✅ webdriver-manager 설치 성공')
-except Exception as e:
-    print(f'❌ webdriver-manager 설치 실패: {e}')
-    exit(1)
-EOF
-from webdriver_manager.chrome import ChromeDriverManager
-import shutil
-import os
-
-try:
-    chromedriver_path = ChromeDriverManager().install()
-    shutil.copy(chromedriver_path, '/usr/local/bin/chromedriver')
-    os.chmod('/usr/local/bin/chromedriver', 0o755)
-    print('✅ webdriver-manager 설치 성공')
-except Exception as e:
-    print(f'❌ webdriver-manager 설치 실패: {e}')
-    exit(1)
-"
-          if [ $? -eq 0 ]; then
-            echo "✅ webdriver-manager 설치 성공"
-            return 0
-          fi
-          
-          echo "❌ 모든 ChromeDriver 설치 방법 실패"
-          return 1
-        }
-        
-        # ChromeDriver 설치 실행
-        install_chromedriver
-        
-        # 설치 확인
-        if command -v chromedriver &> /dev/null; then
-          CHROMEDRIVER_VERSION=$(chromedriver --version)
-          echo "✅ ChromeDriver 설치 완료: $CHROMEDRIVER_VERSION"
-        else
-          echo "❌ ChromeDriver 설치 실패"
+        if [ "$INSTALL_SUCCESS" != "true" ]; then
+          echo "❌ ChromeDriver 설치 최종 실패"
           exit 1
         fi
-        
-        # 권한 및 경로 확인
-        echo "🔍 ChromeDriver 상태 확인:"
-        ls -la /usr/local/bin/chromedriver
-        which chromedriver
+
+        echo "🎉 ChromeDriver 설치 완료!"
+        google-chrome --version
         chromedriver --version
-        
-        echo "✅ Chrome 및 ChromeDriver 설치 완료"
+        echo "경로: $(which chromedriver)"
+
 
     - name: 📦 Install Python dependencies
       run: |
-        echo "=== Python 의존성 설치 ==="
+        echo "=== Python 의존성 설치 시작 ==="
         python -m pip install --upgrade pip
-        
-        if [ -f requirements.txt ]; then
-          echo "📋 requirements.txt 사용"
-          pip install -r requirements.txt
-        else
-          echo "📋 기본 패키지 설치"
-          pip install requests beautifulsoup4 selenium webdriver-manager lxml deep-translator python-dateutil
-        fi
-        
+        pip install -r requirements.txt
         echo "✅ Python 의존성 설치 완료"
 
-    - name: 🔍 Environment Check
+    - name: ⚙️ Check environment
       run: |
-        echo "=== 환경 점검 ==="
-        echo "🐍 Python: $(python --version)"
-        echo "🌐 Chrome: $(google-chrome --version)"
-        echo "🔧 ChromeDriver: $(chromedriver --version)"
-        echo "📅 현재 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-        echo "🎯 크롤링 모드: $CRAWL_MODE"
-        echo "🔄 강제 리포트: $FORCE_REPORT"
-        echo "🐛 디버그 모드: $DEBUG_MODE"
-        
-        # 디스코드 웹훅 확인
-        if [ -n "$DISCORD_WEBHOOK_REPORT" ]; then
-          echo "✅ DISCORD_WEBHOOK_REPORT 설정됨"
-        else
-          echo "⚠️ DISCORD_WEBHOOK_REPORT 미설정"
-        fi
-        
-        if [ -n "$DISCORD_WEBHOOK_SENTIMENT" ]; then
-          echo "✅ DISCORD_WEBHOOK_SENTIMENT 설정됨"
-        else
-          echo "⚠️ DISCORD_WEBHOOK_SENTIMENT 미설정"
-        fi
-        
+        echo "=== 환경 점검 === "
+        echo "Python 버전: $(python --version)"
+        echo "Chrome 버전: $(google-chrome --version)"
+        echo "ChromeDriver 버전: $(chromedriver --version)"
+        echo "현재 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "크롤링 모드: $CRAWL_MODE"
+        echo "강제 리포트: $FORCE_REPORT"
+        echo "디버그 모드: $DEBUG_MODE"
+        if [ -z "$DISCORD_WEBHOOK_REPORT" ]; then echo "⚠️ DISCORD_WEBHOOK_REPORT 환경변수 미설정"; fi
+        if [ -z "$DISCORD_WEBHOOK_SENTIMENT" ]; then echo "⚠️ DISCORD_WEBHOOK_SENTIMENT 환경변수 미설정"; fi
+        if [ -z "$DISCORD_WEBHOOK_BUG" ]; then echo "⚠️ DISCORD_WEBHOOK_BUG 환경변수 미설정"; fi
         echo "✅ 환경 점검 완료"
 
-    - name: 🔄 Pre-report Data Collection
+    - name: 📊 Pre-report Data Collection
       run: |
-        echo "=== 사전 데이터 수집 ==="
+        echo "=== 사전 리포트 데이터 수집 시작 === "
+        if [ "$DEBUG_MODE" == "true" ]; then
+          echo "✅ 디버그 모드 활성화"
+        fi
         
-        # 기존 데이터 백업
+        # 기존 sentiment_data.json 백업 (안정성을 위해)
         if [ -f "sentiment_data.json" ]; then
           cp sentiment_data.json sentiment_data_backup.json
           echo "📂 sentiment_data.json 백업 완료"
         fi
-        
-        # 데이터 수집을 위한 임시 크롤링
-        python -c "
-import sys
-sys.path.append('.')
 
-try:
-    from crawler import crawl_korean_sites, crawl_global_sites
-    from classifier import classify_post
-    import json
-    from datetime import datetime, timedelta
-    
-    print('🔍 사전 데이터 수집 시작...')
-    
-    # 모드별 데이터 수집
-    all_posts = []
-    
-    if '$CRAWL_MODE' in ['korean', 'all']:
-        print('🇰🇷 한국 사이트 데이터 수집...')
-        korean_posts = crawl_korean_sites('korean')
-        all_posts.extend(korean_posts)
-        print(f'✅ 한국 사이트: {len(korean_posts)}개 게시글')
-    
-    if '$CRAWL_MODE' in ['global', 'all']:
-        print('🌍 글로벌 사이트 데이터 수집...')
-        global_posts = crawl_global_sites('global')
-        all_posts.extend(global_posts)
-        print(f'✅ 글로벌 사이트: {len(global_posts)}개 게시글')
-    
-    print(f'📊 총 수집 게시글: {len(all_posts)}개')
-    
-    # 감성 데이터 분류
-    sentiment_data = {'positive': [], 'negative': [], 'bug': [], 'neutral': []}
-    
-    for post in all_posts:
-        try:
-            classification = classify_post(post.get('title', ''))
-            sentiment_data[classification].append(post)
-        except Exception as e:
-            print(f'⚠️ 게시글 분류 실패: {e}')
-            sentiment_data['neutral'].append(post)
-    
-    # 결과 저장
-    with open('daily_report_data.json', 'w', encoding='utf-8') as f:
-        json.dump(sentiment_data, f, ensure_ascii=False, indent=2)
-    
-    print(f'✅ 감성 분석 완료:')
-    print(f'   긍정: {len(sentiment_data[\"positive\"])}개')
-    print(f'   부정: {len(sentiment_data[\"negative\"])}개')
-    print(f'   버그: {len(sentiment_data[\"bug\"])}개')
-    print(f'   중립: {len(sentiment_data[\"neutral\"])}개')
-    
-except Exception as e:
-    print(f'❌ 사전 데이터 수집 실패: {e}')
-    import traceback
-    traceback.print_exc()
-    exit(1)
-"
+        # 일일 리포트용 데이터 수집 및 감성 분류
+        python generate_report.py --mode "$CRAWL_MODE" --force_crawl "$FORCE_REPORT" --debug_mode "$DEBUG_MODE"
         
-        echo "✅ 사전 데이터 수집 완료"
-
-    - name: 📊 Generate Daily Report
-      run: |
-        echo "=== 일일 리포트 생성 ==="
-        
-        # 리포트 생성 실행
-        python -c "
-import sys
-sys.path.append('.')
-
-try:
-    from generate_report import generate_daily_report
-    from datetime import datetime
-    
-    print('📊 일일 리포트 생성 시작...')
-    
-    # 리포트 생성
-    report_data = generate_daily_report(
-        mode='$CRAWL_MODE',
-        force_report=('$FORCE_REPORT' == 'true'),
-        debug_mode=('$DEBUG_MODE' == 'true')
-    )
-    
-    if report_data:
-        print('✅ 일일 리포트 생성 성공')
-        print(f'📋 리포트 데이터: {len(report_data)}개 항목')
-    else:
-        print('⚠️ 리포트 데이터가 없습니다.')
-    
-except Exception as e:
-    print(f'❌ 일일 리포트 생성 실패: {e}')
-    import traceback
-    traceback.print_exc()
-    
-    # 폴백: 기본 리포트 생성
-    print('🔄 기본 리포트 생성 시도...')
-    try:
-        import json
-        from datetime import datetime
-        
-        with open('daily_report_data.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        # 기본 리포트 생성
-        report = {
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'total_posts': sum(len(posts) for posts in data.values()),
-            'positive_posts': len(data.get('positive', [])),
-            'negative_posts': len(data.get('negative', [])),
-            'bug_posts': len(data.get('bug', [])),
-            'neutral_posts': len(data.get('neutral', []))
-        }
-        
-        print('✅ 기본 리포트 생성 성공')
-        print(f'📊 리포트 요약: {report}')
-        
-    except Exception as e2:
-        print(f'❌ 기본 리포트 생성도 실패: {e2}')
-        exit(1)
-"
-        
-        echo "✅ 일일 리포트 생성 완료"
-
-    - name: 📤 Send Discord Report
-      run: |
-        echo "=== Discord 리포트 전송 ==="
-        
-        if [ -z "$DISCORD_WEBHOOK_REPORT" ]; then
-          echo "⚠️ DISCORD_WEBHOOK_REPORT가 설정되지 않음"
-          exit 0
-        fi
-        
-        # Discord 리포트 전송
-        python -c "
-import sys
-sys.path.append('.')
-
-try:
-    from notifier import send_daily_report
-    import json
-    from datetime import datetime
-    
-    print('📤 Discord 리포트 전송 시작...')
-    
-    # 리포트 데이터 로드
-    with open('daily_report_data.json', 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    
-    # Discord 전송
-    result = send_daily_report(data, debug_mode=('$DEBUG_MODE' == 'true'))
-    
-    if result:
-        print('✅ Discord 리포트 전송 성공')
-    else:
-        print('❌ Discord 리포트 전송 실패')
-        exit(1)
-    
-except Exception as e:
-    print(f'❌ Discord 리포트 전송 실패: {e}')
-    import traceback
-    traceback.print_exc()
-    exit(1)
-"
-        
-        echo "✅ Discord 리포트 전송 완료"
-
-    - name: 📋 Upload Debug Files
-      if: github.event.inputs.debug_mode == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: daily-report-debug-${{ github.run_number }}
-        path: |
-          daily_report_data.json
-          sentiment_data.json
-          *debug*.html
-          *debug*.log
-        retention-days: 7
-
-    - name: 💾 Commit Report Data
-      run: |
-        echo "=== 리포트 데이터 커밋 ==="
-        git config --global user.email "epic7-daily@github.com"
-        git config --global user.name "Epic7 Daily Reporter"
-        
-        # 변경사항 추가
-        git add -A
-        
-        if git diff --staged --quiet; then
-          echo "📂 변경사항이 없습니다."
+        if [ $? -eq 0 ]; then
+          echo "✅ 사전 리포트 데이터 수집 및 감성 분류 완료"
         else
-          # 커밋 메시지 생성
-          COMMIT_MSG="📊 Daily Report - $(date '+%Y-%m-%d %H:%M KST')"
-          if [ "$DEBUG_MODE" == "true" ]; then
-            COMMIT_MSG="$COMMIT_MSG (DEBUG)"
-          fi
+          echo "❌ 사전 리포트 데이터 수집 및 감성 분류 실패"
+          exit 1
+        fi
+
+    - name: 📝 Generate Report and Send to Discord
+      run: |
+        echo "=== 리포트 생성 및 전송 === "
+        python generate_report.py
+        if [ $? -eq 0 ]; then
+          echo "✅ 일일 리포트 생성 및 전송 완료"
+        else
+          echo "❌ 일일 리포트 생성 및 전송 실패"
+          exit 1
+        fi
+
+    - name: 💾 Commit and Push Report Data
+      if: success()
+      run: |
+        echo "=== 리포트 데이터 커밋 및 푸시 === "
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        if git diff --quiet --exit-code; then
+          echo "변경사항 없음. 스킵합니다."
+        else
+          git add sentiment_data.json crawled_links_korean.json crawled_links_global.json daily_report_data.json content_cache_korean.json content_cache_global.json
+          git commit -m "📊 Daily Report Update: $(date '+%Y-%m-%d %H:%M')" || echo "커밋할 변경사항 없음"
           
-          git commit -m "$COMMIT_MSG"
-          
-          # 푸시 재시도 로직
-          for i in {1..3}; do
-            echo "📤 푸시 시도 $i/3"
+          # 3번 재시도
+          for i in 1 2 3; do
             if git push origin main; then
               echo "✅ Git 푸시 성공"
               break
@@ -449,11 +258,13 @@ except Exception as e:
     - name: 🔄 Cleanup and Restore
       if: always()
       run: |
-        echo "=== 정리 및 복원 ==="
+        echo "=== 정리 및 복원 === "
         
         # 임시 파일 정리
         rm -f /tmp/chromedriver.zip
-        rm -f /tmp/chromedriver_url.txt
+        rm -rf /usr/local/bin/chromedriver-linux64/ # 변경된 경로 처리
+        rm -f /tmp/chrome-linux.zip
+        rm -rf /opt/chrome-linux/
         rm -f daily_report_data.json
         
         # 백업 파일 복원
@@ -471,19 +282,8 @@ except Exception as e:
     - name: 📈 Final Report Summary
       if: always()
       run: |
-        echo "=== 최종 리포트 요약 ==="
+        echo "=== 최종 리포트 요약 === "
         echo "📅 실행 날짜: $(date '+%Y-%m-%d %H:%M:%S %Z')"
         echo "🎯 크롤링 모드: $CRAWL_MODE"
-        echo "🔄 강제 리포트: $FORCE_REPORT"
-        echo "🐛 디버그 모드: $DEBUG_MODE"
-        echo "⚡ 작업 상태: ${{ job.status }}"
-        echo "🚀 워크플로우 번호: ${{ github.run_number }}"
-        echo "🔗 실행 ID: ${{ github.run_id }}"
-        
-        # 메모리 및 디스크 사용량
-        echo "💾 메모리 사용량:"
-        free -h
-        echo "💿 디스크 사용량:"
-        df -h
-        
-        echo "✅ Epic7 일일 리포트 워크플로우 완료"
+        echo "📊 리포트 생성 완료!"
+        echo "==========================================="

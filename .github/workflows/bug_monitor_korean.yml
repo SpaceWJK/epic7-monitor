@@ -36,6 +36,8 @@ jobs:
       DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
       DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
       DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+      DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+      TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
 
     steps:
     - name: 📥 Checkout repository
@@ -50,90 +52,122 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: 🌐 Install Chrome and ChromeDriver (Chrome 138 호환)
+    - name: 🌐 Install Chrome and ChromeDriver (Chrome for Testing 기반)
       run: |
-        echo "=== Chrome 및 ChromeDriver 설치 시작 ==="
+        echo "=== Chrome과 ChromeDriver 설치 시작 ==="
+        
         sudo apt-get update -y
-        sudo apt-get install -y google-chrome-stable
-
-        CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-        CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
-        echo "✅ Chrome 버전: $CHROME_VERSION (Major: $CHROME_MAJOR_VERSION)"
+        sudo apt-get install -y --no-install-recommends \
+          fonts-liberation \
+          libasound2 \
+          libatk-bridge2.0-0 \
+          libatspi2.0-0 \
+          libcups2 \
+          libdrm-dev \
+          libgbm-dev \
+          libglib2.0-0 \
+          libnspr4 \
+          libnss3 \
+          libxcomposite1 \
+          libxdamage1 \
+          libxext6 \
+          libxfixes3 \
+          libxkbcommon0 \
+          libxrandr2 \
+          libxshmfence6 \
+          libxtst6 \
+          xdg-utils \
+          wget
 
         INSTALL_SUCCESS=false
 
-        echo "🔄 방법 1: Chrome for Testing API 사용"
-        CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json" | \
-          python3 -c "import sys, json; data=json.load(sys.stdin); print(data['channels']['Stable']['downloads']['chromedriver'][0]['url'])" 2>/dev/null || echo "")
-        if [ -n "$CHROMEDRIVER_URL" ] && [ "$CHROMEDRIVER_URL" != "null" ]; then
-          wget -O /tmp/chromedriver.zip "$CHROMEDRIVER_URL"
-          if [ -s "/tmp/chromedriver.zip" ]; then
-            sudo unzip -o /tmp/chromedriver.zip -d /tmp/
-            sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver 2>/dev/null || \
-            sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
-            sudo chmod +x /usr/local/bin/chromedriver
-            if chromedriver --version >/dev/null 2>&1; then
-              echo "✅ 방법 1 성공"
-              INSTALL_SUCCESS=true
-            fi
-          fi
-        fi
-
-        if [ "$INSTALL_SUCCESS" != "true" ]; then
-          echo "🔄 방법 2: GitHub Release 직접 다운로드"
-          case $CHROME_MAJOR_VERSION in
-            "138"|"139"|"140") CHROMEDRIVER_VERSION="138.0.6993.88" ;;
-            "137") CHROMEDRIVER_VERSION="137.0.6916.107" ;;
-            "136") CHROMEDRIVER_VERSION="136.0.6877.63" ;;
-            *) CHROMEDRIVER_VERSION="138.0.6993.88" ;;
-          esac
-          echo "🎯 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
-
-          DOWNLOAD_URLS=(
-            "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip"
-            "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
-          )
-
-          for url in "${DOWNLOAD_URLS[@]}"; do
-            echo "🔗 시도: $url"
-            if wget -q -O /tmp/chromedriver.zip "$url"; then
-              if [ -s "/tmp/chromedriver.zip" ]; then
-                sudo unzip -o /tmp/chromedriver.zip -d /tmp/
-                sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver 2>/dev/null || \
-                sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
-                sudo chmod +x /usr/local/bin/chromedriver
-                if chromedriver --version >/dev/null 2>&1; then
-                  echo "✅ 방법 2 성공"
-                  INSTALL_SUCCESS=true
-                  break
-                fi
-              fi
-            fi
-          done
-        fi
-
-        if [ "$INSTALL_SUCCESS" != "true" ]; then
-          echo "🔄 방법 3: 패키지 매니저 시도"
-          sudo apt-get install -y chromium-chromedriver || true
-          if [ -f "/usr/bin/chromedriver" ]; then
-            sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
-            sudo chmod +x /usr/local/bin/chromedriver
-            if chromedriver --version >/dev/null 2>&1; then
-              echo "✅ 방법 3 성공"
-              INSTALL_SUCCESS=true
-            fi
-          fi
-        fi
-
-        if [ "$INSTALL_SUCCESS" = "true" ]; then
-          echo "🎉 ChromeDriver 설치 완료!"
-          echo "📋 Chrome 버전: $(google-chrome --version)"
-          echo "📋 ChromeDriver 버전: $(chromedriver --version)"
-          echo "📋 경로: $(which chromedriver)"
+        echo "📋 방법 1: Chrome for Testing API 사용 (권장)"
+        if chrome_version_output=$(google-chrome --version 2>&1); then
+          CURRENT_CHROME_MAJOR_VERSION=$(echo "$chrome_version_output" | sed -E 's/Google Chrome ([0-9]+)\..*/\1/')
+          echo "현재 설치된 Chrome Major Version: $CURRENT_CHROME_MAJOR_VERSION"
         else
-          echo "❌ 설치 실패"
+          CURRENT_CHROME_MAJOR_VERSION=""
+          echo "Chrome이 설치되어 있지 않거나 버전을 확인할 수 없습니다. 최신 버전을 시도합니다."
+        fi
+
+        if [ -n "$CURRENT_CHROME_MAJOR_VERSION" ]; then
+          LATEST_DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+            python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['version'])" | \
+            awk -F'.' '{print $1}')
+          
+          if [ -n "$LATEST_DRIVER_VERSION" ]; then
+            CHROME_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chrome-linux'][0]['url'])")
+            
+            CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chromedriver-linux64'][0]['url'])")
+            
+            if [ -n "$CHROME_URL" ] && [ -n "$CHROMEDRIVER_URL" ]; then
+              echo "Chrome 다운로드: $CHROME_URL"
+              echo "ChromeDriver 다운로드: $CHROMEDRIVER_URL"
+
+              wget -q "$CHROME_URL" -O /tmp/chrome-linux.zip
+              sudo unzip -qq /tmp/chrome-linux.zip -d /opt/
+              sudo ln -sf /opt/chrome-linux/chrome /usr/local/bin/google-chrome
+              sudo chmod +x /usr/local/bin/google-chrome
+              
+              wget -q "$CHROMEDRIVER_URL" -O /tmp/chromedriver.zip
+              sudo unzip -qq /tmp/chromedriver.zip -d /usr/local/bin/
+              sudo mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+              sudo chmod +x /usr/local/bin/chromedriver
+
+              if google-chrome --version >/dev/null 2>&1 && chromedriver --version >/dev/null 2>&1; then
+                echo "✅ 방법 1 성공: Chrome for Testing API를 통한 설치"
+                INSTALL_SUCCESS=true
+              else
+                echo "❌ 방법 1 실패: 설치는 되었으나 버전 확인 실패"
+              fi
+            else
+              echo "❌ 방법 1 실패: Chrome 또는 ChromeDriver URL을 찾을 수 없음"
+            fi
+          else
+            echo "❌ 방법 1 실패: 최신 Chrome Major Version을 찾을 수 없음"
+          fi
+        else
+          echo "현재 Chrome 버전 확인 불가. 강제 설치 시도."
+          CHROME_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+              python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chrome-linux'][0]['url'])")
+          
+          CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-int.json" | \
+            python3 -c "import sys, json; print(json.load(sys.stdin)['channels']['Stable']['downloads']['chromedriver-linux64'][0]['url'])")
+
+          if [ -n "$CHROME_URL" ] && [ -n "$CHROMEDRIVER_URL" ]; then
+            echo "Chrome 다운로드: $CHROME_URL"
+            echo "ChromeDriver 다운로드: $CHROMEDRIVER_URL"
+
+            wget -q "$CHROME_URL" -O /tmp/chrome-linux.zip
+            sudo unzip -qq /tmp/chrome-linux.zip -d /opt/
+            sudo ln -sf /opt/chrome-linux/chrome /usr/local/bin/google-chrome
+            sudo chmod +x /usr/local/bin/google-chrome
+            
+            wget -q "$CHROMEDRIVER_URL" -O /tmp/chromedriver.zip
+            sudo unzip -qq /tmp/chromedriver.zip -d /usr/local/bin/
+            sudo mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+            sudo chmod +x /usr/local/bin/chromedriver
+
+            if google-chrome --version >/dev/null 2>&1 && chromedriver --version >/dev/null 2>&1; then
+              echo "✅ 방법 1 성공: Chrome for Testing API를 통한 설치"
+              INSTALL_SUCCESS=true
+            else
+              echo "❌ 방법 1 실패: 설치는 되었으나 버전 확인 실패"
+            fi
+          fi
+        fi
+
+        if [ "$INSTALL_SUCCESS" != "true" ]; then
+          echo "❌ ChromeDriver 설치 최종 실패"
           exit 1
         fi
+
+        echo "🎉 ChromeDriver 설치 완료!"
+        google-chrome --version
+        chromedriver --version
+        echo "경로: $(which chromedriver)"
 
     - name: 📦 Install Python dependencies
       run: |
@@ -144,8 +178,8 @@ jobs:
       run: |
         echo "=== 한국 사이트 모니터링 시작 ==="
         echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-        echo "ARGS: --mode korean --debug"
-        echo "시작" && python monitor_bugs.py --mode korean --debug
+        echo "ARGS: --mode korean ${{ env.DEBUG_MODE == 'true' && '--debug' || '' }} ${{ env.TEST_MODE == 'true' && '--test' || '' }}"
+        python monitor_bugs.py --mode korean ${{ env.DEBUG_MODE == 'true' && '--debug' || '' }} ${{ env.TEST_MODE == 'true' && '--test' || '' }}
         echo "완료"
 
     - name: 📊 결과 업로드
@@ -160,16 +194,21 @@ jobs:
         retention-days: 7
 
     - name: 📤 Discord 알림 전송
-      if: failure()
+      if: failure() && env.DISCORD_WEBHOOK_BUG
       run: |
         if [ ! -z "$DISCORD_WEBHOOK_BUG" ]; then
           curl -H "Content-Type: application/json" \
                -X POST \
-               -d "{\"content\": \"🚨 **한국 사이트 모니터링 실패**\\n\\n**시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')\\n**상태:** 실패\\n**로그:** GitHub Actions에서 확인 가능\"}" \
-               "$DISCORD_WEBHOOK_BUG"
+               -d "{\"embeds\":[{\"title\":\"❌ 한국 버그 모니터링 실패\",\"description\":\"한국 버그 모니터링 워크플로우에 오류가 발생했습니다. 자세한 내용은 GitHub Actions 로그를 확인해주세요.\",\"color\":15548997,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"}]}" \
+               ${{ secrets.DISCORD_WEBHOOK_BUG }}
         fi
-
-    - name: 🏁 모니터링 완료
+      
+    - name: 🔄 Cleanup
+      if: always()
       run: |
-        echo "한국 사이트 모니터링 완료"
-        echo "상태: ${{ job.status == 'success' && '성공' || '실패' }}"
+        echo "=== 정리 === "
+        rm -f /tmp/chromedriver.zip
+        rm -rf /usr/local/bin/chromedriver-linux64/
+        rm -f /tmp/chrome-linux.zip
+        rm -rf /opt/chrome-linux/
+        echo "✅ 정리 완료"
