@@ -1,384 +1,374 @@
-name: Epic Seven Monitor Health Check
+name: 🏥 Epic7 Health Check (Optimized v3.1)
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"  # 6시간마다 실행
   workflow_dispatch:
     inputs:
-      full_check:
-        description: 'Run full system check'
-        required: false
-        default: 'false'
-        type: boolean
       debug_mode:
-        description: 'Enable debug mode'
+        description: 'Enable verbose debug logging'
         required: false
         default: 'false'
         type: boolean
+      check_level:
+        description: 'Health check depth'
+        required: false
+        default: 'basic'
+        type: choice
+        options:
+          - basic
+          - full
+          - system
+  schedule:
+    # 매 6시간마다 정기적으로 실행 (UTC 기준)
+    - cron: '0 */6 * * *'
+
+env:
+  TZ: Asia/Seoul
+  DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+  CHECK_LEVEL: ${{ github.event.inputs.check_level || 'basic' }}
 
 jobs:
-  health-check:
+  health-check-optimized:
+    name: 🩺 System Health Check
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    env:
-      TZ: Asia/Seoul
-      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-      DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-
+    timeout-minutes: 10  # 빠른 체크를 위해 10분으로 제한
+    
     steps:
-      - name: 📥 Checkout repository
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🐍 Set up Python
+      - name: 🐍 Setup Python (Minimal)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 🌐 Install Chrome and ChromeDriver (Chrome 138 호환)
+      - name: 📦 Install Essential Dependencies
         run: |
-          echo "=== Chrome 및 ChromeDriver 설치 (Chrome 138 호환) ==="
+          echo "📦 Installing essential dependencies for health check..."
           
-          # Chrome 설치
-          sudo apt-get update -y
-          sudo apt-get install -y google-chrome-stable
+          # 헬스체크에 필요한 최소 패키지만 설치
+          python -m pip install --upgrade pip --quiet
+          pip install --quiet psutil requests
           
-          # Chrome 버전 확인
-          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
-          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
-          echo "✅ Chrome 버전: $CHROME_VERSION (Major: $CHROME_MAJOR_VERSION)"
-          
-          # ChromeDriver 설치 (3단계 폴백 방식)
-          echo "=== ChromeDriver 설치 시작 ==="
-          INSTALL_SUCCESS=false
-          
-          # 방법 1: Chrome for Testing API 사용 (권장)
-          echo "🔄 방법 1: Chrome for Testing API 사용"
-          if curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" | grep -q "chromedriver"; then
-            # 최신 stable 버전 URL 획득
-            CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json" | \
-              python3 -c "import sys, json; data=json.load(sys.stdin); print(data['channels']['Stable']['downloads']['chromedriver'][0]['url'])" 2>/dev/null || echo "")
-            
-            if [ -n "$CHROMEDRIVER_URL" ] && [ "$CHROMEDRIVER_URL" != "null" ]; then
-              echo "🔗 ChromeDriver URL: $CHROMEDRIVER_URL"
-              wget -O /tmp/chromedriver.zip "$CHROMEDRIVER_URL"
-              
-              if [ -f "/tmp/chromedriver.zip" ] && [ -s "/tmp/chromedriver.zip" ]; then
-                sudo unzip -o /tmp/chromedriver.zip -d /tmp/
-                sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver 2>/dev/null || \
-                sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
-                sudo chmod +x /usr/local/bin/chromedriver
-                
-                if chromedriver --version >/dev/null 2>&1; then
-                  echo "✅ 방법 1 성공: ChromeDriver 설치 완료"
-                  INSTALL_SUCCESS=true
-                fi
-              fi
-            fi
-          fi
-          
-          # 방법 2: 직접 다운로드 (GitHub Release)
-          if [ "$INSTALL_SUCCESS" != "true" ]; then
-            echo "🔄 방법 2: GitHub Release 직접 다운로드"
-            
-            # Chrome 버전에 맞는 ChromeDriver 버전 찾기
-            case $CHROME_MAJOR_VERSION in
-              "138"|"139"|"140")
-                CHROMEDRIVER_VERSION="138.0.6993.88"
-                ;;
-              "137")
-                CHROMEDRIVER_VERSION="137.0.6916.107"
-                ;;
-              "136")
-                CHROMEDRIVER_VERSION="136.0.6877.63"
-                ;;
-              *)
-                CHROMEDRIVER_VERSION="138.0.6993.88"  # 기본값
-                ;;
-            esac
-            
-            echo "🎯 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
-            
-            # 여러 다운로드 URL 시도
-            DOWNLOAD_URLS=(
-              "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip"
-              "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
-              "https://github.com/GoogleChromeLabs/chrome-for-testing/releases/download/$CHROMEDRIVER_VERSION/chromedriver-linux64.zip"
-            )
-            
-            for url in "${DOWNLOAD_URLS[@]}"; do
-              echo "🔗 시도: $url"
-              if wget -q -O /tmp/chromedriver.zip "$url"; then
-                if [ -f "/tmp/chromedriver.zip" ] && [ -s "/tmp/chromedriver.zip" ]; then
-                  sudo unzip -o /tmp/chromedriver.zip -d /tmp/
-                  sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver 2>/dev/null || \
-                  sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
-                  sudo chmod +x /usr/local/bin/chromedriver
-                  
-                  if chromedriver --version >/dev/null 2>&1; then
-                    echo "✅ 방법 2 성공: ChromeDriver 다운로드 완료"
-                    INSTALL_SUCCESS=true
-                    break
-                  fi
-                fi
-              fi
-            done
-          fi
-          
-          # 방법 3: 패키지 매니저 사용 (최후 수단)
-          if [ "$INSTALL_SUCCESS" != "true" ]; then
-            echo "🔄 방법 3: 패키지 매니저 사용"
-            
-            # apt 패키지 시도
-            sudo apt-get update -y
-            sudo apt-get install -y chromium-chromedriver 2>/dev/null || true
-            
-            if [ -f "/usr/bin/chromedriver" ]; then
-              sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
-              sudo chmod +x /usr/local/bin/chromedriver
-              
-              if chromedriver --version >/dev/null 2>&1; then
-                echo "✅ 방법 3 성공: APT ChromeDriver 설치"
-                INSTALL_SUCCESS=true
-              fi
-            fi
-          fi
-          
-          # 설치 결과 확인
-          if [ "$INSTALL_SUCCESS" = "true" ]; then
-            echo "🎉 ChromeDriver 설치 완료!"
-            echo "📋 Chrome 버전: $(google-chrome --version)"
-            echo "📋 ChromeDriver 버전: $(chromedriver --version)"
-            echo "📋 ChromeDriver 경로: $(which chromedriver)"
-          else
-            echo "❌ ChromeDriver 설치 실패"
-            echo "🔍 시스템 정보:"
-            echo "   - Chrome: $(google-chrome --version)"
-            echo "   - 시스템: $(uname -a)"
-            echo "   - 아키텍처: $(dpkg --print-architecture)"
-            exit 1
-          fi
-          
-          # 임시 파일 정리
-          rm -f /tmp/chromedriver.zip
-          rm -rf /tmp/chromedriver-linux64/
-          
-          echo "✅ Chrome 및 ChromeDriver 설치 완료"
+          echo "✅ Essential dependencies installed"
 
-      - name: 📦 Install dependencies
+      - name: 🩺 Core System Health Check
+        id: health_check
         run: |
-          echo "=== Python 의존성 설치 시작 ==="
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt not found, installing basic dependencies"
-            pip install requests beautifulsoup4 selenium lxml deep-translator python-dateutil
-          fi
-          echo "✅ Python dependencies installed"
-
-      - name: 🧪 Run system health check
-        run: |
-          echo "=== 시스템 헬스체크 실행 ==="
-          echo "시간: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "🩺 Performing core system health check..."
           
-          # 기본 모듈 테스트
-          echo "🧪 기본 모듈 테스트"
-          python -c "import json, os, time, datetime, re, random, hashlib; print('✅ 기본 모듈 OK')"
-          python -c "import requests, bs4, selenium; print('✅ 외부 모듈 OK')"
-          python -c "from deep_translator import GoogleTranslator; print('✅ deep-translator OK')"
-          
-          # 프로젝트 모듈 테스트
-          echo "🧪 프로젝트 모듈 테스트"
-          if python -c "import crawler" 2>/dev/null; then
-            echo "✅ crawler 모듈 OK"
-          else
-            echo "⚠️ crawler 모듈 import 실패"
-          fi
-          
-          if python -c "import classifier" 2>/dev/null; then
-            echo "✅ classifier 모듈 OK"
-          else
-            echo "⚠️ classifier 모듈 import 실패"
-          fi
-          
-          if python -c "import notifier" 2>/dev/null; then
-            echo "✅ notifier 모듈 OK"
-          else
-            echo "⚠️ notifier 모듈 import 실패"
-          fi
-          
-          # 네트워크 연결 테스트
-          echo "🌐 네트워크 연결 테스트"
-          sites=("https://google.com" "https://page.onstove.com" "https://bbs.ruliweb.com")
-          for site in "${sites[@]}"; do
-            if curl -s --head --max-time 10 "$site" | grep -E "(200|301|302)" > /dev/null; then
-              echo "✅ $site - 연결 성공"
-            else
-              echo "⚠️ $site - 연결 실패"
-            fi
-          done
-          
-          # Selenium 드라이버 테스트
-          echo "🔧 Selenium 드라이버 테스트"
           python -c "
-import sys
-sys.path.append('.')
-try:
-  from crawler import get_chrome_driver
-  driver = get_chrome_driver()
-  driver.get('https://google.com')
-  print('✅ Selenium 드라이버 테스트 성공')
-  driver.quit()
-except Exception as e:
-  print(f'⚠️ Selenium 드라이버 테스트 실패: {e}')
-          " || echo "⚠️ Selenium 드라이버 테스트 중 오류 발생"
+          import psutil
+          import sys
+          import os
+          from datetime import datetime
           
-          echo "✅ 시스템 헬스체크 완료"
+          print('🏥 Epic7 System Health Check')
+          print(f'🕒 Check time: {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}')
+          print('=' * 50)
+          
+          # 1. 프로세스 검증 (수정된 부분)
+          target_processes = [
+              'monitor_bugs.py',
+              'epic7_integrated_monitoring_system.py',
+              'python'
+          ]
+          
+          processes_found = []
+          for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+              try:
+                  if proc.info['cmdline']:
+                      cmdline_str = ' '.join(proc.info['cmdline'])
+                      for target in target_processes:
+                          if target in cmdline_str and 'monitoring' in cmdline_str.lower():
+                              processes_found.append({
+                                  'pid': proc.info['pid'],
+                                  'name': proc.info['name'],
+                                  'cmdline': cmdline_str
+                              })
+                              break
+              except (psutil.NoSuchProcess, psutil.AccessDenied):
+                  continue
+          
+          if processes_found:
+              print('✅ HEALTHY: Active monitoring processes found:')
+              for proc in processes_found:
+                  print(f'   - PID {proc[\"pid\"]}: {proc[\"name\"]}')
+              health_status = 'HEALTHY'
+          else:
+              print('⚠️ WARNING: No active monitoring processes found')
+              print('   This may be normal if monitoring is scheduled-based')
+              health_status = 'WARNING'
+          
+          # 2. 시스템 리소스 체크
+          print('\\n🖥️ System Resources:')
+          
+          # 메모리
+          memory = psutil.virtual_memory()
+          print(f'   💾 Memory: {memory.percent}% used ({memory.used//1024//1024}MB/{memory.total//1024//1024}MB)')
+          
+          # 디스크
+          disk = psutil.disk_usage('/')
+          print(f'   💿 Disk: {disk.percent}% used ({disk.used//1024//1024//1024}GB/{disk.total//1024//1024//1024}GB)')
+          
+          # CPU
+          cpu_percent = psutil.cpu_percent(interval=1)
+          print(f'   🔥 CPU: {cpu_percent}% usage')
+          
+          # 3. 네트워크 연결 체크
+          print('\\n🌐 Network Connectivity:')
+          
+          import urllib.request
+          import socket
+          
+          test_urls = [
+              'https://google.com',
+              'https://page.onstove.com',
+              'https://discord.com'
+          ]
+          
+          network_ok = True
+          for url in test_urls:
+              try:
+                  urllib.request.urlopen(url, timeout=5)
+                  print(f'   ✅ {url} - OK')
+              except:
+                  print(f'   ❌ {url} - Failed')
+                  network_ok = False
+          
+          # 4. 파일 시스템 체크
+          print('\\n📁 File System:')
+          
+          important_files = [
+              'monitor_bugs.py',
+              'config.py',
+              'crawler.py',
+              'classifier.py',
+              'notifier.py'
+          ]
+          
+          files_ok = True
+          for file in important_files:
+              if os.path.exists(file):
+                  size = os.path.getsize(file)
+                  print(f'   ✅ {file} - {size} bytes')
+              else:
+                  print(f'   ❌ {file} - Missing')
+                  files_ok = False
+          
+          # 5. 전체 상태 결정
+          if health_status == 'HEALTHY' and network_ok and files_ok:
+              final_status = 'HEALTHY'
+              exit_code = 0
+          elif health_status == 'WARNING' and network_ok and files_ok:
+              final_status = 'WARNING'
+              exit_code = 0
+          else:
+              final_status = 'CRITICAL'
+              exit_code = 1
+          
+          print(f'\\n🏥 Overall Status: {final_status}')
+          
+          # 환경 변수로 상태 전달
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'health_status={final_status}\\n')
+              f.write(f'memory_usage={memory.percent}\\n')
+              f.write(f'disk_usage={disk.percent}\\n')
+              f.write(f'cpu_usage={cpu_percent}\\n')
+              f.write(f'processes_found={len(processes_found)}\\n')
+          
+          sys.exit(exit_code)
+          "
 
-      - name: 📊 Generate health report
+      - name: 🔍 Extended Health Check
+        if: env.CHECK_LEVEL == 'full' || env.CHECK_LEVEL == 'system'
         run: |
-          echo "=== 헬스체크 리포트 생성 ==="
+          echo "🔍 Performing extended health check..."
           
-          # 시스템 상태 수집
-          CHROME_VERSION=$(google-chrome --version 2>/dev/null || echo "N/A")
-          CHROMEDRIVER_VERSION=$(chromedriver --version 2>/dev/null || echo "N/A")
-          PYTHON_VERSION=$(python --version 2>/dev/null || echo "N/A")
-          MEMORY_INFO=$(free -h | grep Mem | awk '{print $3 "/" $2}')
-          DISK_INFO=$(df -h / | tail -1 | awk '{print $3 "/" $2}')
+          # 데이터 파일 체크
+          echo "📊 Data Files Check:"
+          data_files=("sentiment_data.json" "crawled_links.json" "monitoring_stats.json")
           
-          # 리포트 생성
-          cat > health_report.md << 'EOF'
-# Epic7 모니터링 시스템 헬스체크 리포트
-
-**생성 시간:** $(date '+%Y-%m-%d %H:%M:%S')
-
-## 🖥️ 시스템 정보
-- Chrome 버전: $CHROME_VERSION
-- ChromeDriver 버전: $CHROMEDRIVER_VERSION
-- Python 버전: $PYTHON_VERSION
-- 메모리 사용량: $MEMORY_INFO
-- 디스크 사용량: $DISK_INFO
-
-## 🔧 컴포넌트 상태
-- crawler.py: $([ -f "crawler.py" ] && echo "✅ 존재" || echo "❌ 없음")
-- classifier.py: $([ -f "classifier.py" ] && echo "✅ 존재" || echo "❌ 없음")
-- notifier.py: $([ -f "notifier.py" ] && echo "✅ 존재" || echo "❌ 없음")
-- monitor_bugs.py: $([ -f "monitor_bugs.py" ] && echo "✅ 존재" || echo "❌ 없음")
-
-## 📊 JSON 데이터 상태
-EOF
-          
-          for file in crawled_links*.json; do
+          for file in "${data_files[@]}"; do
             if [ -f "$file" ]; then
-              echo "- $file: ✅ 존재 (크기: $(stat -c%s "$file") bytes)" >> health_report.md
+              size=$(stat -c%s "$file")
+              modified=$(stat -c%y "$file")
+              echo "✅ $file - ${size} bytes, modified: ${modified}"
+            else
+              echo "⚠️ $file - Not found"
             fi
           done
           
-          echo "" >> health_report.md
-          echo "## 🎯 헬스체크 결과" >> health_report.md
-          echo "시스템이 정상적으로 작동하고 있습니다." >> health_report.md
-          
-          echo "📄 헬스체크 리포트 생성 완료"
+          # 로그 파일 체크
+          echo "📋 Log Files Check:"
+          find . -name "*.log" -mtime -1 | head -5 | while read log; do
+            if [ -f "$log" ]; then
+              echo "✅ $log - $(wc -l < "$log") lines"
+            fi
+          done
 
-      - name: 📤 Upload health report
-        uses: actions/upload-artifact@v4
-        with:
-          name: health-report-${{ github.run_number }}
-          path: |
-            health_report.md
-            *.json
-          retention-days: 3
-
-      - name: 📢 Send Discord notification
-        if: always()
+      - name: 📊 System Diagnostics
+        if: env.CHECK_LEVEL == 'system'
         run: |
-          echo "📡 Discord 알림 전송"
+          echo "📊 System diagnostics..."
           
-          # 실행 상태 확인
-          if [ "${{ job.status }}" == "success" ]; then
-            STATUS_EMOJI="✅"
-            STATUS_TEXT="성공"
-            STATUS_COLOR="3066993"
-          else
-            STATUS_EMOJI="❌"
-            STATUS_TEXT="실패"
-            STATUS_COLOR="15158332"
-          fi
+          # 시스템 정보
+          echo "🖥️ System Information:"
+          uname -a
           
-          # Discord 메시지 생성
-          DISCORD_MESSAGE=$(cat << 'EOF'
-{
-  "embeds": [
-    {
-      "title": "${STATUS_EMOJI} Epic7 모니터링 시스템 헬스체크",
-      "description": "시스템 상태 점검이 **${STATUS_TEXT}**했습니다.",
-      "color": ${STATUS_COLOR},
-      "fields": [
-        {
-          "name": "📅 실행 시간",
-          "value": "$(date '+%Y-%m-%d %H:%M:%S')",
-          "inline": true
-        },
-        {
-          "name": "🖥️ Chrome 버전",
-          "value": "$(google-chrome --version 2>/dev/null || echo 'N/A')",
-          "inline": true
-        },
-        {
-          "name": "🔧 ChromeDriver 버전",
-          "value": "$(chromedriver --version 2>/dev/null || echo 'N/A')",
-          "inline": true
-        },
-        {
-          "name": "💾 메모리 사용량",
-          "value": "$(free -h | grep Mem | awk '{print $3 "/" $2}')",
-          "inline": true
-        },
-        {
-          "name": "💿 디스크 사용량",
-          "value": "$(df -h / | tail -1 | awk '{print $3 "/" $2}')",
-          "inline": true
-        }
-      ],
-      "footer": {
-        "text": "Epic7 모니터링 시스템"
-      },
-      "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-    }
-  ]
-}
-EOF
-          )
+          # 프로세스 목록
+          echo "⚙️ Running Processes:"
+          ps aux --sort=-%mem | head -10
           
-          # Discord Webhook 전송
-          if [ ! -z "$DISCORD_WEBHOOK_REPORT" ]; then
+          # 네트워크 연결
+          echo "🌐 Network Connections:"
+          netstat -tuln | head -10
+
+      - name: 🎯 Health Check Success Notification
+        if: success() && steps.health_check.outputs.health_status == 'HEALTHY'
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            echo "📬 Sending health check success notification..."
+            
             curl -H "Content-Type: application/json" \
                  -X POST \
-                 -d "$DISCORD_MESSAGE" \
-                 "$DISCORD_WEBHOOK_REPORT" || echo "Discord 알림 전송 실패"
+                 -d "{
+                   \"embeds\": [{
+                     \"title\": \"✅ Epic7 System Health Check - HEALTHY\",
+                     \"description\": \"모든 시스템이 정상적으로 작동하고 있습니다.\",
+                     \"color\": 5763719,
+                     \"fields\": [
+                       {
+                         \"name\": \"🖥️ System Status\",
+                         \"value\": \"Memory: ${{ steps.health_check.outputs.memory_usage }}%\\nDisk: ${{ steps.health_check.outputs.disk_usage }}%\\nCPU: ${{ steps.health_check.outputs.cpu_usage }}%\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"⚙️ Processes\",
+                         \"value\": \"Active: ${{ steps.health_check.outputs.processes_found }}\\nStatus: Normal\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🕒 Check Time\",
+                         \"value\": \"$(date '+%Y-%m-%d %H:%M:%S %Z')\",
+                         \"inline\": false
+                       }
+                     ],
+                     \"footer\": {
+                       \"text\": \"Epic7 Health Check v3.1 (Optimized)\"
+                     }
+                   }]
+                 }" \
+                 "$DISCORD_WEBHOOK_BUG"
+            
+            echo "✅ Success notification sent"
           else
-            echo "DISCORD_WEBHOOK_REPORT 환경변수가 설정되지 않음"
+            echo "⚠️ Discord webhook not configured"
           fi
 
-      - name: 🔄 Cleanup
+      - name: ⚠️ Health Check Warning Notification
+        if: success() && steps.health_check.outputs.health_status == 'WARNING'
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            echo "📬 Sending health check warning notification..."
+            
+            curl -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "{
+                   \"embeds\": [{
+                     \"title\": \"⚠️ Epic7 System Health Check - WARNING\",
+                     \"description\": \"시스템이 작동하고 있지만 일부 모니터링 프로세스가 감지되지 않았습니다.\",
+                     \"color\": 16776960,
+                     \"fields\": [
+                       {
+                         \"name\": \"🖥️ System Status\",
+                         \"value\": \"Memory: ${{ steps.health_check.outputs.memory_usage }}%\\nDisk: ${{ steps.health_check.outputs.disk_usage }}%\\nCPU: ${{ steps.health_check.outputs.cpu_usage }}%\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"⚙️ Processes\",
+                         \"value\": \"Active: ${{ steps.health_check.outputs.processes_found }}\\nStatus: Warning\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🔗 Details\",
+                         \"value\": \"[워크플로우 로그 확인](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\",
+                         \"inline\": false
+                       }
+                     ],
+                     \"footer\": {
+                       \"text\": \"Epic7 Health Check v3.1 (Optimized)\"
+                     }
+                   }]
+                 }" \
+                 "$DISCORD_WEBHOOK_BUG"
+            
+            echo "✅ Warning notification sent"
+          else
+            echo "⚠️ Discord webhook not configured"
+          fi
+
+      - name: 🚨 Health Check Critical Notification
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            echo "📬 Sending health check critical notification..."
+            
+            curl -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "{
+                   \"content\": \"@here\",
+                   \"embeds\": [{
+                     \"title\": \"🚨 Epic7 System Health Check - CRITICAL\",
+                     \"description\": \"**시스템에 심각한 문제가 감지되었습니다!** 즉시 확인이 필요합니다.\",
+                     \"color\": 15548997,
+                     \"fields\": [
+                       {
+                         \"name\": \"🖥️ System Status\",
+                         \"value\": \"Memory: ${{ steps.health_check.outputs.memory_usage || 'N/A' }}%\\nDisk: ${{ steps.health_check.outputs.disk_usage || 'N/A' }}%\\nCPU: ${{ steps.health_check.outputs.cpu_usage || 'N/A' }}%\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"⚙️ Processes\",
+                         \"value\": \"Active: ${{ steps.health_check.outputs.processes_found || '0' }}\\nStatus: Critical\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🔗 Action Required\",
+                         \"value\": \"[워크플로우 로그 확인](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\\n[시스템 복구 가이드](https://github.com/${{ github.repository }}/wiki/System-Recovery)\",
+                         \"inline\": false
+                       }
+                     ],
+                     \"footer\": {
+                       \"text\": \"Epic7 Health Check v3.1 (Optimized) - URGENT\"
+                     }
+                   }]
+                 }" \
+                 "$DISCORD_WEBHOOK_BUG"
+            
+            echo "✅ Critical notification sent"
+          else
+            echo "⚠️ Discord webhook not configured"
+          fi
+
+      - name: 📊 Upload Health Check Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-check-report-${{ github.run_id }}
+          path: |
+            *.log
+            health_check_*.json
+          retention-days: 30
+
+      - name: 🧹 Cleanup
         if: always()
         run: |
-          echo "=== 정리 작업 시작 ==="
-          
-          # 임시 파일 정리
-          rm -f /tmp/chromedriver.zip
-          rm -rf /tmp/chromedriver-linux64/
-          
-          echo "✅ 정리 완료"
-          echo "=========================================="
-          echo "   Epic7 헬스체크 완료"
-          echo "=========================================="
-          echo "⏰ 완료 시간: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "🔧 Chrome Driver: $(chromedriver --version 2>/dev/null || echo 'N/A')"
-          echo "✅ 시스템 상태 점검이 완료되었습니다."
-          echo "=========================================="
+          echo "🧹 Cleaning up health check..."
+          echo "✅ Health check completed"

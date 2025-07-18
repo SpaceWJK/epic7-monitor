@@ -1,156 +1,164 @@
-name: Epic Seven Bug Monitor Dispatcher
+name: 🎮 Epic Seven Bug Monitor (Integrated v3.1)
 
 on:
   schedule:
+    # 15분마다 실행 (기존 기능 보존)
     - cron: "*/15 * * * *"
+
   workflow_dispatch:
     inputs:
-      mode:
-        description: 'Monitor mode (korean/global/all)'
-        required: false
-        default: 'korean'
-        type: choice
-        options:
-          - korean
-          - global
-          - all
       debug_mode:
-        description: 'Enable debug mode'
+        description: '🔍 Enable debug mode for detailed logging'
+        required: false
+        default: 'false'
+        type: boolean
+      force_crawl:
+        description: '🔄 Force crawl (ignore cache)'
         required: false
         default: 'false'
         type: boolean
 
+env:
+  TZ: Asia/Seoul
+  PYTHONUNBUFFERED: 1
+
 jobs:
-  # 한국 사이트 모니터링 워크플로우
-  korean-monitor:
-    if: ${{ inputs.mode == 'korean' || inputs.mode == 'all' || github.event_name == 'schedule' }}
-    uses: ./.github/workflows/bug_monitor_korean.yml
-    with:
-      debug_mode: ${{ inputs.debug_mode == 'true' }}
-      test_mode: false
-    secrets: inherit
-
-  # 글로벌 사이트 모니터링 워크플로우
-  global-monitor:
-    if: ${{ inputs.mode == 'global' || inputs.mode == 'all' }}
-    uses: ./.github/workflows/bug_monitor_global.yml
-    with:
-      debug_mode: ${{ inputs.debug_mode == 'true' }}
-      test_mode: false
-    secrets: inherit
-
-  # 결과 통합 및 종합 보고서
-  dispatcher-summary:
-    if: ${{ always() }}
-    needs: [korean-monitor, global-monitor]
+  integrated-monitor:
+    name: 🌐 Integrated Epic7 Monitor
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    
-    env:
-      TZ: Asia/Seoul
-      DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-    
+    timeout-minutes: 45
+
     steps:
-    - name: 📥 체크아웃
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: 📊 디스패처 결과 종합
-      run: |
-        echo "=== Epic7 Bug Monitor Dispatcher 결과 종합 ==="
-        echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-        echo "트리거: ${{ github.event_name }}"
-        echo "모드: ${{ inputs.mode || 'korean (scheduled)' }}"
-        echo "디버그 모드: ${{ inputs.debug_mode || 'false' }}"
-        echo ""
-        
-        # 한국 사이트 모니터링 결과
-        echo "🇰🇷 한국 사이트 모니터링 결과:"
-        if [ "${{ needs.korean-monitor.result }}" == "success" ]; then
-          echo "  ✅ 성공적으로 완료"
-        elif [ "${{ needs.korean-monitor.result }}" == "failure" ]; then
-          echo "  ❌ 실패"
-        elif [ "${{ needs.korean-monitor.result }}" == "skipped" ]; then
-          echo "  ⏭️ 건너뜀"
-        else
-          echo "  ⚠️ 알 수 없는 상태: ${{ needs.korean-monitor.result }}"
-        fi
-        
-        # 글로벌 사이트 모니터링 결과
-        echo "🌐 글로벌 사이트 모니터링 결과:"
-        if [ "${{ needs.global-monitor.result }}" == "success" ]; then
-          echo "  ✅ 성공적으로 완료"
-        elif [ "${{ needs.global-monitor.result }}" == "failure" ]; then
-          echo "  ❌ 실패"
-        elif [ "${{ needs.global-monitor.result }}" == "skipped" ]; then
-          echo "  ⏭️ 건너뜀"
-        else
-          echo "  ⚠️ 알 수 없는 상태: ${{ needs.global-monitor.result }}"
-        fi
-        
-        echo ""
-        echo "=== 디스패처 실행 완료 ==="
-    
-    - name: 📤 Discord 종합 보고서 전송
-      if: env.DISCORD_WEBHOOK_REPORT != ''
-      run: |
-        KOREAN_STATUS="${{ needs.korean-monitor.result }}"
-        GLOBAL_STATUS="${{ needs.global-monitor.result }}"
-        
-        # 상태 이모지 설정
-        if [ "$KOREAN_STATUS" == "success" ]; then
-          KOREAN_EMOJI="✅"
-        elif [ "$KOREAN_STATUS" == "failure" ]; then
-          KOREAN_EMOJI="❌"
-        elif [ "$KOREAN_STATUS" == "skipped" ]; then
-          KOREAN_EMOJI="⏭️"
-        else
-          KOREAN_EMOJI="⚠️"
-        fi
-        
-        if [ "$GLOBAL_STATUS" == "success" ]; then
-          GLOBAL_EMOJI="✅"
-        elif [ "$GLOBAL_STATUS" == "failure" ]; then
-          GLOBAL_EMOJI="❌"
-        elif [ "$GLOBAL_STATUS" == "skipped" ]; then
-          GLOBAL_EMOJI="⏭️"
-        else
-          GLOBAL_EMOJI="⚠️"
-        fi
-        
-        # Discord 메시지 생성
-        DISCORD_MESSAGE="{
-          \"embeds\": [{
-            \"title\": \"🎯 Epic7 Bug Monitor Dispatcher 결과\",
-            \"description\": \"**실행 시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')\\n**트리거:** ${{ github.event_name }}\\n**모드:** ${{ inputs.mode || 'korean (scheduled)' }}\\n**디버그:** ${{ inputs.debug_mode || 'false' }}\",
-            \"color\": 3447003,
-            \"fields\": [
-              {
-                \"name\": \"🇰🇷 한국 사이트 모니터링\",
-                \"value\": \"$KOREAN_EMOJI $KOREAN_STATUS\",
-                \"inline\": true
-              },
-              {
-                \"name\": \"🌐 글로벌 사이트 모니터링\",
-                \"value\": \"$GLOBAL_EMOJI $GLOBAL_STATUS\",
-                \"inline\": true
-              }
-            ],
-            \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",
-            \"footer\": {
-              \"text\": \"Epic7 Bug Monitor Dispatcher\"
-            }
-          }]
-        }"
-        
-        # Discord 웹훅 전송
-        curl -H "Content-Type: application/json" \
-             -X POST \
-             -d "$DISCORD_MESSAGE" \
-             "$DISCORD_WEBHOOK_REPORT"
-    
-    - name: 🏁 디스패처 완료
-      run: |
-        echo "Epic7 Bug Monitor Dispatcher 실행 완료"
-        echo "전체 실행 시간: ${{ job.status == 'success' && '성공' || '실패' }}"
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 🔧 Install Chrome & ChromeDriver
+        run: |
+          # Chrome 138+ 호환성을 위한 3단계 폴백 설치
+          echo "🌐 Installing Chrome and ChromeDriver..."
+
+          # Stage 1: Chrome for Testing API
+          CHROME_VERSION=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json | jq -r '.channels.Stable.version')
+          echo "Latest Chrome version: $CHROME_VERSION"
+
+          # Chrome 설치
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chrome-linux64.zip
+          unzip -q chrome-linux64.zip
+          sudo mv chrome-linux64 /opt/chrome
+          sudo ln -sf /opt/chrome/chrome /usr/local/bin/chrome
+
+          # ChromeDriver 설치
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip
+          unzip -q chromedriver-linux64.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+
+          # 설치 확인
+          chrome --version
+          chromedriver --version
+
+      - name: 📦 Install Python Dependencies
+        run: |
+          echo "📦 Installing Python packages..."
+          pip install --upgrade pip
+          pip install -r requirements.txt --quiet
+
+          # 핵심 패키지 버전 확인
+          echo "🔍 Package versions:"
+          pip show selenium requests beautifulsoup4 deep-translator
+
+      - name: 🚀 Run Integrated Epic7 Monitoring
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+          DEBUG_MODE: ${{ inputs.debug_mode || 'false' }}
+          FORCE_CRAWL: ${{ inputs.force_crawl || 'false' }}
+        run: |
+          echo "🎮 Starting Epic7 Integrated Monitoring..."
+          echo "⚙️ Debug Mode: $DEBUG_MODE"
+          echo "🔄 Force Crawl: $FORCE_CRAWL"
+          echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+
+          # monitor_bugs.py를 메인 엔트리 포인트로 실행
+          # --mode all: 한국 + 글로벌 사이트 모두 크롤링
+          python monitor_bugs.py \
+            --mode all \
+            --debug $DEBUG_MODE \
+            --force-crawl $FORCE_CRAWL
+
+      - name: 📊 Monitor Execution Summary
+        if: always()
+        run: |
+          echo "📊 === Epic7 Monitor Execution Summary ==="
+          echo "🕐 Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🔧 Debug Mode: ${{ inputs.debug_mode || 'false' }}"
+          echo "🔄 Force Crawl: ${{ inputs.force_crawl || 'false' }}"
+          echo "🌐 Mode: Integrated (Korean + Global)"
+
+          # 실행 결과 파일 확인
+          echo "📁 Generated Files:"
+          ls -la *.json *.html *.log 2>/dev/null || echo "No output files found"
+
+          # 메모리 및 시스템 상태
+          echo "💾 System Status:"
+          free -h
+          df -h /
+
+      - name: 🔄 Commit and Push Changes
+        if: success()
+        run: |
+          # Git 설정
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          # 변경사항이 있는 경우에만 커밋
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "📝 Committing monitoring results..."
+            git add *.json *.html *.log 2>/dev/null || true
+            git commit -m "🤖 Epic7 Monitor: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git push || echo "⚠️ Push failed - continuing..."
+          else
+            echo "✅ No changes to commit"
+          fi
+
+      - name: 📤 Upload Debug Artifacts
+        if: inputs.debug_mode == 'true' || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epic7-monitor-debug-${{ github.run_number }}
+          path: |
+            *.html
+            *.log
+            *.json
+          retention-days: 7
+
+      - name: 🚨 Failure Notification
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            curl -H "Content-Type: application/json" \
+                 -d '{
+                   "embeds": [{
+                     "title": "🚨 Epic7 Monitor Failed",
+                     "description": "Integrated monitoring workflow failed",
+                     "color": 15158332,
+                     "fields": [
+                       {"name": "🕐 Time", "value": "'$(date '+%Y-%m-%d %H:%M:%S %Z')'", "inline": true},
+                       {"name": "🔧 Debug", "value": "'${{ inputs.debug_mode || 'false' }}'", "inline": true},
+                       {"name": "🔗 Run", "value": "[View Details]('${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}')", "inline": false}
+                     ],
+                     "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                   }]
+                 }' \
+                 "$DISCORD_WEBHOOK_BUG"
+          fi

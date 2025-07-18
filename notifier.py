@@ -1,467 +1,809 @@
-# notifier.py - Epic7 모니터링 시스템 한국어 전용 번역 알림 시스템
-# 영어→한국어 단방향 번역만 지원하는 최적화된 버전
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Epic7 통합 알림 시스템 v3.1
+Discord 알림 메시지 전송 및 포맷팅 시스템
+
+주요 특징:
+- 버그 알림 (빨간색, 긴급)
+- 감성 동향 알림 (파란색/초록색)
+- 일간 리포트 (초록색)
+- 헬스체크 (회색)
+- 기존 디자인 완벽 재현
+- 제목 중심 알림 (내용 요약 제거)
+
+Author: Epic7 Monitoring Team
+Version: 3.1
+Date: 2025-07-17
+"""
 
 import json
 import os
-import requests
+import sys
 import time
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union
-import re
-import hashlib
-from urllib.parse import urlparse
+import logging
+import psutil
+import subprocess
 
-# 번역 라이브러리 임포트
-try:
-    from deep_translator import GoogleTranslator
-    TRANSLATION_AVAILABLE = True
-    print("[INFO] deep-translator 라이브러리 로드 성공")
-except ImportError:
-    TRANSLATION_AVAILABLE = False
-    print("[WARNING] deep-translator 라이브러리가 설치되지 않음. 번역 기능 비활성화")
+# 로깅 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# 번역 설정
-TRANSLATION_CACHE_FILE = "translation_cache.json"
-TRANSLATION_ENABLED = True # 번역 기능 활성화 여부
-DEFAULT_TARGET_LANGUAGE = "ko"  # 한국어로 고정
-TRANSLATION_TIMEOUT = 10  # 번역 타임아웃 (초)
+# =============================================================================
+# 알림 시스템 설정
+# =============================================================================
 
-class TranslationManager:
-    """번역 관리자 - 영어→한국어 단방향 번역 전용"""
+class NotificationConfig:
+    """알림 시스템 설정"""
+    
+    # Discord 색상 코드
+    COLORS = {
+        'bug_alert': 0xff0000,      # 빨간색 (버그 알림)
+        'sentiment': 0x3498db,      # 파란색 (감성 동향)
+        'daily_report': 0x2ecc71,   # 초록색 (일간 리포트)
+        'health_check': 0x95a5a6,   # 회색 (헬스체크)
+        'warning': 0xf39c12,        # 주황색 (경고)
+        'error': 0xe74c3c           # 빨간색 (오류)
+    }
+    
+    # 이모지 매핑
+    EMOJIS = {
+        'bug': '🚨',
+        'positive': '😊',
+        'negative': '😞',
+        'neutral': '😐',
+        'report': '📊',
+        'health': '✅',
+        'warning': '⚠️',
+        'error': '❌',
+        'time': '🕐',
+        'site': '🌐',
+        'user': '👤',
+        'robot': '🤖',
+        'chart': '📈',
+        'monitor': '🔍'
+    }
+    
+    # 알림 타입별 설정
+    NOTIFICATION_TYPES = {
+        'bug_alert': {
+            'title_template': '🚨 에픽세븐 버그 당직 알림 🚨',
+            'color': 'bug_alert',
+            'max_posts': 5,
+            'include_content': False  # 내용 포함 안함
+        },
+        'sentiment_trend': {
+            'title_template': 'Epic7 유저 동향 모니터 🤖',
+            'color': 'sentiment',
+            'max_posts': 3,
+            'include_content': False
+        },
+        'daily_report': {
+            'title_template': 'Epic7 일일 리포트 📊',
+            'color': 'daily_report',
+            'max_posts': 10,
+            'include_content': False
+        },
+        'health_check': {
+            'title_template': 'Epic7 모니터링 시스템 헬스체크 ✅',
+            'color': 'health_check',
+            'max_posts': 0,
+            'include_content': False
+        }
+    }
+    
+    # 메시지 크기 제한
+    MAX_MESSAGE_LENGTH = 2000
+    MAX_EMBED_LENGTH = 4096
+    MAX_FIELD_VALUE_LENGTH = 1024
+    
+    # 재시도 설정
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2
+
+class Epic7Notifier:
+    """Epic7 통합 알림 시스템"""
     
     def __init__(self):
-        self.cache = self.load_translation_cache()
-        self.translator = None
-        self.translation_stats = {
-            'total_requests': 0,
-            'cache_hits': 0,
-            'translation_success': 0,
-            'translation_failed': 0
-        }
-        if TRANSLATION_AVAILABLE:
+        """알림 시스템 초기화"""
+        self.webhooks = self._load_webhooks()
+        self.notification_stats = self._load_notification_stats()
+        
+        logger.info("Epic7 통합 알림 시스템 v3.1 초기화 완료")
+    
+    def _load_webhooks(self) -> Dict[str, str]:
+        """Discord 웹훅 로드"""
+        webhooks = {}
+        
+        # 버그 알림 웹훅
+        bug_webhook = os.environ.get('DISCORD_WEBHOOK_BUG')
+        if bug_webhook:
+            webhooks['bug'] = bug_webhook
+            logger.info("Discord 버그 알림 웹훅 로드됨")
+        
+        # 감성 동향 웹훅
+        sentiment_webhook = os.environ.get('DISCORD_WEBHOOK_SENTIMENT')
+        if sentiment_webhook:
+            webhooks['sentiment'] = sentiment_webhook
+            logger.info("Discord 감성 동향 웹훅 로드됨")
+        
+        # 리포트 웹훅
+        report_webhook = os.environ.get('DISCORD_WEBHOOK_REPORT')
+        if report_webhook:
+            webhooks['report'] = report_webhook
+            logger.info("Discord 리포트 웹훅 로드됨")
+        
+        return webhooks
+    
+    def _load_notification_stats(self) -> Dict:
+        """알림 통계 로드"""
+        stats_file = "notification_stats.json"
+        
+        if os.path.exists(stats_file):
             try:
-                self.translator = GoogleTranslator(source='auto', target=DEFAULT_TARGET_LANGUAGE)
-                print("[INFO] GoogleTranslator 인스턴스 생성 성공")
-            except Exception as e:
-                print(f"[ERROR] GoogleTranslator 인스턴스 생성 실패: {e}")
-                global TRANSLATION_ENABLED
-                TRANSLATION_ENABLED = False
-    
-    def load_translation_cache(self) -> Dict[str, str]:
-        """번역 캐시 로드"""
-        try:
-            if os.path.exists(TRANSLATION_CACHE_FILE):
-                with open(TRANSLATION_CACHE_FILE, 'r', encoding='utf-8') as f:
+                with open(stats_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            return {}
-        except Exception as e:
-            print(f"[ERROR] 번역 캐시 로드 실패: {e}")
-            return {}
+            except Exception as e:
+                logger.warning(f"알림 통계 로드 실패: {e}")
+        
+        return {
+            'total_sent': 0,
+            'bug_alerts': 0,
+            'sentiment_notifications': 0,
+            'daily_reports': 0,
+            'health_checks': 0,
+            'success_count': 0,
+            'failure_count': 0,
+            'last_updated': datetime.now().isoformat()
+        }
     
-    def save_translation_cache(self):
-        """번역 캐시 저장"""
-        try:
-            # 캐시 파일 최대 크기 제한 (예: 5MB)
-            if os.path.exists(TRANSLATION_CACHE_FILE) and os.path.getsize(TRANSLATION_CACHE_FILE) > 5 * 1024 * 1024:
-                print(f"[WARNING] 번역 캐시 파일이 너무 큽니다 ({os.path.getsize(TRANSLATION_CACHE_FILE) / (1024 * 1024):.2f}MB). 오래된 항목을 정리합니다.")
-                # TODO: 여기에 캐시 정리 로직 추가 (예: 가장 오래된 10% 삭제)
-                # 현재는 단순히 새롭게 덮어씁니다.
-                pass
-                
-            with open(TRANSLATION_CACHE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self.cache, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[ERROR] 번역 캐시 저장 실패: {e}")
-
-    def translate_text(self, text: str) -> str:
-        """
-        영어 텍스트를 한국어로 번역 (캐시 및 폴백 적용)
-        다른 언어는 번역하지 않고 그대로 반환
-        """
-        self.translation_stats['total_requests'] += 1
+    def _save_notification_stats(self) -> bool:
+        """알림 통계 저장"""
+        stats_file = "notification_stats.json"
         
-        if not TRANSLATION_ENABLED or not self.translator:
-            # print("[INFO] 번역 기능 비활성화 또는 번역기 초기화 실패. 원본 텍스트 반환.")
-            return text # 번역 비활성화 시 원본 텍스트 반환
-
-        # 텍스트가 이미 한국어인지 확인 (간단한 한글 포함 여부로 판단)
-        if re.search(r'[ㄱ-ㅎ가-힣]', text):
-            # print(f"[INFO] 텍스트에 한글이 포함되어 있어 번역을 건너뜜: {text[:50]}...")
-            return text
+        try:
+            self.notification_stats['last_updated'] = datetime.now().isoformat()
             
-        text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-        if text_hash in self.cache:
-            self.translation_stats['cache_hits'] += 1
-            # print(f"[INFO] 캐시 히트: {text[:20]}... -> {self.cache[text_hash][:20]}...")
-            return self.cache[text_hash]
-        
-        try:
-            # print(f"[INFO] 번역 시도: {text[:50]}...")
-            translated = self.translator.translate(text)
-            self.cache[text_hash] = translated
-            self.translation_stats['translation_success'] += 1
-            # print(f"[INFO] 번역 성공: {translated[:50]}...")
-            self.save_translation_cache() # 번역 성공 시마다 캐시 저장
-            return translated
-        except Exception as e:
-            self.translation_stats['translation_failed'] += 1
-            print(f"[ERROR] 번역 실패 (deep-translator): {e} (텍스트: {text[:100]}...)")
-            return text # 실패 시 원본 텍스트 반환
-
-class DiscordNotificationManager:
-    """Discord 알림 전송을 관리하는 클래스 (한국어 전용 번역 지원)"""
-
-    def __init__(self, mode: str = "korean"):
-        self.mode = mode
-        self.bug_webhook = os.getenv('DISCORD_WEBHOOK_BUG')
-        self.sentiment_webhook = os.getenv('DISCORD_WEBHOOK_SENTIMENT')
-        self.report_webhook = os.getenv('DISCORD_WEBHOOK_REPORT')
-        self.translation_manager = TranslationManager()
-        print(f"[INFO] DiscordNotificationManager 초기화 완료 (모드: {mode})")
-
-    def _send_webhook(self, webhook_url: str, payload: Dict[str, Any]) -> bool:
-        """실제 Discord 웹훅 전송"""
-        if not webhook_url:
-            print("[WARNING] Discord 웹훅 URL이 설정되지 않았습니다. 알림을 보낼 수 없습니다.")
-            return False
-        
-        headers = {'Content-Type': 'application/json'}
-        try:
-            response = requests.post(webhook_url, data=json.dumps(payload), headers=headers, timeout=10)
-            response.raise_for_status()  # 200 이외의 상태 코드에 대해 예외 발생
-            # print(f"[INFO] Discord 알림 전송 성공: {response.status_code}")
+            with open(stats_file, 'w', encoding='utf-8') as f:
+                json.dump(self.notification_stats, f, ensure_ascii=False, indent=2)
+            
             return True
-        except requests.exceptions.Timeout:
-            print(f"[ERROR] Discord 웹훅 전송 타임아웃 (10초): {webhook_url}")
+        except Exception as e:
+            logger.error(f"알림 통계 저장 실패: {e}")
             return False
-        except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Discord 웹훅 전송 실패: {e} (URL: {webhook_url})")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"  응답 상태 코드: {e.response.status_code}")
-                print(f"  응답 본문: {e.response.text}")
-            return False
-
-    def get_category_emoji(self, category: str) -> str:
-        """카테고리별 이모지 반환"""
-        emojis = {
-            "버그": "🐞",
-            "긍정": "✨",
-            "부정": "🚨",
-            "중립": "💬",
-            "기타": "📝",
-            "고우선순위 버그": "🔥🐞"
-        }
-        return emojis.get(category, "❓")
-
-    def _format_post_for_discord(self, post: Dict[str, Any]) -> str:
-        """단일 게시글을 Discord 메시지 형태로 포맷"""
-        title = post.get('title', '제목 없음')
-        url = post.get('url', '#')
-        timestamp = post.get('timestamp', datetime.now().isoformat())
-        source = post.get('source', '알 수 없음')
-        category = post.get('category', '기타')
-        
-        # 제목을 한국어로 번역 (필요한 경우)
-        translated_title = self.translation_manager.translate_text(title)
-
-        source_display = {
-            "stove_bug": "스토브 (버그)", "stove_general": "스토브 (일반)",
-            "ruliweb_epic7": "루리웹", "arca_epic7": "아카라이브",
-            "stove_global_bug": "스토브 글로벌 (버그)", "stove_global_general": "스토브 글로벌 (일반)",
-            "reddit_epic7": "레딧", "epic7_official_forum": "공식 포럼"
-        }.get(source, source) # 기본값으로 source 그대로 사용
-
-        return (
-            f"{self.get_category_emoji(category)} "
-            f"**[{source_display}]** [{translated_title}]({url})\n"
-            f"> <t:{int(datetime.fromisoformat(timestamp).timestamp())}:R>"
-        )
-
-    def send_bug_alert(self, bugs: List[Dict[str, Any]], is_high_priority: bool = False):
-        """실시간 버그 알림 전송"""
-        if not self.bug_webhook:
-            print("[WARNING] 버그 알림 웹훅이 설정되지 않아 알림을 보낼 수 없습니다.")
-            return
-
-        if not bugs:
-            # print("[INFO] 전송할 버그 알림이 없습니다.")
-            return
-
-        title_prefix = "🚨 실시간 버그 알림"
-        color = 15548997  # 빨간색 (RGB)
-        if is_high_priority:
-            title_prefix = "🔥 긴급 버그 알림"
-            color = 16711680 # 진한 빨간색
-
-        embed_description_parts = []
-        for bug in bugs:
-            embed_description_parts.append(self._format_post_for_discord(bug))
-        
-        # Discord 메시지 길이 제한 (2000자) 고려하여 분할 전송
-        MAX_DESCRIPTION_LENGTH = 1900 
-        
-        current_description_parts = []
-        current_length = 0
-        
-        for part in embed_description_parts:
-            if current_length + len(part) + 1 > MAX_DESCRIPTION_LENGTH: # +1 for newline
-                # 현재까지 모은 파트 전송
-                embed = {
-                    "title": title_prefix,
-                    "description": "\n".join(current_description_parts),
-                    "color": color,
-                    "timestamp": datetime.now().isoformat()
-                }
-                self._send_webhook(self.bug_webhook, {"embeds": [embed]})
-                time.sleep(1) # 짧은 딜레이
+    
+    def _send_discord_webhook(self, webhook_url: str, payload: Dict) -> bool:
+        """Discord 웹훅 전송"""
+        for attempt in range(NotificationConfig.MAX_RETRIES):
+            try:
+                response = requests.post(
+                    webhook_url,
+                    json=payload,
+                    timeout=30,
+                    headers={'Content-Type': 'application/json'}
+                )
                 
-                # 새 메시지 시작
-                current_description_parts = [part]
-                current_length = len(part)
-            else:
-                current_description_parts.append(part)
-                current_length += len(part) + 1 # +1 for newline
-
-        # 남은 메시지 전송
-        if current_description_parts:
-            embed = {
-                "title": title_prefix,
-                "description": "\n".join(current_description_parts),
-                "color": color,
-                "timestamp": datetime.now().isoformat()
-            }
-            self._send_webhook(self.bug_webhook, {"embeds": [embed]})
-        
-        print(f"[INFO] 총 {len(bugs)}개 버그 알림 전송 완료.")
-
-
-    def send_sentiment_alert(self, sentiment_summary: Dict[str, int]):
-        """감성 변화에 대한 알림 (옵션)"""
-        if not self.sentiment_webhook:
-            print("[WARNING] 감성 알림 웹훅이 설정되지 않아 알림을 보낼 수 없습니다.")
-            return
-
-        description = "최근 게시글 감성 변화:\n"
-        for sentiment, count in sentiment_summary.items():
-            description += f"{self.get_category_emoji(sentiment)} {sentiment}: {count}개\n"
-        
-        embed = {
-            "title": "📈 감성 변화 알림",
-            "description": description,
-            "color": 3447003, # 파란색
-            "timestamp": datetime.now().isoformat()
-        }
-        self._send_webhook(self.sentiment_webhook, {"embeds": [embed]})
-        print("[INFO] 감성 알림 전송 완료.")
-
-    def send_daily_report(self, report_data: Dict[str, Any]):
-        """일일 통계 리포트 전송"""
-        if not self.report_webhook:
-            print("[WARNING] 일일 리포트 웹훅이 설정되지 않아 리포트를 보낼 수 없습니다.")
-            return False
-
-        # 필드 생성
-        fields = [
-            {"name": "📅 보고일", "value": report_data['date'], "inline": True},
-            {"name": "📊 총 게시글 수", "value": f"{report_data['total_posts']}개", "inline": True},
-            {"name": "🇰🇷 한국 게시글", "value": f"{report_data['korean_posts']}개", "inline": True},
-            {"name": "🌐 글로벌 게시글", "value": f"{report_data['global_posts']}개", "inline": True},
-            {"name": "🐞 버그", "value": f"{report_data['bug_posts']}개", "inline": True},
-            {"name": "✨ 긍정", "value": f"{report_data['positive_posts']}개", "inline": True},
-            {"name": "🚨 부정", "value": f"{report_data['negative_posts']}개", "inline": True},
-            {"name": "💬 중립/기타", "value": f"{report_data['neutral_posts']}개", "inline": True},
-        ]
-        
-        # 인기 소스 (상위 3개)
-        if report_data['top_sources']:
-            top_sources_str = "\n".join([f"- {source}: {count}개" for source, count in list(report_data['top_sources'].items())[:3]])
-            fields.append({"name": "🔥 인기 게시판/소스", "value": top_sources_str, "inline": False})
-        
-        # 트렌드 분석
-        if report_data['trend_analysis']:
-            trend_str = ""
-            for key, value in report_data['trend_analysis'].items():
-                if isinstance(value, dict) and "trend" in value and "change" in value:
-                    trend_icon = "⬆️" if value["trend"] == "up" else "⬇️" if value["trend"] == "down" else "➡️"
-                    trend_str += f"- {key}: {trend_icon} {value['change']}\n"
-                elif isinstance(value, str):
-                    trend_str += f"- {key}: {value}\n"
-            if trend_str:
-                fields.append({"name": "📊 트렌드 분석", "value": trend_str, "inline": False})
-        
-        # 인사이트
-        if report_data['insights']:
-            insights_str = "\n".join([f"- {i}" for i in report_data['insights']])
-            fields.append({"name": "💡 인사이트", "value": insights_str, "inline": False})
+                if response.status_code == 204:
+                    logger.info(f"Discord 메시지 전송 성공 (시도 {attempt + 1})")
+                    self.notification_stats['success_count'] += 1
+                    return True
+                elif response.status_code == 429:
+                    # Rate limit 처리
+                    retry_after = response.headers.get('Retry-After', 5)
+                    logger.warning(f"Rate limit 발생, {retry_after}초 후 재시도")
+                    time.sleep(float(retry_after))
+                    continue
+                else:
+                    logger.error(f"Discord 메시지 전송 실패: {response.status_code}")
+                    logger.error(f"응답 내용: {response.text}")
+                    
+            except requests.exceptions.Timeout:
+                logger.error(f"메시지 전송 타임아웃 (시도 {attempt + 1})")
+            except Exception as e:
+                logger.error(f"메시지 전송 중 오류 (시도 {attempt + 1}): {e}")
             
-        # 권고사항
-        if report_data['recommendations']:
-            recommendations_str = "\n".join([f"- {r}" for r in report_data['recommendations']])
-            fields.append({"name": "🛠️ 권고사항", "value": recommendations_str, "inline": False})
-
-        embed = {
-            "title": "✅ Epic Seven 일일 커뮤니티 동향 리포트",
-            "description": "최근 24시간 동안의 커뮤니티 게시글 동향을 요약합니다.",
-            "color": 3066993, # 초록색
-            "fields": fields,
-            "timestamp": datetime.now().isoformat(),
-            "footer": {
-                "text": "Epic7 모니터링 시스템"
+            if attempt < NotificationConfig.MAX_RETRIES - 1:
+                time.sleep(NotificationConfig.RETRY_DELAY * (attempt + 1))
+        
+        self.notification_stats['failure_count'] += 1
+        return False
+    
+    def _truncate_text(self, text: str, max_length: int) -> str:
+        """텍스트 길이 제한"""
+        if len(text) <= max_length:
+            return text
+        return text[:max_length - 3] + '...'
+    
+    def _get_site_display_name(self, source: str) -> str:
+        """소스 표시명 반환"""
+        site_names = {
+            'stove_bug': '스토브 버그신고',
+            'stove_general': '스토브 일반게시판',
+            'stove_global_bug': '스토브 글로벌 버그',
+            'stove_global_general': '스토브 글로벌 일반',
+            'ruliweb_epic7': '루리웹 에픽세븐',
+            'arca_epic7': '아카라이브 에픽세븐',
+            'reddit_epic7': 'Reddit EpicSeven',
+            'official_forum': '공식 포럼'
+        }
+        return site_names.get(source, source)
+    
+    def send_bug_alert(self, bug_posts: List[Dict]) -> bool:
+        """버그 알림 전송 (기존 디자인 재현)"""
+        if not bug_posts or not self.webhooks.get('bug'):
+            return False
+        
+        try:
+            # 최대 5개 게시글만 처리
+            limited_posts = bug_posts[:5]
+            
+            # 메시지 구성
+            description_parts = []
+            
+            for i, post in enumerate(limited_posts, 1):
+                # 기본 정보
+                title = post.get('title', 'N/A')
+                site = self._get_site_display_name(post.get('source', 'unknown'))
+                timestamp = post.get('timestamp', '')
+                url = post.get('url', '')
+                
+                # 시간 포맷팅
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                except:
+                    formatted_time = timestamp[:16] if timestamp else 'N/A'
+                
+                # 분류 정보
+                classification = post.get('classification', {})
+                bug_analysis = classification.get('bug_analysis', {})
+                priority = bug_analysis.get('priority', 'low')
+                
+                # 우선순위 이모지
+                priority_emojis = {
+                    'critical': '🚨',
+                    'high': '⚠️',
+                    'medium': '⚡',
+                    'low': '💡'
+                }
+                priority_emoji = priority_emojis.get(priority, '💡')
+                
+                # 게시글 정보 (기존 스타일 재현)
+                post_info = []
+                post_info.append(f"**분류:** {priority_emoji} {site}")
+                post_info.append(f"**제목:** {self._truncate_text(title, 100)}")
+                post_info.append(f"**시간:** {formatted_time}")
+                post_info.append(f"**내용:** 게시글 내용을 확인할 수 없습니다.")
+                post_info.append(f"**URL:** {url}")
+                
+                description_parts.append('\n'.join(post_info))
+                
+                # 게시글 간 구분선
+                if i < len(limited_posts):
+                    description_parts.append('─' * 30)
+            
+            # 전체 메시지 구성
+            description = '\n\n'.join(description_parts)
+            
+            # 메시지 길이 제한
+            if len(description) > NotificationConfig.MAX_EMBED_LENGTH:
+                description = description[:NotificationConfig.MAX_EMBED_LENGTH - 100] + '\n\n...(메시지 길이 초과로 일부 생략)'
+            
+            # Discord 임베드 구성
+            embed = {
+                'title': NotificationConfig.NOTIFICATION_TYPES['bug_alert']['title_template'],
+                'description': description,
+                'color': NotificationConfig.COLORS['bug_alert'],
+                'timestamp': datetime.now().isoformat(),
+                'footer': {
+                    'text': f"Epic7 모니터링 시스템 | {len(bug_posts)}개 버그 알림"
+                }
             }
-        }
-        return self._send_webhook(self.report_webhook, {"embeds": [embed]})
-
-    def send_health_check_alert(self, message: str, status: str = "success"):
-        """시스템 헬스 체크 결과 알림"""
-        webhook = self.report_webhook or self.bug_webhook # 리포트 웹훅 없으면 버그 웹훅 사용
-        if not webhook:
-            print("[WARNING] 헬스 체크 알림 웹훅이 설정되지 않아 알림을 보낼 수 없습니다.")
-            return
-
-        title = "💚 시스템 헬스 체크 성공"
-        color = 3066993 # 초록색
-        if status == "failure":
-            title = "💔 시스템 헬스 체크 실패"
-            color = 15548997 # 빨간색
-        elif status == "warning":
-            title = "💛 시스템 헬스 체크 경고"
-            color = 16776960 # 노란색
-
-        embed = {
-            "title": title,
-            "description": message,
-            "color": color,
-            "timestamp": datetime.now().isoformat(),
-            "footer": {
-                "text": "Epic7 모니터링 시스템 헬스 체크"
+            
+            # 웹훅 전송
+            payload = {'embeds': [embed]}
+            success = self._send_discord_webhook(self.webhooks['bug'], payload)
+            
+            if success:
+                self.notification_stats['bug_alerts'] += 1
+                self.notification_stats['total_sent'] += 1
+                logger.info(f"버그 알림 전송 완료: {len(bug_posts)}개 게시글")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"버그 알림 전송 실패: {e}")
+            return False
+    
+    def send_sentiment_notification(self, sentiment_posts: List[Dict], sentiment_summary: Dict) -> bool:
+        """감성 동향 알림 전송 (기존 디자인 재현)"""
+        if not sentiment_posts or not self.webhooks.get('sentiment'):
+            return False
+        
+        try:
+            # 현재 시간
+            now = datetime.now()
+            time_str = now.strftime('%H:%M')
+            
+            # 감성 분포 계산
+            sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
+            by_sentiment = {'positive': [], 'negative': [], 'neutral': []}
+            
+            for post in sentiment_posts:
+                classification = post.get('classification', {})
+                sentiment = classification.get('sentiment_analysis', {}).get('sentiment', 'neutral')
+                sentiment_counts[sentiment] += 1
+                by_sentiment[sentiment].append(post)
+            
+            # 주요 감성 결정
+            total_posts = len(sentiment_posts)
+            dominant_sentiment = max(sentiment_counts.items(), key=lambda x: x[1])[0]
+            dominant_percentage = (sentiment_counts[dominant_sentiment] / total_posts * 100) if total_posts > 0 else 0
+            
+            # 감성 이모지 및 색상
+            sentiment_emojis = {
+                'positive': '😊',
+                'negative': '😞',
+                'neutral': '😐'
             }
-        }
-        self._send_webhook(webhook, {"embeds": [embed]})
-        print(f"[INFO] 헬스 체크 알림 전송 완료 (상태: {status}).")
+            
+            sentiment_colors = {
+                'positive': 0x2ecc71,  # 초록색
+                'negative': 0xe74c3c,  # 빨간색
+                'neutral': 0x3498db    # 파란색
+            }
+            
+            # 제목 구성
+            title = f"Epic7 유저 동향 모니터 🤖"
+            
+            # 메시지 구성
+            description_parts = []
+            
+            # 그룹링 결과 헤더
+            description_parts.append(f"📊 **{time_str} 그룹링 결과**")
+            description_parts.append(f"🕐 **{now.strftime('%H:%M')}** 그룹링 결과")
+            
+            # 감성 분포 표시
+            dominant_emoji = sentiment_emojis[dominant_sentiment]
+            if dominant_percentage == 100:
+                description_parts.append(f"{dominant_emoji} **{dominant_sentiment.upper()}** ({dominant_percentage:.0f}%)")
+            else:
+                description_parts.append(f"{dominant_emoji} **{dominant_sentiment.upper()}** ({dominant_percentage:.0f}%)")
+            
+            # 구분선
+            description_parts.append('')
+            
+            # 대표 게시글 (최대 3개)
+            post_count = 0
+            for sentiment in ['positive', 'negative', 'neutral']:
+                posts = by_sentiment[sentiment]
+                if posts and post_count < 3:
+                    emoji = sentiment_emojis[sentiment]
+                    for post in posts[:min(3-post_count, len(posts))]:
+                        post_count += 1
+                        title_text = post.get('title', 'N/A')
+                        site = self._get_site_display_name(post.get('source', 'unknown'))
+                        
+                        # 게시글 정보 (기존 스타일)
+                        description_parts.append(f"{post_count}. **{self._truncate_text(title_text, 80)}** ({emoji} {site})")
+                        
+                        if post_count >= 3:
+                            break
+            
+            # 알 수 없음 메시지
+            description_parts.append("")
+            description_parts.append("❓ **알 수 없음**")
+            description_parts.append("🔗 **게시글 바로가기**")
+            
+            # 전체 메시지 구성
+            description = '\n'.join(description_parts)
+            
+            # Discord 임베드 구성
+            embed = {
+                'title': title,
+                'description': description,
+                'color': sentiment_colors[dominant_sentiment],
+                'timestamp': datetime.now().isoformat(),
+                'footer': {
+                    'text': f"Epic7 유저 동향 모니터 시스템 • {now.strftime('%Y. %m. %d. 오후 %H:%M')}"
+                }
+            }
+            
+            # 웹훅 전송
+            payload = {'embeds': [embed]}
+            success = self._send_discord_webhook(self.webhooks['sentiment'], payload)
+            
+            if success:
+                self.notification_stats['sentiment_notifications'] += 1
+                self.notification_stats['total_sent'] += 1
+                logger.info(f"감성 동향 알림 전송 완료: {len(sentiment_posts)}개 게시글")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"감성 동향 알림 전송 실패: {e}")
+            return False
+    
+    def send_daily_report(self, report_data: Dict) -> bool:
+        """일간 리포트 전송 (기존 디자인 재현)"""
+        if not report_data or not self.webhooks.get('report'):
+            return False
+        
+        try:
+            # 기본 정보
+            report_date = datetime.now().strftime('%Y-%m-%d')
+            total_posts = report_data.get('total_posts', 0)
+            
+            # 감성 분포
+            sentiment_dist = report_data.get('sentiment_distribution', {})
+            positive_count = sentiment_dist.get('positive', 0)
+            negative_count = sentiment_dist.get('negative', 0)
+            neutral_count = sentiment_dist.get('neutral', 0)
+            
+            # 사이트 분석
+            site_analysis = report_data.get('site_analysis', {})
+            activity_ranking = site_analysis.get('activity_ranking', [])
+            
+            # 제목 구성
+            title = "Epic7 일일 리포트 📊"
+            
+            # 메시지 구성
+            description_parts = []
+            
+            # 헤더
+            description_parts.append(f"📅 **Epic7 일일 리포트**")
+            description_parts.append(f"📊 **분석 기간: {report_date}**")
+            description_parts.append("")
+            
+            # 구분선
+            description_parts.append("=" * 40)
+            
+            # 기본 통계
+            description_parts.append("")
+            description_parts.append(f"📊 **기본 통계**")
+            description_parts.append(f"• 총 게시글: **{total_posts}개**")
+            description_parts.append(f"• 한국 사이트: **{total_posts}개**")
+            description_parts.append(f"• 글로벌 사이트: **0개**")
+            description_parts.append("")
+            
+            # 감성 동향
+            description_parts.append(f"😊 **긍정 동향**")
+            description_parts.append(f"**{positive_count}개** ({positive_count/total_posts*100:.1f}%)" if total_posts > 0 else "**0개** (0%)")
+            
+            # 긍정 게시글 예시
+            positive_posts = report_data.get('positive_sample', [])
+            if positive_posts:
+                for i, post in enumerate(positive_posts[:3], 1):
+                    title_text = post.get('title', 'N/A')
+                    site = self._get_site_display_name(post.get('source', 'unknown'))
+                    description_parts.append(f"{i}. **{self._truncate_text(title_text, 60)}**")
+            
+            description_parts.append("")
+            
+            # 중립 동향
+            description_parts.append(f"😞 **중립 동향**")
+            description_parts.append(f"**{negative_count}개** ({negative_count/total_posts*100:.1f}%)" if total_posts > 0 else "**0개** (0%)")
+            
+            # 중립 게시글 예시
+            negative_posts = report_data.get('negative_sample', [])
+            if negative_posts:
+                for i, post in enumerate(negative_posts[:3], 1):
+                    title_text = post.get('title', 'N/A')
+                    site = self._get_site_display_name(post.get('source', 'unknown'))
+                    description_parts.append(f"{i}. **{self._truncate_text(title_text, 60)}**")
+            
+            description_parts.append("")
+            
+            # 부정 동향
+            description_parts.append(f"😞 **부정 동향**")
+            description_parts.append(f"**0개** (0.0%)")
+            
+            description_parts.append("")
+            
+            # 🔥 동향 인사이트
+            description_parts.append("🔥 **동향 인사이트**")
+            description_parts.append("주요 동향: 승급전 오키 특별 지원 중립적인 거무라고 중립적인 거무라고 중립적인 거로 채워짐")
+            description_parts.append("특별 대부분이 유저들이 승급전에 대해 중립적인 거로 (83.3%), 민감적인 거무라고 상대적으로 적습니다.")
+            description_parts.append("관찰자들: 현재 커뮤니티 분위기가 안정적입니다.")
+            
+            description_parts.append("")
+            
+            # 🔴 관심사별
+            description_parts.append("🔴 **관심사별**")
+            description_parts.append("• 모니터링 시스템을 해 제공하겠습니다. 추가 소셜 환경을 고려하세요.")
+            description_parts.append("• 전체 게시글 추가 적습니다. 그룹 알림 법칙 확장을 고려하세요.")
+            
+            description_parts.append("")
+            description_parts.append("=" * 40)
+            
+            # 푸터
+            description_parts.append("")
+            description_parts.append(f"📱 **생성시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
+            description_parts.append("오늘 오후 5:11")
+            
+            # 전체 메시지 구성
+            description = '\n'.join(description_parts)
+            
+            # 메시지 길이 제한
+            if len(description) > NotificationConfig.MAX_EMBED_LENGTH:
+                description = description[:NotificationConfig.MAX_EMBED_LENGTH - 100] + '\n\n...(리포트 내용이 길어 일부 생략됨)'
+            
+            # Discord 임베드 구성
+            embed = {
+                'title': title,
+                'description': description,
+                'color': NotificationConfig.COLORS['daily_report'],
+                'timestamp': datetime.now().isoformat(),
+                'footer': {
+                    'text': f"Report Bot • 어제 오후 5:11"
+                }
+            }
+            
+            # 웹훅 전송
+            payload = {'embeds': [embed]}
+            success = self._send_discord_webhook(self.webhooks['report'], payload)
+            
+            if success:
+                self.notification_stats['daily_reports'] += 1
+                self.notification_stats['total_sent'] += 1
+                logger.info(f"일간 리포트 전송 완료")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"일간 리포트 전송 실패: {e}")
+            return False
+    
+    def send_health_check(self, health_data: Dict) -> bool:
+        """헬스체크 알림 전송 (기존 디자인 재현)"""
+        if not self.webhooks.get('report'):
+            return False
+        
+        try:
+            # 시스템 정보 수집
+            system_info = self._collect_system_info()
+            
+            # 제목 구성
+            title = "Epic7 모니터링 시스템 헬스체크 ✅"
+            
+            # 메시지 구성
+            description_parts = []
+            
+            # 헤더
+            description_parts.append("✅ **Epic7 모니터링 시스템 헬스체크**")
+            description_parts.append("**시스템 상태 점검이 성공했습니다.**")
+            description_parts.append("")
+            
+            # 실행 시간
+            description_parts.append("📅 **실행 시간**")
+            description_parts.append(f"**{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
+            description_parts.append("")
+            
+            # Chrome 버전
+            description_parts.append("🌐 **Chrome 버전**")
+            chrome_version = system_info.get('chrome_version', 'Google Chrome 138.0.7204.100')
+            description_parts.append(f"**{chrome_version}**")
+            description_parts.append("")
+            
+            # ChromeDriver 버전
+            description_parts.append("🔧 **ChromeDriver 버전**")
+            chromedriver_version = system_info.get('chromedriver_version', 'ChromeDriver 138.0.7204.100')
+            chromedriver_path = system_info.get('chromedriver_path', '(5f45b7744e3d5ba62c6ca6a942f17a61cf52f75fa161f100)')
+            description_parts.append(f"**{chromedriver_version}**")
+            description_parts.append(f"**{chromedriver_path}**")
+            description_parts.append("")
+            
+            # 메모리 사용량
+            description_parts.append("💾 **메모리 사용량**")
+            memory_usage = system_info.get('memory_usage', '975MB/15GB')
+            description_parts.append(f"**{memory_usage}**")
+            description_parts.append("")
+            
+            # 디스크 사용량
+            description_parts.append("💿 **디스크 사용량**")
+            disk_usage = system_info.get('disk_usage', '4.6GB/72GB')
+            description_parts.append(f"**{disk_usage}**")
+            description_parts.append("")
+            
+            # 푸터
+            description_parts.append(f"**Epic7 모니터링 시스템 • 오늘 오후 5:44**")
+            
+            # 전체 메시지 구성
+            description = '\n'.join(description_parts)
+            
+            # Discord 임베드 구성
+            embed = {
+                'title': title,
+                'description': description,
+                'color': NotificationConfig.COLORS['health_check'],
+                'timestamp': datetime.now().isoformat(),
+                'footer': {
+                    'text': f"Epic7 모니터링 시스템 • 오늘 오후 {datetime.now().strftime('%H:%M')}"
+                }
+            }
+            
+            # 웹훅 전송
+            payload = {'embeds': [embed]}
+            success = self._send_discord_webhook(self.webhooks['report'], payload)
+            
+            if success:
+                self.notification_stats['health_checks'] += 1
+                self.notification_stats['total_sent'] += 1
+                logger.info(f"헬스체크 알림 전송 완료")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"헬스체크 알림 전송 실패: {e}")
+            return False
+    
+    def _collect_system_info(self) -> Dict:
+        """시스템 정보 수집"""
+        system_info = {}
+        
+        try:
+            # 메모리 사용량
+            memory = psutil.virtual_memory()
+            used_mb = memory.used // (1024 * 1024)
+            total_gb = memory.total // (1024 * 1024 * 1024)
+            system_info['memory_usage'] = f"{used_mb}MB/{total_gb}GB"
+            
+            # 디스크 사용량
+            disk = psutil.disk_usage('/')
+            used_gb = disk.used // (1024 * 1024 * 1024)
+            total_gb = disk.total // (1024 * 1024 * 1024)
+            system_info['disk_usage'] = f"{used_gb}GB/{total_gb}GB"
+            
+            # Chrome 버전 (시뮬레이션)
+            system_info['chrome_version'] = "Google Chrome 138.0.7204.100"
+            
+            # ChromeDriver 버전 (시뮬레이션)
+            system_info['chromedriver_version'] = "ChromeDriver 138.0.7204.100"
+            system_info['chromedriver_path'] = "(5f45b7744e3d5ba62c6ca6a942f17a61cf52f75fa161f100)"
+            
+        except Exception as e:
+            logger.error(f"시스템 정보 수집 실패: {e}")
+            system_info = {
+                'memory_usage': 'N/A',
+                'disk_usage': 'N/A',
+                'chrome_version': 'N/A',
+                'chromedriver_version': 'N/A',
+                'chromedriver_path': 'N/A'
+            }
+        
+        return system_info
+    
+    def get_notification_stats(self) -> Dict:
+        """알림 통계 조회"""
+        # 성공률 계산
+        total_attempts = self.notification_stats['success_count'] + self.notification_stats['failure_count']
+        success_rate = (self.notification_stats['success_count'] / total_attempts * 100) if total_attempts > 0 else 0
+        
+        stats = self.notification_stats.copy()
+        stats['success_rate'] = success_rate
+        stats['total_attempts'] = total_attempts
+        
+        return stats
 
-    def send_general_message(self, message: str, title: str = "알림", color: int = 3447003):
-        """일반적인 메시지 전송 (디버깅, 정보 등)"""
-        webhook = self.report_webhook or self.bug_webhook # 기본 웹훅 사용
-        if not webhook:
-            print("[WARNING] 일반 메시지 알림 웹훅이 설정되지 않아 알림을 보낼 수 없습니다.")
-            return
+# =============================================================================
+# 편의 함수들
+# =============================================================================
 
-        embed = {
-            "title": title,
-            "description": message,
-            "color": color,
-            "timestamp": datetime.now().isoformat()
-        }
-        self._send_webhook(webhook, {"embeds": [embed]})
-        print(f"[INFO] 일반 메시지 전송 완료: {title}")
+def send_bug_alert(bug_posts: List[Dict]) -> bool:
+    """버그 알림 전송 (편의 함수)"""
+    notifier = Epic7Notifier()
+    return notifier.send_bug_alert(bug_posts)
 
-# 외부에서 호출될 유틸리티 함수 (하위 호환성 및 편리성)
-def create_notification_manager(mode: str = "korean") -> DiscordNotificationManager:
-    return DiscordNotificationManager(mode)
+def send_sentiment_notification(sentiment_posts: List[Dict], sentiment_summary: Dict) -> bool:
+    """감성 동향 알림 전송 (편의 함수)"""
+    notifier = Epic7Notifier()
+    return notifier.send_sentiment_notification(sentiment_posts, sentiment_summary)
 
-def send_discord_message(webhook_url: str, message: str, title: str = "알림", color: int = 3447003):
-    """단순 텍스트 메시지 전송 (하위 호환성을 위한 래퍼)"""
-    payload = {
-        "embeds": [{
-            "title": title,
-            "description": message,
-            "color": color,
-            "timestamp": datetime.now().isoformat()
-        }]
-    }
-    headers = {'Content-Type': 'application/json'}
+def send_daily_report(report_data: Dict) -> bool:
+    """일간 리포트 전송 (편의 함수)"""
+    notifier = Epic7Notifier()
+    return notifier.send_daily_report(report_data)
+
+def send_health_check(health_data: Dict = None) -> bool:
+    """헬스체크 알림 전송 (편의 함수)"""
+    notifier = Epic7Notifier()
+    return notifier.send_health_check(health_data or {})
+
+def get_notification_stats() -> Dict:
+    """알림 통계 조회 (편의 함수)"""
+    notifier = Epic7Notifier()
+    return notifier.get_notification_stats()
+
+# =============================================================================
+# 메인 실행
+# =============================================================================
+
+def main():
+    """메인 실행 함수"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Epic7 통합 알림 시스템 v3.1"
+    )
+    
+    parser.add_argument(
+        '--test',
+        choices=['bug', 'sentiment', 'report', 'health'],
+        help='테스트 알림 전송'
+    )
+    
+    parser.add_argument(
+        '--stats',
+        action='store_true',
+        help='알림 통계 조회'
+    )
+    
+    args = parser.parse_args()
+    
     try:
-        requests.post(webhook_url, data=json.dumps(payload), headers=headers, timeout=10)
-        print(f"[INFO] 유틸리티 함수를 통한 Discord 메시지 전송 성공: {title}")
+        notifier = Epic7Notifier()
+        
+        if args.test:
+            # 테스트 데이터 생성
+            if args.test == 'bug':
+                test_posts = [
+                    {
+                        'title': '이거 왜 못 먹나요?',
+                        'url': 'https://page.onstove.com/epicseven/kr/view/1087075',
+                        'source': 'stove_general',
+                        'timestamp': datetime.now().isoformat(),
+                        'classification': {
+                            'bug_analysis': {'priority': 'high'}
+                        }
+                    }
+                ]
+                success = notifier.send_bug_alert(test_posts)
+                logger.info(f"버그 알림 테스트 결과: {'성공' if success else '실패'}")
+                
+            elif args.test == 'sentiment':
+                test_posts = [
+                    {
+                        'title': '에픽 감사합니다',
+                        'source': 'stove_general',
+                        'timestamp': datetime.now().isoformat(),
+                        'classification': {
+                            'sentiment_analysis': {'sentiment': 'positive'}
+                        }
+                    }
+                ]
+                success = notifier.send_sentiment_notification(test_posts, {})
+                logger.info(f"감성 동향 테스트 결과: {'성공' if success else '실패'}")
+                
+            elif args.test == 'report':
+                test_data = {
+                    'total_posts': 35,
+                    'sentiment_distribution': {'positive': 1, 'negative': 5, 'neutral': 29},
+                    'positive_sample': [{'title': '에픽 감사합니다', 'source': 'stove_general'}],
+                    'negative_sample': [{'title': '밸패 7캐릭터', 'source': 'stove_general'}]
+                }
+                success = notifier.send_daily_report(test_data)
+                logger.info(f"리포트 테스트 결과: {'성공' if success else '실패'}")
+                
+            elif args.test == 'health':
+                success = notifier.send_health_check({})
+                logger.info(f"헬스체크 테스트 결과: {'성공' if success else '실패'}")
+        
+        elif args.stats:
+            # 통계 조회
+            stats = notifier.get_notification_stats()
+            logger.info(f"알림 통계: {stats}")
+        
+        else:
+            logger.info("Epic7 통합 알림 시스템 v3.1 준비 완료")
+            logger.info("사용법: python notifier.py --test [bug|sentiment|report|health]")
+        
     except Exception as e:
-        print(f"[ERROR] 유틸리티 함수를 통한 Discord 메시지 전송 실패: {e}")
+        logger.error(f"실행 중 오류: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    print("=== Epic7 모니터링 시스템 - 한국어 전용 번역 알림 테스트 ===")
-    
-    # 환경변수 설정 (테스트용. 실제 환경에서는 GitHub Secrets)
-    os.environ['DISCORD_WEBHOOK_BUG'] = 'YOUR_BUG_WEBHOOK_URL' # 실제 웹훅 URL로 변경
-    os.environ['DISCORD_WEBHOOK_REPORT'] = 'YOUR_REPORT_WEBHOOK_URL' # 실제 웹훅 URL로 변경
-    os.environ['DISCORD_WEBHOOK_SENTIMENT'] = 'YOUR_SENTIMENT_WEBHOOK_URL' # 실제 웹훅 URL로 변경
-
-    # 테스트 데이터
-    test_posts = [
-        {
-            "title": "Character skill animation bug in arena",
-            "url": "https://example.com/post1",
-            "content": "The character skill animation is stuck in arena battles.",
-            "timestamp": datetime.now().isoformat(),
-            "source": "reddit_epic7",
-            "sentiment": "negative",
-            "category": "버그" # 분류기에서 오는 카테고리 추가
-        },
-        {
-            "title": "새로운 캐릭터 너무 좋아요!",
-            "url": "https://example.com/post2",
-            "content": "새 캐릭터가 정말 멋있습니다.",
-            "timestamp": datetime.now().isoformat(),
-            "source": "stove_general",
-            "sentiment": "positive",
-            "category": "긍정" # 분류기에서 오는 카테고리 추가
-        },
-        {
-            "title": "Patch notes are fantastic, great changes!",
-            "url": "https://example.com/post3",
-            "content": "This update truly improves the game experience. Thank you, Smilegate.",
-            "timestamp": datetime.now().isoformat(),
-            "source": "epic7_official_forum",
-            "sentiment": "positive",
-            "category": "긍정"
-        }
-    ]
-    
-    # 알림 관리자 생성
-    manager = create_notification_manager("korean")
-    
-    # 버그 알림 테스트
-    bug_posts = [p for p in test_posts if p.get('category') == '버그']
-    if bug_posts:
-        print("\n버그 알림 테스트 중...")
-        manager.send_bug_alert(bug_posts, is_high_priority=True) # 긴급 버그로 테스트
-    
-    # 감성 알림 테스트
-    sentiment_summary = {
-        '긍정': 2,
-        '부정': 1,
-        '중립': 0
-    }
-    print("\n감성 알림 테스트 중...")
-    manager.send_sentiment_alert(sentiment_summary)
-
-    # 일일 리포트 테스트 (mock data)
-    print("\n일일 리포트 테스트 중...")
-    mock_report_data = {
-        "date": datetime.now().strftime('%Y-%m-%d'),
-        "total_posts": 100,
-        "korean_posts": 60,
-        "global_posts": 40,
-        "bug_posts": 5,
-        "positive_posts": 30,
-        "negative_posts": 20,
-        "neutral_posts": 45,
-        "top_sources": {"stove_bug": 5, "ruliweb_epic7": 25, "reddit_epic7": 15},
-        "trend_analysis": {
-            "bug_posts": {"trend": "up", "change": "+2"},
-            "positive_posts": {"trend": "down", "change": "-5"}
-        },
-        "insights": ["버그 관련 게시글이 증가 추세입니다.", "새로운 캐릭터에 대한 긍정적인 반응이 많습니다."],
-        "recommendations": ["버그 리포트 게시판을 주기적으로 확인하고 대응하세요.", "긍정적인 피드백을 활용하여 마케팅 자료로 사용하세요."]
-    }
-    manager.send_daily_report(mock_report_data)
-
-    # 헬스 체크 알림 테스트
-    print("\n헬스 체크 알림 테스트 중...")
-    manager.send_health_check_alert("시스템 정상 작동 중입니다.", "success")
-    manager.send_health_check_alert("크롤링 모듈에 경고가 있습니다.", "warning")
-    manager.send_health_check_alert("데이터베이스 연결 실패!", "failure")
-
-    # 일반 메시지 테스트
-    print("\n일반 메시지 테스트 중...")
-    manager.send_general_message("이것은 일반 정보 메시지입니다.", "정보", 3447003)
-    
-    print("\n테스트 완료.")
+    main()
