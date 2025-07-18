@@ -2,7 +2,6 @@ name: 🎮 Epic Seven Bug Monitor (Integrated v3.1)
 
 on:
   schedule:
-    # 15분마다 실행 (기존 기능 보존)
     - cron: "*/15 * * * *"
 
   workflow_dispatch:
@@ -42,36 +41,34 @@ jobs:
 
       - name: 🔧 Install Chrome & ChromeDriver
         run: |
-          # Chrome 138+ 호환성을 위한 3단계 폴백 설치
+          # Chrome 138+ 호환성을 위한 설치
           echo "🌐 Installing Chrome and ChromeDriver..."
-
-          # Stage 1: Chrome for Testing API
-          CHROME_VERSION=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json | jq -r '.channels.Stable.version')
-          echo "Latest Chrome version: $CHROME_VERSION"
-
+          
           # Chrome 설치
-          wget -q https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chrome-linux64.zip
-          unzip -q chrome-linux64.zip
-          sudo mv chrome-linux64 /opt/chrome
-          sudo ln -sf /opt/chrome/chrome /usr/local/bin/chrome
-
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          
           # ChromeDriver 설치
-          wget -q https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip
+          CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+          echo "Chrome version: $CHROME_VERSION"
+          
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
           unzip -q chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
-
+          
           # 설치 확인
-          chrome --version
-          chromedriver --version
+          echo "✅ Chrome: $(google-chrome --version)"
+          echo "✅ ChromeDriver: $(chromedriver --version)"
 
       - name: 📦 Install Python Dependencies
         run: |
-          echo "📦 Installing Python packages..."
-          pip install --upgrade pip
+          echo "📦 Installing Python dependencies..."
+          python -m pip install --upgrade pip
           pip install -r requirements.txt --quiet
-
-          # 핵심 패키지 버전 확인
+          
           echo "🔍 Package versions:"
           pip show selenium requests beautifulsoup4 deep-translator
 
@@ -79,49 +76,49 @@ jobs:
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
           DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
-          DEBUG_MODE: ${{ inputs.debug_mode || 'false' }}
-          FORCE_CRAWL: ${{ inputs.force_crawl || 'false' }}
+          DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+          FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
         run: |
           echo "🎮 Starting Epic7 Integrated Monitoring..."
           echo "⚙️ Debug Mode: $DEBUG_MODE"
           echo "🔄 Force Crawl: $FORCE_CRAWL"
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-
-          # monitor_bugs.py를 메인 엔트리 포인트로 실행
-          # --mode all: 한국 + 글로벌 사이트 모두 크롤링
-          python monitor_bugs.py \
-            --mode all \
-            --debug $DEBUG_MODE \
-            --force-crawl $FORCE_CRAWL
+          
+          # 조건별 실행 (수정된 부분)
+          if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
+            echo "🔍 Running in debug mode with force crawl..."
+            python monitor_bugs.py --mode all --debug --force-crawl
+          elif [ "$DEBUG_MODE" = "true" ]; then
+            echo "🔍 Running in debug mode..."
+            python monitor_bugs.py --mode all --debug
+          elif [ "$FORCE_CRAWL" = "true" ]; then
+            echo "🔄 Running with force crawl..."
+            python monitor_bugs.py --mode all --force-crawl
+          else
+            echo "🚀 Running in normal mode..."
+            python monitor_bugs.py --mode all
+          fi
 
       - name: 📊 Monitor Execution Summary
-        if: always()
         run: |
-          echo "📊 === Epic7 Monitor Execution Summary ==="
-          echo "🕐 Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "🔧 Debug Mode: ${{ inputs.debug_mode || 'false' }}"
-          echo "🔄 Force Crawl: ${{ inputs.force_crawl || 'false' }}"
-          echo "🌐 Mode: Integrated (Korean + Global)"
-
-          # 실행 결과 파일 확인
+          echo "📊 Execution Summary:"
+          echo "⏰ Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🖥️ System Info:"
+          echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+          echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
+          
           echo "📁 Generated Files:"
           ls -la *.json *.html *.log 2>/dev/null || echo "No output files found"
-
-          # 메모리 및 시스템 상태
-          echo "💾 System Status:"
-          free -h
-          df -h /
 
       - name: 🔄 Commit and Push Changes
         if: success()
         run: |
-          # Git 설정
+          echo "🔄 Committing changes..."
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-
-          # 변경사항이 있는 경우에만 커밋
+          
           if [[ -n $(git status --porcelain) ]]; then
-            echo "📝 Committing monitoring results..."
+            echo "📝 Changes detected, committing..."
             git add *.json *.html *.log 2>/dev/null || true
             git commit -m "🤖 Epic7 Monitor: $(date '+%Y-%m-%d %H:%M:%S')" || true
             git push || echo "⚠️ Push failed - continuing..."
@@ -130,14 +127,15 @@ jobs:
           fi
 
       - name: 📤 Upload Debug Artifacts
-        if: inputs.debug_mode == 'true' || failure()
+        if: failure() || github.event.inputs.debug_mode == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: epic7-monitor-debug-${{ github.run_number }}
+          name: debug-artifacts-${{ github.run_id }}
           path: |
-            *.html
-            *.log
             *.json
+            *.log
+            *.html
+            debug/
           retention-days: 7
 
       - name: 🚨 Failure Notification
@@ -148,7 +146,6 @@ jobs:
           if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
             echo "🚨 Sending failure notification to Discord..."
             
-            # JSON 구문 오류 수정
             curl -H "Content-Type: application/json" \
                  -X POST \
                  -d "{
@@ -163,12 +160,12 @@ jobs:
                          \"inline\": true
                        },
                        {
-                         \"name\": \"🔧 Debug\",
+                         \"name\": \"🔧 Debug 모드\",
                          \"value\": \"${{ github.event.inputs.debug_mode || 'false' }}\",
                          \"inline\": true
                        },
                        {
-                         \"name\": \"🔗 Run\",
+                         \"name\": \"🔗 실행 로그\",
                          \"value\": \"[View Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\",
                          \"inline\": false
                        }
