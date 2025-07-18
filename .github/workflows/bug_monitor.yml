@@ -146,19 +146,39 @@ jobs:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         run: |
           if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            echo "🚨 Sending failure notification to Discord..."
+            
+            # JSON 구문 오류 수정
             curl -H "Content-Type: application/json" \
-                 -d '{
-                   "embeds": [{
-                     "title": "🚨 Epic7 Monitor Failed",
-                     "description": "Integrated monitoring workflow failed",
-                     "color": 15158332,
-                     "fields": [
-                       {"name": "🕐 Time", "value": "'$(date '+%Y-%m-%d %H:%M:%S %Z')'", "inline": true},
-                       {"name": "🔧 Debug", "value": "'${{ inputs.debug_mode || 'false' }}'", "inline": true},
-                       {"name": "🔗 Run", "value": "[View Details]('${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}')", "inline": false}
+                 -X POST \
+                 -d "{
+                   \"embeds\": [{
+                     \"title\": \"🚨 Epic7 Monitor 실행 실패\",
+                     \"description\": \"Epic7 모니터링 시스템 실행 중 오류가 발생했습니다.\",
+                     \"color\": 15548997,
+                     \"fields\": [
+                       {
+                         \"name\": \"⏰ 실행 시간\",
+                         \"value\": \"$(date '+%Y-%m-%d %H:%M:%S %Z')\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🔧 Debug\",
+                         \"value\": \"${{ github.event.inputs.debug_mode || 'false' }}\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🔗 Run\",
+                         \"value\": \"[View Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\",
+                         \"inline\": false
+                       }
                      ],
-                     "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                     \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
                    }]
-                 }' \
+                 }" \
                  "$DISCORD_WEBHOOK_BUG"
+            
+            echo "✅ Failure notification sent"
+          else
+            echo "⚠️ Discord webhook not configured"
           fi

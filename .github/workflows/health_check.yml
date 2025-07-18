@@ -30,7 +30,7 @@ jobs:
   health-check-optimized:
     name: 🩺 System Health Check
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # 빠른 체크를 위해 10분으로 제한
+    timeout-minutes: 10
     
     steps:
       - name: 📥 Checkout Repository
@@ -67,7 +67,7 @@ jobs:
           print(f'🕒 Check time: {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}')
           print('=' * 50)
           
-          # 1. 프로세스 검증 (수정된 부분)
+          # 1. 프로세스 검증
           target_processes = [
               'monitor_bugs.py',
               'epic7_integrated_monitoring_system.py',
@@ -115,20 +115,20 @@ jobs:
           cpu_percent = psutil.cpu_percent(interval=1)
           print(f'   🔥 CPU: {cpu_percent}% usage')
           
-          # 3. 네트워크 연결 체크
-          print('\\n🌐 Network Connectivity:')
+          # 3. 핵심 서비스 연결 체크만 (Discord 제외)
+          print('\\n🌐 Essential Network Connectivity:')
           
           import urllib.request
           import socket
           
-          test_urls = [
-              'https://google.com',
+          # 모니터링에 필수적인 사이트만 체크
+          essential_urls = [
               'https://page.onstove.com',
-              'https://discord.com'
+              'https://cafe.naver.com'
           ]
           
           network_ok = True
-          for url in test_urls:
+          for url in essential_urls:
               try:
                   urllib.request.urlopen(url, timeout=5)
                   print(f'   ✅ {url} - OK')
@@ -148,26 +148,44 @@ jobs:
           ]
           
           files_ok = True
+          missing_files = []
           for file in important_files:
               if os.path.exists(file):
                   size = os.path.getsize(file)
                   print(f'   ✅ {file} - {size} bytes')
               else:
                   print(f'   ❌ {file} - Missing')
+                  missing_files.append(file)
                   files_ok = False
           
-          # 5. 전체 상태 결정
-          if health_status == 'HEALTHY' and network_ok and files_ok:
+          # 5. 개선된 상태 결정 로직
+          critical_files = ['monitor_bugs.py', 'config.py']
+          critical_missing = any(f in missing_files for f in critical_files)
+          
+          if health_status == 'HEALTHY' and network_ok and not critical_missing:
               final_status = 'HEALTHY'
               exit_code = 0
-          elif health_status == 'WARNING' and network_ok and files_ok:
+          elif health_status == 'WARNING' and network_ok and not critical_missing:
               final_status = 'WARNING'
               exit_code = 0
+          elif not critical_missing and (network_ok or health_status in ['HEALTHY', 'WARNING']):
+              # 네트워크 일시 장애는 WARNING으로 처리
+              final_status = 'WARNING'
+              exit_code = 0
+              print('   ⚠️ Minor network issues detected, but core system is functional')
           else:
               final_status = 'CRITICAL'
               exit_code = 1
           
           print(f'\\n🏥 Overall Status: {final_status}')
+          
+          # 상태 상세 정보
+          if final_status == 'HEALTHY':
+              print('   ✅ All systems operational')
+          elif final_status == 'WARNING':
+              print('   ⚠️ Minor issues detected, monitoring continues')
+          else:
+              print('   🚨 Critical issues require immediate attention')
           
           # 환경 변수로 상태 전달
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
@@ -176,6 +194,8 @@ jobs:
               f.write(f'disk_usage={disk.percent}\\n')
               f.write(f'cpu_usage={cpu_percent}\\n')
               f.write(f'processes_found={len(processes_found)}\\n')
+              f.write(f'missing_files={len(missing_files)}\\n')
+              f.write(f'network_issues={not network_ok}\\n')
           
           sys.exit(exit_code)
           "
@@ -206,6 +226,44 @@ jobs:
               echo "✅ $log - $(wc -l < "$log") lines"
             fi
           done
+
+      - name: 🌐 Optional External Services Check
+        if: env.CHECK_LEVEL == 'full' || env.CHECK_LEVEL == 'system'
+        run: |
+          echo "🌐 Checking optional external services..."
+          
+          # 선택적 서비스 체크 (실패해도 CRITICAL 아님)
+          optional_services=(
+            "https://google.com"
+            "https://github.com"
+            "https://api.github.com"
+          )
+          
+          for service in "${optional_services[@]}"; do
+            if curl -s --head "$service" --max-time 5 | head -n 1 | grep -q "200\|301\|302"; then
+              echo "✅ $service - OK"
+            else
+              echo "⚠️ $service - Not accessible (non-critical)"
+            fi
+          done
+
+      - name: 🔔 Discord Webhook Validation
+        if: env.CHECK_LEVEL == 'full'
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            echo "🔔 Validating Discord webhook..."
+            
+            # 실제 메시지 대신 webhook 유효성만 체크
+            if curl -s --head "$DISCORD_WEBHOOK_BUG" --max-time 5 | head -n 1 | grep -q "200\|400"; then
+              echo "✅ Discord webhook - Accessible"
+            else
+              echo "⚠️ Discord webhook - May have issues (non-critical)"
+            fi
+          else
+            echo "⚠️ Discord webhook not configured"
+          fi
 
       - name: 📊 System Diagnostics
         if: env.CHECK_LEVEL == 'system'
@@ -341,7 +399,7 @@ jobs:
                        },
                        {
                          \"name\": \"🔗 Action Required\",
-                         \"value\": \"[워크플로우 로그 확인](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\\n[시스템 복구 가이드](https://github.com/${{ github.repository }}/wiki/System-Recovery)\",
+                         \"value\": \"[워크플로우 로그 확인](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\",
                          \"inline\": false
                        }
                      ],

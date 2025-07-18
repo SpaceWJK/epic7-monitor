@@ -34,8 +34,7 @@ from crawler import (
     crawl_by_schedule,
     crawl_frequent_sites,
     crawl_regular_sites,
-    get_all_posts_for_report,
-    CrawlingSchedule
+    get_all_posts_for_report    
 )
 
 from classifier import (
