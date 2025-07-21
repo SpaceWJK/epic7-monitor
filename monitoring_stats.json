@@ -1,17 +1,17 @@
 {
-  "total_crawled": 0,
-  "new_posts": 0,
-  "bug_posts": 0,
+  "total_crawled": 1,
+  "new_posts": 1,
+  "bug_posts": 1,
   "high_priority_bugs": 0,
-  "realtime_alerts": 0,
+  "realtime_alerts": 1,
   "sentiment_posts": 0,
   "errors": 0,
   "mode": "all",
   "debug": false,
-  "start_time": "2025-07-21T16:42:08.283359",
-  "end_time": "2025-07-21T16:43:40.592752",
-  "execution_time": 92.309393,
-  "success_rate": 0.0,
-  "alert_rate": 0.0,
-  "bug_rate": 0.0
+  "start_time": "2025-07-21T16:58:17.413276",
+  "end_time": "2025-07-21T17:00:38.711798",
+  "execution_time": 141.298522,
+  "success_rate": 100.0,
+  "alert_rate": 100.0,
+  "bug_rate": 100.0
 }
