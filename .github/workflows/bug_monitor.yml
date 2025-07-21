@@ -50,14 +50,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
           
-          # ChromeDriver 설치
-          CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+          # ChromeDriver 설치 (수정된 부분 - 완전한 버전 추출)
+          CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
           echo "Chrome version: $CHROME_VERSION"
           
+          # ChromeDriver 다운로드 확인 후 설치
           wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
           unzip -q chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
+          
+          # 임시 파일 정리
+          rm -f chromedriver-linux64.zip
+          rm -rf chromedriver-linux64
           
           # 설치 확인
           echo "✅ Chrome: $(google-chrome --version)"
@@ -84,7 +89,7 @@ jobs:
           echo "🔄 Force Crawl: $FORCE_CRAWL"
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           
-          # 조건별 실행 (수정된 부분)
+          # 조건별 실행
           if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
             echo "🔍 Running in debug mode with force crawl..."
             python monitor_bugs.py --mode all --debug --force-crawl
