@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 from pathlib import Path
+import signal
 
 # 로컬 모듈 임포트
 from crawler import (
@@ -104,6 +105,7 @@ class Epic7Monitor:
         self.mode = mode
         self.debug = debug
         self.start_time = datetime.now()
+        self._shutdown_event = False
         
         # 컴포넌트 초기화
         self.classifier = Epic7Classifier()
@@ -135,7 +137,19 @@ class Epic7Monitor:
         if MonitoringConfig.SAVE_DEBUG_FILES:
             os.makedirs(MonitoringConfig.DEBUG_DIR, exist_ok=True)
         
+        # 시그널 핸들러 설정
+        self._setup_signal_handlers()
+        
         logger.info(f"Epic7 모니터링 시스템 v3.1 초기화 완료 - 모드: {mode}")
+    
+    def _setup_signal_handlers(self):
+        """시그널 핸들러 설정"""
+        def signal_handler(signum, frame):
+            logger.info(f"종료 신호 수신 ({signum}), 정리 작업 시작...")
+            self._shutdown_event = True
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
     
     def _check_discord_webhooks(self) -> Dict[str, str]:
         """Discord 웹훅 환경변수 확인"""
@@ -204,6 +218,30 @@ class Epic7Monitor:
         except Exception as e:
             logger.error(f"Discord 메시지 전송 중 오류: {e}")
             return False
+    
+    def _safe_crawl_execution(self, crawl_func, func_name: str, timeout: int = 300):
+        """안전한 크롤링 실행 (타임아웃 및 예외 처리)"""
+        try:
+            logger.info(f"{func_name} 실행 시작...")
+            
+            # 타임아웃 설정으로 크롤링 실행
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(crawl_func)
+                try:
+                    result = future.result(timeout=timeout)
+                    logger.info(f"{func_name} 완료: {len(result) if result else 0}개 결과")
+                    return result if result else []
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"{func_name} 타임아웃 ({timeout}초)")
+                    future.cancel()
+                    return []
+                except Exception as e:
+                    logger.error(f"{func_name} 실행 중 오류: {e}")
+                    return []
+        
+        except Exception as e:
+            logger.error(f"{func_name} 실행 설정 중 오류: {e}")
+            return []
     
     def classify_posts(self, posts: List[Dict]) -> Tuple[List[Dict], List[Dict], List[Dict]]:
         """게시글 분류 및 처리"""
@@ -478,8 +516,8 @@ class Epic7Monitor:
         try:
             logger.info("🚀 모니터링 사이클 시작")
             
-            # 1. 스케줄 기반 크롤링
-            posts = crawl_by_schedule()
+            # 1. 스케줄 기반 크롤링 (안전한 실행)
+            posts = self._safe_crawl_execution(crawl_by_schedule, "스케줄 기반 크롤링", 300)
             self.stats['total_crawled'] = len(posts)
             
             if not posts:
@@ -531,10 +569,10 @@ class Epic7Monitor:
         try:
             logger.info("🔧 디버그 모드 시작")
             
-            # 테스트 크롤링
+            # 테스트 크롤링 (안전한 실행)
             logger.info("테스트 크롤링 실행...")
-            frequent_posts = crawl_frequent_sites()
-            regular_posts = crawl_regular_sites()
+            frequent_posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 간격 크롤링", 180)
+            regular_posts = self._safe_crawl_execution(crawl_regular_sites, "30분 간격 크롤링", 180)
             
             all_posts = frequent_posts + regular_posts
             self.stats['total_crawled'] = len(all_posts)
@@ -613,6 +651,29 @@ class Epic7Monitor:
         except Exception as e:
             logger.error(f"💥 Epic7 모니터링 시스템 실행 중 치명적 오류: {e}")
             return False
+        finally:
+            # 정리 작업
+            self._cleanup()
+    
+    def _cleanup(self):
+        """정리 작업"""
+        try:
+            logger.info("시스템 정리 작업 시작...")
+            
+            # 활성 futures 정리
+            if hasattr(self, '_active_futures'):
+                for future in self._active_futures:
+                    if not future.done():
+                        future.cancel()
+                        logger.debug("미완료 future 취소됨")
+            
+            # 통계 저장
+            self.save_monitoring_stats()
+            
+            logger.info("시스템 정리 작업 완료")
+            
+        except Exception as e:
+            logger.error(f"정리 작업 중 오류: {e}")
 
 # =============================================================================
 # 명령행 인터페이스
@@ -650,7 +711,8 @@ def parse_arguments():
         action='store_true',
         help='상세 로그 출력'
     )
-# 통합 구조 bug_monitor.yml에서 사용하는 파라미터
+
+    # 통합 구조 bug_monitor.yml에서 사용하는 파라미터
     parser.add_argument(
         '--force-crawl',
         action='store_true',
