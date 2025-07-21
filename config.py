@@ -129,7 +129,7 @@ class Epic7Config:
         }
         
         # 실시간 알림 소스
-        REALTIME_ALERT_SOURCES = ['stove_bug', 'stove_global_bug']
+        REALTIME_ALERT_SOURCES = ['stove_bug', 'stove_global_bug', 'stove_general', 'stove_global_general', 'ruliweb_epic7', 'reddit_epic7']
     
     # =============================================================================
     # 분류 설정

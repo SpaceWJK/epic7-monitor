@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 주기별 크롤러 v3.1 - 정확한 주기 분리
-- 버그 게시판: 15분 간격
-- 일반 게시판: 30분 간격
+Epic7 주기별 크롤러 v3.2 - STOVE 크롤링 문제 해결
+- CSS Selector 다중 폴백 시스템 적용
+- JavaScript 렌더링 대기시간 최적화 (20초/25초)
+- 버그 게시판: 15분 간격, 일반 게시판: 30분 간격
 - 실시간 알림: 버그 게시판 즉시 전송
 """
 
@@ -13,6 +14,7 @@ import random
 import re
 import requests
 import concurrent.futures
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -44,7 +46,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 통합 파일 시스템 및 유틸리티
+# 통합 파일 시스템 및 유틸리티 (기존 코드 보존)
 # =============================================================================
 
 def load_crawled_links():
@@ -99,7 +101,7 @@ def save_content_cache(cache_data):
         return False
 
 # =============================================================================
-# 주기별 최적화된 Chrome 드라이버
+# Chrome 드라이버 (기존 코드 보존)
 # =============================================================================
 
 @retry_on_failure(max_retries=2, delay=1.0)
@@ -179,11 +181,11 @@ def get_chrome_driver(schedule_type='frequent'):
         raise Exception("ChromeDriver 초기화 실패")
 
 # =============================================================================
-# 주기별 최적화된 게시글 내용 추출
+# 게시글 내용 추출 (기존 코드 보존)
 # =============================================================================
 
 def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, source: str = "", schedule_type: str = 'frequent') -> str:
-    """스토브 게시글 내용 추출 (주기별 최적화)"""
+    """스토브 게시글 내용 추출"""
     cache = load_content_cache()
     url_hash = get_url_hash(post_url)
     
@@ -215,9 +217,9 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, sourc
         
         # 주기별 로딩 시간 최적화
         if schedule_type == 'frequent':
-            time.sleep(8)  # 15분 간격 - 빠른 처리
+            time.sleep(8)
         else:
-            time.sleep(10)  # 30분 간격 - 안정적 처리
+            time.sleep(10)
         
         WebDriverWait(driver, 15).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
@@ -295,12 +297,12 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, sourc
     return content_summary
 
 # =============================================================================
-# 주기별 크롤링 함수들
+# ⭐ 핵심 수정: STOVE 크롤링 함수
 # =============================================================================
 
 @retry_on_failure(max_retries=2, delay=2.0)
 def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'frequent'):
-    """스토브 게시판 크롤링 (통합 함수)"""
+    """스토브 게시판 크롤링 (CSS Selector 다중 폴백 적용)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
@@ -312,54 +314,179 @@ def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'freq
         driver = get_chrome_driver(schedule_type)
         driver.get(site_config['url'])
         
-        # 주기별 로딩 시간 최적화
+        # ⭐ 수정: 대기시간 증가 (SPA 렌더링 대응)
         if schedule_type == 'frequent':
-            time.sleep(12)  # 15분 간격 - 빠른 처리
+            time.sleep(20)  # 기존: 12초 → 수정: 20초
         else:
-            time.sleep(15)  # 30분 간격 - 안정적 처리
+            time.sleep(25)  # 기존: 15초 → 수정: 25초
         
-        WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
         
-        # 주기별 스크롤링 최적화
+        # 스크롤링 최적화
         scroll_count = 2 if schedule_type == 'frequent' else 3
         for i in range(scroll_count):
             driver.execute_script(f"window.scrollTo(0, {400 * (i + 1)});")
-            time.sleep(2)
+            time.sleep(3)
         
         driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(2)
+        time.sleep(3)
         
-        # JavaScript로 게시글 추출
-        user_posts = driver.execute_script(f"""
-        var posts = [];
-        var items = document.querySelectorAll('section.s-board-item');
-        
-        for (var i = 0; i < Math.min(items.length, {site_config['limit']}); i++) {{
-            var item = items[i];
-            var link = item.querySelector('a[href*="/view/"]');
-            var title = item.querySelector('.s-board-title-text, .board-title, h3 span');
+        # ⭐ 핵심 수정: JavaScript 다중 폴백 시스템
+        user_posts = []
+        try:
+            user_posts = driver.execute_script(f"""
+            var posts = [];
             
-            if (link && title && link.href && title.innerText) {{
-                var titleText = title.innerText.trim();
-                if (titleText.length > 3) {{
-                    var isNotice = item.querySelector('.notice, [class*="notice"]');
-                    var isEvent = item.querySelector('.event, [class*="event"]');
-                    if (!isNotice && !isEvent) {{
+            // 다중 CSS Selector 폴백 시스템
+            var containerSelectors = [
+                'section.s-board-item',
+                'div[class*="board-item"]',
+                'article[class*="post"]',
+                'div[class*="list-item"]',
+                '[data-testid*="post"]',
+                '.post-item',
+                '.board-list-item',
+                'li[class*="item"]',
+                'div[class*="post"]'
+            ];
+            
+            var items = [];
+            for (var selector of containerSelectors) {{
+                try {{
+                    items = document.querySelectorAll(selector);
+                    if (items && items.length > 0) {{
+                        console.log('성공한 선택자:', selector, '개수:', items.length);
+                        break;
+                    }}
+                }} catch(e) {{
+                    continue;
+                }}
+            }}
+            
+            // 컨테이너를 찾지 못한 경우 전체 링크 탐색
+            if (!items || items.length === 0) {{
+                console.log('컨테이너를 찾지 못함, 전체 링크 탐색');
+                var allLinks = document.querySelectorAll('a[href*="/view/"]');
+                for (var i = 0; i < Math.min(allLinks.length, {site_config['limit']}); i++) {{
+                    var link = allLinks[i];
+                    if (link.href && link.innerText && link.innerText.trim().length > 3) {{
                         posts.push({{
-                            title: titleText,
+                            title: link.innerText.trim(),
                             href: link.href,
                             id: link.href.split('/').pop()
                         }});
                     }}
                 }}
+                return posts;
             }}
-        }}
-        return posts;
-        """)
+            
+            // 정상적으로 컨테이너를 찾은 경우 처리
+            for (var i = 0; i < Math.min(items.length, {site_config['limit']}); i++) {{
+                var item = items[i];
+                
+                // 링크 추출 다중 폴백
+                var link = item.querySelector('a[href*="/view/"]') ||
+                          item.querySelector('a[href*="/board/"]') ||
+                          item.querySelector('a[href*="/post/"]') ||
+                          item.querySelector('a[href]');
+                
+                // 제목 추출 다중 폴백
+                var titleSelectors = [
+                    '.s-board-title-text',
+                    '.board-title',
+                    'h3 span',
+                    '[class*="title"]',
+                    'h1, h2, h3, h4, h5, h6',
+                    '.post-title',
+                    'span[class*="text"]',
+                    '.text'
+                ];
+                
+                var title = null;
+                for (var titleSelector of titleSelectors) {{
+                    try {{
+                        var titleElement = item.querySelector(titleSelector);
+                        if (titleElement && titleElement.innerText && titleElement.innerText.trim().length > 3) {{
+                            title = titleElement;
+                            break;
+                        }}
+                    }} catch(e) {{
+                        continue;
+                    }}
+                }}
+                
+                // 제목을 찾지 못한 경우 링크의 텍스트 사용
+                if (!title && link && link.innerText && link.innerText.trim().length > 3) {{
+                    title = link;
+                }}
+                
+                if (link && title && link.href && title.innerText) {{
+                    var titleText = title.innerText.trim();
+                    if (titleText.length > 3) {{
+                        // 공지사항/이벤트 제외
+                        var isNotice = item.querySelector('.notice, [class*="notice"], [class*="Notice"]');
+                        var isEvent = item.querySelector('.event, [class*="event"], [class*="Event"]');
+                        var isPinned = item.querySelector('[class*="pin"], [class*="top"], [class*="sticky"]');
+                        
+                        if (!isNotice && !isEvent && !isPinned) {{
+                            posts.push({{
+                                title: titleText,
+                                href: link.href,
+                                id: link.href.split('/').pop()
+                            }});
+                        }}
+                    }}
+                }}
+            }}
+            
+            console.log('최종 추출된 게시글 수:', posts.length);
+            return posts;
+            """)
+            
+            logger.info(f"JavaScript 크롤링 성공: {len(user_posts)}개 게시글 발견")
+            
+        except Exception as js_error:
+            logger.warning(f"JavaScript 실행 실패: {js_error}")
+            # BeautifulSoup 백업 크롤링
+            logger.info("BeautifulSoup 백업 크롤링 시작")
+            try:
+                html = driver.page_source
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                # 다양한 링크 패턴으로 탐색
+                link_patterns = [
+                    'a[href*="/view/"]',
+                    'a[href*="/board/"]', 
+                    'a[href*="/post/"]'
+                ]
+                
+                found_links = []
+                for pattern in link_patterns:
+                    links = soup.select(pattern)
+                    if links:
+                        found_links = links[:site_config['limit']]
+                        logger.info(f"BeautifulSoup로 {pattern} 패턴에서 {len(found_links)}개 링크 발견")
+                        break
+                
+                for link in found_links:
+                    title = link.get_text(strip=True)
+                    href = link.get('href')
+                    if title and href and len(title) > 3:
+                        if href.startswith('/'):
+                            href = 'https://page.onstove.com' + href
+                        user_posts.append({
+                            'title': title,
+                            'href': href, 
+                            'id': href.split('/')[-1]
+                        })
+                        
+            except Exception as soup_error:
+                logger.error(f"BeautifulSoup 백업도 실패: {soup_error}")
+                user_posts = []
         
-        # 게시글 처리
+        # 게시글 처리 (기존 로직 유지)
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = fix_stove_url(post_info['href'])
@@ -414,6 +541,10 @@ def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'freq
     save_crawled_links(link_data)
     
     return posts
+
+# =============================================================================
+# 기타 크롤링 함수들 (기존 코드 완전 보존)
+# =============================================================================
 
 @retry_on_failure(max_retries=2, delay=2.0)
 def crawl_ruliweb_board():
@@ -573,7 +704,7 @@ def crawl_reddit_board():
     return posts
 
 # =============================================================================
-# 주기별 통합 크롤링 실행
+# 주기별 통합 크롤링 실행 (기존 코드 완전 보존)
 # =============================================================================
 
 def crawl_frequent_sites():
@@ -681,7 +812,7 @@ def crawl_by_schedule():
     return all_posts
 
 # =============================================================================
-# 리포트용 데이터 수집
+# 리포트용 데이터 수집 (기존 코드 보존)
 # =============================================================================
 
 def get_all_posts_for_report():
@@ -717,12 +848,12 @@ def get_all_posts_for_report():
     return recent_posts
 
 # =============================================================================
-# 메인 실행 함수
+# 메인 실행 함수 (기존 코드 보존)
 # =============================================================================
 
 def main():
     """메인 실행 함수"""
-    logger.info("🚀 Epic7 주기별 크롤러 v3.1 시작")
+    logger.info("🚀 Epic7 주기별 크롤러 v3.2 시작")
     
     try:
         # 스케줄 기반 크롤링
