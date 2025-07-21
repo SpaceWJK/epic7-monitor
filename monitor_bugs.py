@@ -94,7 +94,7 @@ class MonitoringConfig:
 class Epic7Monitor:
     """Epic7 통합 모니터링 시스템"""
     
-    def __init__(self, mode: str = "monitoring", debug: bool = False):
+    def __init__(self, mode: str = "monitoring", debug: bool = False, force_crawl: bool = False):
         """
         모니터링 시스템 초기화
         
@@ -104,6 +104,7 @@ class Epic7Monitor:
         """
         self.mode = mode
         self.debug = debug
+        self.force_crawl = force_crawl
         self.start_time = datetime.now()
         self._shutdown_event = False
         
@@ -219,14 +220,14 @@ class Epic7Monitor:
             logger.error(f"Discord 메시지 전송 중 오류: {e}")
             return False
     
-    def _safe_crawl_execution(self, crawl_func, func_name: str, timeout: int = 300):
+    def _safe_crawl_execution(self, crawl_func, func_name: str, timeout: int = 300, force_crawl: bool = False):
         """안전한 크롤링 실행 (타임아웃 및 예외 처리)"""
         try:
             logger.info(f"{func_name} 실행 시작...")
             
             # 타임아웃 설정으로 크롤링 실행
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(crawl_func)
+                future = executor.submit(crawl_func, force_crawl)
                 try:
                     result = future.result(timeout=timeout)
                     logger.info(f"{func_name} 완료: {len(result) if result else 0}개 결과")
@@ -517,7 +518,7 @@ class Epic7Monitor:
             logger.info("🚀 모니터링 사이클 시작")
             
             # 1. 스케줄 기반 크롤링 (안전한 실행)
-            posts = self._safe_crawl_execution(crawl_by_schedule, "스케줄 기반 크롤링", 300)
+            posts = self._safe_crawl_execution(crawl_by_schedule, "스케줄 기반 크롤링", 300, self.force_crawl)
             self.stats['total_crawled'] = len(posts)
             
             if not posts:
@@ -571,8 +572,8 @@ class Epic7Monitor:
             
             # 테스트 크롤링 (안전한 실행)
             logger.info("테스트 크롤링 실행...")
-            frequent_posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 간격 크롤링", 180)
-            regular_posts = self._safe_crawl_execution(crawl_regular_sites, "30분 간격 크롤링", 180)
+            frequent_posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 간격 크롤링", 180, self.force_crawl)
+            regular_posts = self._safe_crawl_execution(crawl_regular_sites, "30분 간격 크롤링", 180, self.force_crawl)
             
             all_posts = frequent_posts + regular_posts
             self.stats['total_crawled'] = len(all_posts)
@@ -746,7 +747,7 @@ def main():
             logger.warning("알림 기능이 제한될 수 있습니다.")
         
         # 모니터링 시스템 초기화
-        monitor = Epic7Monitor(mode=mode, debug=args.debug)
+        monitor = Epic7Monitor(mode=mode, debug=args.debug, force_crawl=args.force_crawl)
         
         # 모니터링 실행
         success = monitor.run()

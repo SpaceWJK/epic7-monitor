@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 주기별 크롤러 v3.2 - STOVE 크롤링 문제 해결
+Epic7 주기별 크롤러 v3.3 - Force Crawl 지원
 - CSS Selector 다중 폴백 시스템 적용
 - JavaScript 렌더링 대기시간 최적화 (20초/25초)
+- Force Crawl 옵션으로 중복 체크 우회 가능
 - 버그 게시판: 15분 간격, 일반 게시판: 30분 간격
 - 실시간 알림: 버그 게시판 즉시 전송
 """
@@ -46,7 +47,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 통합 파일 시스템 및 유틸리티 (기존 코드 보존)
+# 통합 파일 시스템 및 유틸리티
 # =============================================================================
 
 def load_crawled_links():
@@ -101,7 +102,7 @@ def save_content_cache(cache_data):
         return False
 
 # =============================================================================
-# Chrome 드라이버 (기존 코드 보존)
+# Chrome 드라이버
 # =============================================================================
 
 @retry_on_failure(max_retries=2, delay=1.0)
@@ -181,7 +182,7 @@ def get_chrome_driver(schedule_type='frequent'):
         raise Exception("ChromeDriver 초기화 실패")
 
 # =============================================================================
-# 게시글 내용 추출 (기존 코드 보존)
+# 게시글 내용 추출
 # =============================================================================
 
 def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, source: str = "", schedule_type: str = 'frequent') -> str:
@@ -297,28 +298,28 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome = None, sourc
     return content_summary
 
 # =============================================================================
-# ⭐ 핵심 수정: STOVE 크롤링 함수
+# ⭐ 핵심 수정: STOVE 크롤링 함수 (Force Crawl 지원)
 # =============================================================================
 
 @retry_on_failure(max_retries=2, delay=2.0)
-def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'frequent'):
-    """스토브 게시판 크롤링 (CSS Selector 다중 폴백 적용)"""
+def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'frequent', force_crawl: bool = False):
+    """스토브 게시판 크롤링 (CSS Selector 다중 폴백 + Force Crawl 지원)"""
     posts = []
     link_data = load_crawled_links()
     crawled_links = link_data["links"]
     
-    logger.info(f"🔄 {site_config['site']} 크롤링 시작 ({schedule_type})")
+    logger.info(f"🔄 {site_config['site']} 크롤링 시작 ({schedule_type}, force_crawl={force_crawl})")
     
     driver = None
     try:
         driver = get_chrome_driver(schedule_type)
         driver.get(site_config['url'])
         
-        # ⭐ 수정: 대기시간 증가 (SPA 렌더링 대응)
+        # 대기시간 최적화
         if schedule_type == 'frequent':
-            time.sleep(20)  # 기존: 12초 → 수정: 20초
+            time.sleep(20)  # 15분 간격
         else:
-            time.sleep(25)  # 기존: 15초 → 수정: 25초
+            time.sleep(25)  # 30분 간격
         
         WebDriverWait(driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
@@ -333,7 +334,7 @@ def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'freq
         driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(3)
         
-        # ⭐ 핵심 수정: JavaScript 다중 폴백 시스템
+        # JavaScript 다중 폴백 시스템
         user_posts = []
         try:
             user_posts = driver.execute_script(f"""
@@ -486,13 +487,15 @@ def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'freq
                 logger.error(f"BeautifulSoup 백업도 실패: {soup_error}")
                 user_posts = []
         
-        # 게시글 처리 (기존 로직 유지)
+        # ⭐ 핵심 수정: Force Crawl 처리
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = fix_stove_url(post_info['href'])
                 title = post_info['title']
                 
-                if href in crawled_links:
+                # ⭐ 중복 체크 수정: force_crawl=True면 중복 체크 스킵
+                if not force_crawl and href in crawled_links:
+                    logger.debug(f"중복 게시글 스킵: {title[:30]}...")
                     continue
                 
                 if title and href and len(title) > 3:
@@ -514,7 +517,11 @@ def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'freq
                     posts.append(post_data)
                     crawled_links.append(href)
                     
-                    logger.info(f"✅ {site_config['site']} 새 게시글: {title[:50]}...")
+                    # Force Crawl 모드에 따른 로그 구분
+                    if force_crawl:
+                        logger.info(f"🔄 {site_config['site']} Force Crawl: {title[:50]}...")
+                    else:
+                        logger.info(f"✅ {site_config['site']} 새 게시글: {title[:50]}...")
                     
                     # 주기별 지연 시간 최적화
                     if schedule_type == 'frequent':
@@ -543,7 +550,7 @@ def crawl_stove_board(source: str, site_config: Dict, schedule_type: str = 'freq
     return posts
 
 # =============================================================================
-# 기타 크롤링 함수들 (기존 코드 완전 보존)
+# 기타 크롤링 함수들 (기존 코드 보존)
 # =============================================================================
 
 @retry_on_failure(max_retries=2, delay=2.0)
@@ -704,12 +711,12 @@ def crawl_reddit_board():
     return posts
 
 # =============================================================================
-# 주기별 통합 크롤링 실행 (기존 코드 완전 보존)
+# ⭐ 수정: 주기별 통합 크롤링 실행 (Force Crawl 지원)
 # =============================================================================
 
-def crawl_frequent_sites():
+def crawl_frequent_sites(force_crawl=False):
     """15분 간격 크롤링 (버그 게시판)"""
-    logger.info("🔥 === 15분 간격 크롤링 시작 (버그 게시판) ===")
+    logger.info(f"🔥 === 15분 간격 크롤링 시작 (버그 게시판, force_crawl={force_crawl}) ===")
     
     frequent_posts = []
     
@@ -718,7 +725,7 @@ def crawl_frequent_sites():
         futures = {}
         
         for source, site_config in config.Crawling.FREQUENT_SOURCES.items():
-            futures[executor.submit(crawl_stove_board, source, site_config, 'frequent')] = source
+            futures[executor.submit(crawl_stove_board, source, site_config, 'frequent', force_crawl)] = source
         
         for future in concurrent.futures.as_completed(futures, timeout=90):
             source = futures[future]
@@ -726,7 +733,7 @@ def crawl_frequent_sites():
                 posts = future.result()
                 if posts:
                     frequent_posts.extend(posts)
-                    logger.info(f"✅ {source}: {len(posts)}개 (15분 간격)")
+                    logger.info(f"✅ {source}: {len(posts)}개 (15분 간격, force_crawl={force_crawl})")
                 else:
                     logger.info(f"⭕ {source}: 새 게시글 없음")
             except Exception as e:
@@ -735,9 +742,9 @@ def crawl_frequent_sites():
     logger.info(f"🔥 15분 간격 크롤링 완료: 총 {len(frequent_posts)}개")
     return frequent_posts
 
-def crawl_regular_sites():
+def crawl_regular_sites(force_crawl=False):
     """30분 간격 크롤링 (일반 게시판)"""
-    logger.info("📝 === 30분 간격 크롤링 시작 (일반 게시판) ===")
+    logger.info(f"📝 === 30분 간격 크롤링 시작 (일반 게시판, force_crawl={force_crawl}) ===")
     
     regular_posts = []
     
@@ -747,7 +754,7 @@ def crawl_regular_sites():
         
         for source, site_config in config.Crawling.REGULAR_SOURCES.items():
             if source in ['stove_general', 'stove_global_general']:
-                futures[executor.submit(crawl_stove_board, source, site_config, 'regular')] = source
+                futures[executor.submit(crawl_stove_board, source, site_config, 'regular', force_crawl)] = source
         
         for future in concurrent.futures.as_completed(futures, timeout=120):
             source = futures[future]
@@ -755,13 +762,13 @@ def crawl_regular_sites():
                 posts = future.result()
                 if posts:
                     regular_posts.extend(posts)
-                    logger.info(f"✅ {source}: {len(posts)}개 (30분 간격)")
+                    logger.info(f"✅ {source}: {len(posts)}개 (30분 간격, force_crawl={force_crawl})")
                 else:
                     logger.info(f"⭕ {source}: 새 게시글 없음")
             except Exception as e:
                 logger.error(f"❌ {source} 크롤링 실패: {e}")
     
-    # 커뮤니티 사이트 크롤링
+    # 커뮤니티 사이트 크롤링 (force_crawl 영향 없음)
     try:
         ruliweb_posts = crawl_ruliweb_board()
         if ruliweb_posts:
@@ -781,27 +788,27 @@ def crawl_regular_sites():
     logger.info(f"📝 30분 간격 크롤링 완료: 총 {len(regular_posts)}개")
     return regular_posts
 
-def crawl_by_schedule():
+def crawl_by_schedule(force_crawl=False):
     """스케줄에 따른 크롤링 실행"""
-    logger.info("📅 === 스케줄 기반 크롤링 시작 ===")
+    logger.info(f"📅 === 스케줄 기반 크롤링 시작 (force_crawl={force_crawl}) ===")
     
     all_posts = []
     
     # 15분 간격 체크 (버그 게시판)
     if is_frequent_schedule():
-        frequent_posts = crawl_frequent_sites()
+        frequent_posts = crawl_frequent_sites(force_crawl)
         all_posts.extend(frequent_posts)
     
     # 30분 간격 체크 (일반 게시판)
     if is_regular_schedule():
-        regular_posts = crawl_regular_sites()
+        regular_posts = crawl_regular_sites(force_crawl)
         all_posts.extend(regular_posts)
     
     # 스케줄 외 수동 실행시 모든 사이트 크롤링
     if not all_posts:
         logger.info("⚠️ 스케줄 외 실행 - 모든 사이트 크롤링")
-        frequent_posts = crawl_frequent_sites()
-        regular_posts = crawl_regular_sites()
+        frequent_posts = crawl_frequent_sites(force_crawl)
+        regular_posts = crawl_regular_sites(force_crawl)
         all_posts.extend(frequent_posts)
         all_posts.extend(regular_posts)
     
@@ -812,7 +819,7 @@ def crawl_by_schedule():
     return all_posts
 
 # =============================================================================
-# 리포트용 데이터 수집 (기존 코드 보존)
+# 리포트용 데이터 수집
 # =============================================================================
 
 def get_all_posts_for_report():
@@ -848,12 +855,12 @@ def get_all_posts_for_report():
     return recent_posts
 
 # =============================================================================
-# 메인 실행 함수 (기존 코드 보존)
+# 메인 실행 함수
 # =============================================================================
 
 def main():
     """메인 실행 함수"""
-    logger.info("🚀 Epic7 주기별 크롤러 v3.2 시작")
+    logger.info("🚀 Epic7 주기별 크롤러 v3.3 시작")
     
     try:
         # 스케줄 기반 크롤링
