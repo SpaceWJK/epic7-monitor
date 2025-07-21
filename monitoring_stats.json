@@ -1,0 +1,17 @@
+{
+  "total_crawled": 0,
+  "new_posts": 0,
+  "bug_posts": 0,
+  "high_priority_bugs": 0,
+  "realtime_alerts": 0,
+  "sentiment_posts": 0,
+  "errors": 0,
+  "mode": "debug",
+  "debug": true,
+  "start_time": "2025-07-21T10:00:02.890855",
+  "end_time": "2025-07-21T10:15:10.081942",
+  "execution_time": 907.191087,
+  "success_rate": 0.0,
+  "alert_rate": 0.0,
+  "bug_rate": 0.0
+}
