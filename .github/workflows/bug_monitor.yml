@@ -1,8 +1,11 @@
-name: 🎮 Epic Seven Bug Monitor (Integrated v3.1)
+name: 🎮 Epic Seven Bug Monitor (Schedule Separated v3.2)
 
 on:
   schedule:
+    # 15분 주기: 버그 게시판 전용 모니터링
     - cron: "*/15 * * * *"
+    # 30분 주기: 유저 동향 분석 (일반 게시판)
+    - cron: "*/30 * * * *"
 
   workflow_dispatch:
     inputs:
@@ -16,16 +19,27 @@ on:
         required: false
         default: 'false'
         type: boolean
+      monitor_mode:
+        description: '🎯 Monitor mode selection'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - 'auto'
+          - 'bug_only'
+          - 'sentiment_only'
 
 env:
   TZ: Asia/Seoul
   PYTHONUNBUFFERED: 1
 
 jobs:
-  integrated-monitor:
-    name: 🌐 Integrated Epic7 Monitor
+  # 15분 주기: 버그 게시판 모니터링
+  bug-monitor:
+    name: 🐛 Bug Monitoring (15min)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    if: github.event.schedule == '*/15 * * * *' || github.event.inputs.monitor_mode == 'bug_only' || github.event.inputs.monitor_mode == 'auto'
 
     steps:
       - name: 📥 Checkout Repository
@@ -77,74 +91,173 @@ jobs:
           echo "🔍 Package versions:"
           pip show selenium requests beautifulsoup4 deep-translator
 
-      - name: 🚀 Run Integrated Epic7 Monitoring
+      - name: 🐛 Run Bug Monitoring (15min)
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
           DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
           FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
         run: |
-          echo "🎮 Starting Epic7 Integrated Monitoring..."
+          echo "🐛 Starting Bug Monitoring (15min cycle)..."
           echo "⚙️ Debug Mode: $DEBUG_MODE"
           echo "🔄 Force Crawl: $FORCE_CRAWL"
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           
-          # 조건별 실행
+          # 조건별 실행 (bug_only 모드)
           if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
-            echo "🔍 Running in debug mode with force crawl..."
-            python monitor_bugs.py --mode all --debug --force-crawl
+            echo "🔍 Running bug monitoring in debug mode with force crawl..."
+            python monitor_bugs.py --mode bug_only --debug --force-crawl
           elif [ "$DEBUG_MODE" = "true" ]; then
-            echo "🔍 Running in debug mode..."
-            python monitor_bugs.py --mode all --debug
+            echo "🔍 Running bug monitoring in debug mode..."
+            python monitor_bugs.py --mode bug_only --debug
           elif [ "$FORCE_CRAWL" = "true" ]; then
-            echo "🔄 Running with force crawl..."
-            python monitor_bugs.py --mode all --force-crawl
+            echo "🔄 Running bug monitoring with force crawl..."
+            python monitor_bugs.py --mode bug_only --force-crawl
           else
-            echo "🚀 Running in normal mode..."
-            python monitor_bugs.py --mode all
+            echo "🐛 Running bug monitoring in normal mode..."
+            python monitor_bugs.py --mode bug_only
           fi
 
-      - name: 📊 Monitor Execution Summary
+      - name: 📊 Bug Monitor Execution Summary
         run: |
-          echo "📊 Execution Summary:"
+          echo "🐛 Bug Monitor Summary:"
           echo "⏰ Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🖥️ System Info:"
           echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
           echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
-          
-          echo "📁 Generated Files:"
-          ls -la *.json *.html *.log 2>/dev/null || echo "No output files found"
 
-      - name: 🔄 Commit and Push Changes
+      - name: 🔄 Commit Bug Monitor Changes
         if: success()
         run: |
-          echo "🔄 Committing changes..."
+          echo "🔄 Committing bug monitor changes..."
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
           if [[ -n $(git status --porcelain) ]]; then
-            echo "📝 Changes detected, committing..."
+            echo "📝 Bug monitor changes detected, committing..."
             git add *.json *.html *.log 2>/dev/null || true
-            git commit -m "🤖 Epic7 Monitor: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git commit -m "🐛 Bug Monitor: $(date '+%Y-%m-%d %H:%M:%S')" || true
             git push || echo "⚠️ Push failed - continuing..."
           else
-            echo "✅ No changes to commit"
+            echo "✅ No bug monitor changes to commit"
           fi
 
-      - name: 📤 Upload Debug Artifacts
-        if: failure() || github.event.inputs.debug_mode == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-artifacts-${{ github.run_id }}
-          path: |
-            *.json
-            *.log
-            *.html
-            debug/
-          retention-days: 7
+  # 30분 주기: 유저 동향 분석
+  sentiment-monitor:
+    name: 📊 User Sentiment Analysis (30min)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event.schedule == '*/30 * * * *' || github.event.inputs.monitor_mode == 'sentiment_only' || github.event.inputs.monitor_mode == 'auto'
 
-      - name: 🚨 Failure Notification
-        if: failure()
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 🔧 Install Chrome & ChromeDriver
+        run: |
+          # Chrome 138+ 호환성을 위한 설치
+          echo "🌐 Installing Chrome and ChromeDriver..."
+          
+          # Chrome 설치
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          
+          # ChromeDriver 설치
+          CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+          echo "Chrome version: $CHROME_VERSION"
+          
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
+          unzip -q chromedriver-linux64.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+          
+          # 임시 파일 정리
+          rm -f chromedriver-linux64.zip
+          rm -rf chromedriver-linux64
+          
+          # 설치 확인
+          echo "✅ Chrome: $(google-chrome --version)"
+          echo "✅ ChromeDriver: $(chromedriver --version)"
+
+      - name: 📦 Install Python Dependencies
+        run: |
+          echo "📦 Installing Python dependencies..."
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt --quiet
+          
+          echo "🔍 Package versions:"
+          pip show selenium requests beautifulsoup4 deep-translator
+
+      - name: 📊 Run User Sentiment Analysis (30min)
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+          DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+          FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
+        run: |
+          echo "📊 Starting User Sentiment Analysis (30min cycle)..."
+          echo "⚙️ Debug Mode: $DEBUG_MODE"
+          echo "🔄 Force Crawl: $FORCE_CRAWL"
+          echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          
+          # 조건별 실행 (sentiment_only 모드)
+          if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
+            echo "🔍 Running sentiment analysis in debug mode with force crawl..."
+            python monitor_bugs.py --mode sentiment_only --debug --force-crawl
+          elif [ "$DEBUG_MODE" = "true" ]; then
+            echo "🔍 Running sentiment analysis in debug mode..."
+            python monitor_bugs.py --mode sentiment_only --debug
+          elif [ "$FORCE_CRAWL" = "true" ]; then
+            echo "🔄 Running sentiment analysis with force crawl..."
+            python monitor_bugs.py --mode sentiment_only --force-crawl
+          else
+            echo "📊 Running sentiment analysis in normal mode..."
+            python monitor_bugs.py --mode sentiment_only
+          fi
+
+      - name: 📊 Sentiment Analysis Summary
+        run: |
+          echo "📊 Sentiment Analysis Summary:"
+          echo "⏰ Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🖥️ System Info:"
+          echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+          echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
+
+      - name: 🔄 Commit Sentiment Analysis Changes
+        if: success()
+        run: |
+          echo "🔄 Committing sentiment analysis changes..."
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "📝 Sentiment analysis changes detected, committing..."
+            git add *.json *.html *.log 2>/dev/null || true
+            git commit -m "📊 Sentiment Analysis: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git push || echo "⚠️ Push failed - continuing..."
+          else
+            echo "✅ No sentiment analysis changes to commit"
+          fi
+
+  # 공통 에러 처리
+  failure-notification:
+    name: 🚨 Failure Notification
+    runs-on: ubuntu-latest
+    needs: [bug-monitor, sentiment-monitor]
+    if: failure()
+
+    steps:
+      - name: 🚨 Send Failure Notification
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         run: |
