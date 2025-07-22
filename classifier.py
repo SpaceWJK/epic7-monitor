@@ -205,7 +205,7 @@ class Epic7Classifier:
         """소스별 설정 로드"""
         self.source_config = {
             # 15분 간격 - 버그 게시판 (실시간 알림)
-            'stove_bug': {
+            'stove_korea_bug': {
                 'type': 'korean',
                 'schedule': 'frequent',
                 'weight': 1.0,
@@ -223,7 +223,7 @@ class Epic7Classifier:
             },
             
             # 30분 간격 - 일반 게시판
-            'stove_general': {
+            'stove_korea_general': {
                 'type': 'korean',
                 'schedule': 'regular',
                 'weight': 0.8,
@@ -718,7 +718,7 @@ def main():
         {
             'title': '서버 다운으로 접속이 안되요',
             'content': '게임을 시작할 수가 없어요. 완전 먹통입니다.',
-            'source': 'stove_bug'
+            'source': 'stove_korea_bug'
         },
         {
             'title': 'Game crash during PvP match',
@@ -728,7 +728,7 @@ def main():
         {
             'title': '이번 업데이트 정말 좋아요',
             'content': '새로운 기능이 훌륭하고 재미있어요',
-            'source': 'stove_general'
+            'source': 'stove_korea_general'
         },
         {
             'title': 'Balance is terrible',

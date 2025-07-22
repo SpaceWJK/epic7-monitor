@@ -222,14 +222,13 @@ class Epic7Notifier:
     def _get_site_display_name(self, source: str) -> str:
         """소스 표시명 반환"""
         site_names = {
-            'stove_bug': '스토브 버그신고',
-            'stove_general': '스토브 일반게시판',
+            'stove_korea_bug': '스토브 버그신고',
+            'stove_korea_general': '스토브 자게',
             'stove_global_bug': '스토브 글로벌 버그',
             'stove_global_general': '스토브 글로벌 일반',
-            'ruliweb_epic7': '루리웹 에픽세븐',
+            'ruliweb_epic7': '루리웹',
             'arca_epic7': '아카라이브 에픽세븐',
-            'reddit_epic7': 'Reddit EpicSeven',
-            'official_forum': '공식 포럼'
+            'reddit_epic7': '레딧 글로벌'            
         }
         return site_names.get(source, source)
     
