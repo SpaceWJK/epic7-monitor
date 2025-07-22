@@ -438,8 +438,10 @@ class Epic7Monitor:
         try:
             logger.info("🚀 통합 모니터링 시작 (15분 주기) - 전체 크롤링 + 분석")
             
-            # 전체 크롤링 (버그 + 일반 게시판 모두)
-            posts = self._safe_crawl_execution(crawl_by_schedule, "통합 게시판 크롤링")
+            # 전체 크롤링 (버그 + 일반 게시판 모두)            
+            bug_posts = self._safe_crawl_execution(crawl_frequent_sites, "버그 게시판 크롤링")
+            regular_posts = self._safe_crawl_execution(crawl_regular_sites, "일반 게시판 크롤링") 
+            posts = bug_posts + regular_posts
             self.stats['total_crawled'] = len(posts)
             
             if not posts:
