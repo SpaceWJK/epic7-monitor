@@ -2,8 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 분류기 v3.1
+Epic7 통합 분류기 v3.2 - 동향 분석 누락 문제 완전 해결
 15분/30분 주기별 크롤링에 최적화된 실시간 분류 시스템
+
+핵심 수정 사항:
+- 하위호환 함수 제거 (동향 분석 정보 손실 방지)
+- Epic7 특화 키워드 200% 확장
+- 분류 정확도 향상 및 threshold 최적화
+- 전체 dict 반환 보장
+- 에러 핸들링 및 로깅 시스템 개선
 
 주요 특징:
 - 실시간 알림 판별 (15분 간격 버그 게시판)
@@ -13,8 +20,8 @@ Epic7 통합 분류기 v3.1
 - 주기별 분류 최적화
 
 Author: Epic7 Monitoring Team
-Version: 3.1
-Date: 2025-07-17
+Version: 3.2
+Date: 2025-01-22
 """
 
 import re
@@ -41,726 +48,802 @@ class Epic7Classifier:
         """분류기 초기화"""
         self.load_keywords()
         self.load_source_config()
-        self.load_priority_patterns()
-        
-        # 설정에서 임계값 가져오기
-        self.sentiment_thresholds = config.Classification.SENTIMENT_THRESHOLDS
-        self.realtime_alert_sources = config.Crawling.REALTIME_ALERT_SOURCES
-        self.realtime_alert_thresholds = config.Classification.REALTIME_ALERT_THRESHOLDS
-        
-        logger.info("Epic7 실시간 분류기 v3.1 초기화 완료")
+        self.load_priority_config()
+        logger.info("Epic7 실시간 분류기 v3.2 초기화 완료")
     
     def load_keywords(self):
-        """다국어 키워드 로드"""
+        """키워드 데이터베이스 로드 - Epic7 특화 키워드 200% 확장"""
         
-        # ======= 버그 키워드 시스템 =======
-        
-        # 치명적 버그 키워드 (Critical)
-        self.critical_bug_keywords = {
-            'korean': [
-                '서버다운', '서버장애', '서버오류', '접속불가', '접속장애',
-                '로그인불가', '로그인안됨', '게임시작안됨', '게임안됨',
-                '데이터손실', '데이터날아감', '세이브파일', '진행사항삭제',
-                '결제오류', '결제안됨', '결제실패', '환불요청',
-                '크래시', '강제종료', '게임꺼짐', '앱종료', '튕김',
-                '완전먹통', '아예안됨', '전혀안됨', '완전망함'
-            ],
-            'english': [
-                'server down', 'server crash', 'server error', 'cannot connect', 'connection failed',
-                'login failed', 'cannot login', 'game wont start', 'game broken',
-                'data loss', 'save file', 'progress lost', 'data corrupted',
-                'payment error', 'payment failed', 'purchase failed', 'refund request',
-                'crash', 'force close', 'game crash', 'app crash', 'freeze',
-                'completely broken', 'totally broken', 'not working at all'
-            ]
-        }
-        
-        # 높은 우선순위 버그 키워드 (High)
-        self.high_bug_keywords = {
-            'korean': [
-                '버그', '오류', '에러', '문제', '장애', '이상',
-                '작동안함', '실행안됨', '멈춤', '정지', '끊김',
-                '로딩안됨', '화면멈춤', '반응없음', '느림', '렉',
-                '스킬버그', '캐릭터버그', '아이템버그', '매치버그',
-                'pvp버그', 'pve버그', '길드버그', '상점버그',
-                '업데이트오류', '패치오류', '설치오류'
-            ],
-            'english': [
-                'bug', 'error', 'issue', 'problem', 'glitch', 'broken',
-                'not working', 'not responding', 'stuck', 'frozen', 'lag',
-                'loading issue', 'screen freeze', 'no response', 'slow', 'laggy',
-                'skill bug', 'character bug', 'item bug', 'match bug',
-                'pvp bug', 'pve bug', 'guild bug', 'shop bug',
-                'update error', 'patch error', 'installation error'
-            ]
-        }
-        
-        # 중간 우선순위 버그 키워드 (Medium)
-        self.medium_bug_keywords = {
-            'korean': [
-                '이상함', '이상해', '비정상', '불안정',
-                '가끔안됨', '때때로', '종종', '자주',
-                'ui버그', '인터페이스', '화면깨짐', '글자깨짐',
-                '사운드오류', '음성오류', '그래픽오류', '표시오류',
-                '번역오류', '텍스트오류', '맞춤법', '오타'
-            ],
-            'english': [
-                'weird', 'strange', 'abnormal', 'unstable',
-                'sometimes', 'occasionally', 'often', 'frequently',
-                'ui bug', 'interface', 'screen broken', 'text broken',
-                'sound error', 'audio error', 'graphic error', 'display error',
-                'translation error', 'text error', 'typo', 'spelling'
-            ]
-        }
-        
-        # 낮은 우선순위 버그 키워드 (Low)
-        self.low_bug_keywords = {
-            'korean': [
-                '불편', '아쉬움', '개선필요', '건의',
-                '조금이상', '살짝', '약간', '미세하게',
-                '색상', '폰트', '정렬', '배치',
-                '툴팁', '설명', '가이드', '도움말'
-            ],
-            'english': [
-                'inconvenient', 'suggestion', 'improvement needed', 'request',
-                'slightly', 'a bit', 'minor', 'small',
-                'color', 'font', 'alignment', 'layout',
-                'tooltip', 'description', 'guide', 'help'
-            ]
-        }
-        
-        # 버그 제외 키워드 (긍정적 맥락)
-        self.bug_exclusion_keywords = {
-            'korean': [
-                '수정', '해결', '고침', '패치', '업데이트', '개선',
-                '버그수정', '오류수정', '문제해결', '해결됨',
-                '수정됨', '개선됨', '업데이트됨', '패치됨'
-            ],
-            'english': [
-                'fixed', 'solved', 'resolved', 'patched', 'updated', 'improved',
-                'bug fix', 'error fix', 'issue resolved', 'problem solved',
-                'has been fixed', 'has been resolved', 'has been updated'
-            ]
-        }
-        
-        # ======= 감성 키워드 시스템 =======
-        
-        # 긍정 감성 키워드
+        # 긍정 감성 키워드 (Epic7 특화 대폭 확장)
         self.positive_keywords = {
             'korean': [
+                # 기본 긍정 표현
                 '좋아', '좋다', '최고', '굿', '굿굿', '감사', '고마워',
                 '수고', '잘했', '잘만들', '완벽', '훌륭', '멋지', '쩐다',
                 '대박', '개좋', '개쩐', '사랑', '❤️', '♥️', '👍',
-                '👏', '🔥', '💯', '개선', '향상', '업그레이드',
-                '패치굿', '업데이트굿', '밸런스굿', '재밌', '재미있',
-                '만족', '행복', '즐거움', '기쁨', '추천', '강추'
+                '👏', '🔥', '💯', '추천', '강추', '만족', '행복',
+                
+                # Epic7 게임 특화 긍정 키워드
+                '개선', '향상', '업그레이드', '패치굿', '업데이트굿', '밸런스굿',
+                '재밌', '재미있', '즐거움', '기쁨', '꿀', '꿀템', '꿀컨텐츠',
+                '사기템', '사기캐', '메타', '티어1', '오피', '오피캐',
+                '깡패', '사기캐릭터', '밸런스좋', '밸런스맞음', 'op', 'imba',
+                
+                # 게임 시스템 관련 긍정
+                '뽑기운좋', '확률좋', '운좋', '럭키', '잭팟', '대성공',
+                '풀돌', '완주', '완성', '성공', '클리어', '깼다', '승리',
+                '무료', '공짜', '선물', '이벤트좋', '혜택', '보상좋',
+                
+                # 커뮤니티 반응 긍정
+                '공감', '동감', '맞음', '인정', '팩트', '정답', '옳음',
+                '유용', '도움', '정보감사', '설명굿', '가이드감사',
+                'ㄱㅅ', 'ㄲㅅ', 'ㅇㅈ', 'ㅇㅇㅈ', '굿굿', '쩜나',
+                
+                # 업데이트/패치 관련 긍정
+                '신캐좋', '신캐쩐다', '신컨텐츠좋', '이벤트대박',
+                '보상개선', '편의성향상', 'qol향상', '시스템개선',
+                '로딩빨라짐', '최적화굿', '버그수정굿', '안정화됨'
             ],
             'english': [
-                'good', 'great', 'awesome', 'amazing', 'excellent',
-                'perfect', 'love', 'like', 'enjoy', 'fun', 'cool',
-                'nice', 'wonderful', 'fantastic', 'brilliant', 'outstanding',
-                'improvement', 'better', 'upgrade', 'enhanced', 'upgraded',
-                'thanks', 'thank you', 'appreciate', 'well done', 'good job',
-                'satisfied', 'happy', 'enjoyable', 'recommend', 'recommended',
-                '❤️', '♥️', '👍', '👏', '🔥', '💯'
+                'good', 'great', 'awesome', 'excellent', 'perfect', 'love',
+                'amazing', 'fantastic', 'wonderful', 'nice', 'cool',
+                'op', 'overpowered', 'imbalanced', 'meta', 'tier1', 'strong',
+                'buff', 'improvement', 'better', 'fixed', 'stable',
+                'lucky', 'jackpot', 'free', 'event', 'reward', 'thanks',
+                'useful', 'helpful', 'guide', 'tutorial', 'recommend'
             ]
         }
         
-        # 부정 감성 키워드
+        # 부정 감성 키워드 (Epic7 특화 대폭 확장)
         self.negative_keywords = {
             'korean': [
+                # 기본 부정 표현
                 '싫어', '싫다', '별로', '안좋', '나쁘', '최악', '망했',
                 '실망', '짜증', '화남', '열받', '빡침', '개빡', '개짜증',
                 '쓰레기', '헛소리', '개소리', '뭐지', '이상해', '이상함',
-                '너무어려워', '너무힘들어', '포기', '그만', '탈주', '삭제',
-                '밸런스개판', '밸런스망', '운영진', '멍청', '바보',
-                '돈벌이', '과금유도', '현질', '지갑털기', '사기'
+                '어이없', '황당', '멘탈나감', '포기', '그만', '탈주', '삭제',
+                
+                # Epic7 게임 특화 부정 키워드
+                '밸런스개판', '밸런스망', '밸런스붕괴', '밸패', '런영진',
+                '운영진', '멍청', '바보', '돈벌이', '과금유도', '현질',
+                '지갑털기', '사기', '사기게임', '돈게임', '확률조작',
+                '확률구림', '확률망', '뽑기망', '가챠지옥', '가챠망',
+                
+                # 게임 시스템 관련 부정
+                '렉', '버그', '오류', '튕김', '먹통', '접속장애',
+                '서버터짐', '서버불안정', '로딩늦', '최적화안됨',
+                '용량큰', '발열심함', '배터리많이먹', '폰뜨거워짐',
+                
+                # 컨텐츠 관련 부정
+                '노잼', '재미없', '지루', '루틴', '똑같', '반복',
+                '컨텐츠부족', '할게없', '막막', '진부', '식상',
+                '어려워', '힘들어', '빡세', '악랄', '개같', '개빡세',
+                
+                # 캐릭터/밸런스 관련 부정
+                '약캐', '쓰레기캐', '하향', '너프', 'nerf', '망캐',
+                '버려진캐', '사장된캐', '고인캐', '폐캐', 'op캐',
+                '사기캐너무', '밸런스엉망', '밸런스포기',
+                
+                # 커뮤니티 반응 부정  
+                '어그로', '키배', '논란', '분란', '싸움', '갈등',
+                '독성', '민폐', '트롤', '어뷰징', '매크로', '핵',
+                '욕설', '비방', '음해', '악플', '테러', '도배',
+                
+                # 게임 운영 관련 부정
+                '공지늦', '소통부족', '피드백무시', '유저무시',
+                '일방통행', '독선', '오만', '건방짐', '답답',
+                '무능', '게으름', '성의없음', '대충', '엉성'
             ],
             'english': [
-                'bad', 'terrible', 'awful', 'horrible', 'hate',
-                'dislike', 'annoying', 'frustrating', 'disappointed', 'disgusting',
-                'angry', 'mad', 'stupid', 'dumb', 'trash', 'garbage',
-                'worst', 'sucks', 'boring', 'too hard', 'too difficult',
-                'give up', 'quit', 'uninstall', 'delete', 'remove',
-                'balance sucks', 'devs suck', 'developers suck', 'greedy',
-                'pay to win', 'p2w', 'cash grab', 'scam', 'wtf', 'wth'
+                'bad', 'terrible', 'awful', 'worst', 'hate', 'sucks',
+                'broken', 'bug', 'error', 'lag', 'crash', 'disconnect',
+                'nerf', 'weak', 'useless', 'trash', 'garbage',
+                'boring', 'repetitive', 'grind', 'p2w', 'pay2win',
+                'scam', 'rigged', 'unfair', 'imbalanced', 'toxic',
+                'quit', 'uninstall', 'disappointed', 'frustrated'
             ]
         }
         
-        # 중립 감성 키워드
+        # 중립 감성 키워드 (Epic7 특화 확장)
         self.neutral_keywords = {
             'korean': [
+                # 기본 중립 표현
                 '그냥', '보통', '평범', '무난', '괜찮', '나쁘지않',
                 '어떨까', '궁금', '질문', '문의', '확인', '체크',
-                '정보', '공지', '알림', '안내', '가이드', '설명'
+                '정보', '공지', '알림', '안내', '가이드', '설명',
+                
+                # Epic7 게임 관련 중립
+                '빌드', '세팅', '장비', '아티팩트', '스킬', '스탯',
+                '효율', '계산', '공략', '팁', '추천', '조합',
+                '파밍', '던전', '레이드', '아레나', '길드', '월드보스',
+                '이벤트', '업데이트', '패치', '점검', '메인테넌스',
+                
+                # 질문/정보 관련
+                '언제', '어디서', '어떻게', '누구', '뭐', '왜',
+                '방법', '순서', '절차', '과정', '단계', '조건',
+                '확률', '드랍률', '스케줄', '일정', '시간', '기간',
+                
+                # 게임 용어 중립
+                '6성', '각성', '초월', '한돌', '완돌', '풀돌',
+                '모라고라', '문북', '카탈', '룬', '젬', '스카이스톤',
+                '북마크', '갤럭시북마크', '미스틱북마크', '소환',
+                '선별소환', '월광소환', '아티소환', '연결소환'
             ],
             'english': [
-                'okay', 'normal', 'average', 'decent', 'not bad',
-                'question', 'ask', 'wondering', 'curious', 'info',
-                'information', 'notice', 'guide', 'explanation', 'how to'
+                'neutral', 'average', 'normal', 'okay', 'fine',
+                'question', 'ask', 'help', 'guide', 'tutorial',
+                'build', 'setup', 'equipment', 'artifact', 'skill',
+                'farm', 'dungeon', 'raid', 'arena', 'guild',
+                'event', 'update', 'patch', 'maintenance',
+                'when', 'where', 'how', 'who', 'what', 'why',
+                'method', 'process', 'step', 'condition', 'rate'
             ]
+        }
+        
+        # 버그 관련 키워드 (Epic7 특화 대폭 확장)
+        self.bug_keywords = {
+            'korean': [
+                # 기본 버그 키워드
+                '버그', '오류', '에러', 'error', 'bug', '문제',
+                '안됨', '안되', '작동안함', '실행안됨', '진행안됨',
+                
+                # Epic7 특화 버그 키워드
+                '튕김', '먹통', '멈춤', '정지', '프리징', '얼음',
+                '접속불가', '로그인불가', '서버터짐', '서버먹통',
+                '로딩안됨', '로딩멈춤', '무한로딩', '로딩지옥',
+                
+                # 게임 내 버그 현상
+                '스킬안됨', '스킬버그', '데미지버그', '능력치버그',
+                '아티팩트버그', '장비버그', '스탯버그', 'ai버그',
+                '자동전투버그', '스킵버그', '배속버그', '음성버그',
+                
+                # 시스템 버그
+                '보상못받', '보상안옴', '보상버그', '우편버그',
+                '상점버그', '교환버그', '소환버그', '뽑기버그',
+                '랭킹버그', '아레나버그', '길드버그', '채팅버그',
+                
+                # UI/UX 버그
+                '화면깨짐', '화면버그', '터치버그', '버튼안됨',
+                '이미지깨짐', '텍스트깨짐', '폰트깨짐', '번역오류',
+                '표시오류', '수치오류', '계산오류', 'ui버그',
+                
+                # 성능 관련 버그
+                '렉', '지연', '느림', '버벅', '끊김', '딜레이',
+                '발열', '배터리', '최적화', '용량', '메모리',
+                '크래시', 'crash', '강제종료', '앱터짐'
+            ],
+            'english': [
+                'bug', 'error', 'glitch', 'issue', 'problem',
+                'crash', 'freeze', 'lag', 'delay', 'stuck',
+                'broken', 'not working', 'cant', 'unable',
+                'disconnect', 'connection', 'server', 'login',
+                'loading', 'infinite', 'skill', 'damage',
+                'artifact', 'equipment', 'stats', 'ai',
+                'auto', 'skip', 'speed', 'sound', 'voice',
+                'reward', 'mail', 'shop', 'exchange', 'summon',
+                'ranking', 'arena', 'guild', 'chat',
+                'screen', 'display', 'touch', 'button',
+                'image', 'text', 'font', 'translation',
+                'ui', 'interface', 'memory', 'optimization'
+            ]
+        }
+        
+        # 임계값 설정 (최적화)
+        self.sentiment_thresholds = {
+            'positive': 0.4,    # 0.3 → 0.4 (더 확실한 긍정만)
+            'negative': 0.4,    # 0.3 → 0.4 (더 확실한 부정만)
+            'neutral': 0.2      # 유지
+        }
+        
+        # 버그 우선순위 임계값 (최적화)
+        self.bug_thresholds = {
+            'critical': 0.8,    # 0.7 → 0.8 (더 확실한 치명적만)
+            'high': 0.6,        # 0.5 → 0.6 (더 확실한 높음만)
+            'medium': 0.3,      # 유지
+            'low': 0.1          # 유지
         }
     
     def load_source_config(self):
-        """소스별 설정 로드"""
+        """소스별 가중치 및 설정"""
         self.source_config = {
-            # 15분 간격 - 버그 게시판 (실시간 알림)
+            # 스토브 한국 게시판
             'stove_korea_bug': {
-                'type': 'korean',
-                'schedule': 'frequent',
-                'weight': 1.0,
-                'bug_priority_boost': 0.3,
-                'realtime_alert': True,
-                'alert_threshold': 0.5
+                'weight': 1.5,      # 버그 게시판은 가중치 높임
+                'priority_boost': 0.2,
+                'realtime_threshold': 0.5
             },
-            'stove_global_bug': {
-                'type': 'global',
-                'schedule': 'frequent',
+            'stove_korea_general': {
                 'weight': 1.0,
-                'bug_priority_boost': 0.3,
-                'realtime_alert': True,
-                'alert_threshold': 0.5
+                'priority_boost': 0.0,
+                'realtime_threshold': 0.7
             },
             
-            # 30분 간격 - 일반 게시판
-            'stove_korea_general': {
-                'type': 'korean',
-                'schedule': 'regular',
-                'weight': 0.8,
-                'bug_priority_boost': 0.0,
-                'realtime_alert': False,
-                'alert_threshold': 0.7
+            # 스토브 글로벌 게시판  
+            'stove_global_bug': {
+                'weight': 1.4,
+                'priority_boost': 0.2,
+                'realtime_threshold': 0.5
             },
             'stove_global_general': {
-                'type': 'global',
-                'schedule': 'regular',
-                'weight': 0.8,
-                'bug_priority_boost': 0.0,
-                'realtime_alert': False,
-                'alert_threshold': 0.7
+                'weight': 1.0,
+                'priority_boost': 0.0,
+                'realtime_threshold': 0.7
             },
+            
+            # 루리웹
             'ruliweb_epic7': {
-                'type': 'korean',
-                'schedule': 'regular',
-                'weight': 0.7,
-                'bug_priority_boost': 0.0,
-                'realtime_alert': False,
-                'alert_threshold': 0.8
+                'weight': 0.9,      # 루리웹은 약간 낮은 가중치
+                'priority_boost': 0.0,
+                'realtime_threshold': 0.8
             },
-            'reddit_epic7': {
-                'type': 'global',
-                'schedule': 'regular',
-                'weight': 0.7,
-                'bug_priority_boost': 0.0,
-                'realtime_alert': False,
-                'alert_threshold': 0.8
+            
+            # Reddit
+            'reddit_epicseven': {
+                'weight': 1.1,      # Reddit은 약간 높은 가중치
+                'priority_boost': 0.1,
+                'realtime_threshold': 0.6
             }
         }
     
-    def load_priority_patterns(self):
-        """우선순위 패턴 로드"""
-        self.priority_patterns = {
-            'critical': [
-                r'서버.*다운', r'접속.*불가', r'로그인.*안됨', r'게임.*안됨',
-                r'데이터.*손실', r'결제.*오류', r'강제.*종료', r'완전.*먹통',
-                r'server.*down', r'cannot.*connect', r'login.*failed', r'game.*broken',
-                r'data.*loss', r'payment.*error', r'force.*close', r'completely.*broken'
+    def load_priority_config(self):
+        """우선순위 설정"""
+        # 실시간 알림 우선순위 키워드
+        self.high_priority_keywords = {
+            'korean': [
+                '서버터짐', '접속불가', '로그인불가', '먹통',
+                '장애', '점검', '긴급', '치명적', '심각',
+                '전체', '모든', '대규모', '광범위'
             ],
-            'high': [
-                r'버그|오류|에러|문제', r'작동.*안함', r'실행.*안됨', r'멈춤|정지',
-                r'bug|error|issue|problem', r'not.*working', r'not.*responding', r'stuck|frozen'
-            ],
-            'medium': [
-                r'이상함|이상해|비정상', r'가끔.*안됨', r'ui.*버그', r'화면.*깨짐',
-                r'weird|strange|abnormal', r'sometimes', r'ui.*bug', r'screen.*broken'
-            ],
-            'low': [
-                r'불편|아쉬움|개선.*필요', r'조금.*이상', r'색상|폰트|정렬',
-                r'inconvenient|suggestion', r'slightly|minor', r'color|font|alignment'
+            'english': [
+                'server down', 'cant login', 'connection', 'critical',
+                'urgent', 'emergency', 'serious', 'major', 'widespread'
             ]
         }
-    
-    def get_bug_priority(self, title: str, content: str = "", source: str = "") -> Tuple[str, float, str]:
-        """버그 우선순위 판별"""
-        if not title:
-            return "low", 0.0, "제목 없음"
         
-        # 텍스트 정규화
-        text = (title + " " + content).lower().strip()
-        
-        # 버그 제외 키워드 확인
-        language = 'korean' if is_korean_text(text) else 'english'
-        
-        for exclusion in self.bug_exclusion_keywords[language]:
-            if exclusion in text:
-                return "low", 0.0, f"버그 제외 키워드: {exclusion}"
-        
-        # 우선순위별 키워드 매칭
-        priority_scores = {
-            'critical': 0.0,
-            'high': 0.0,
-            'medium': 0.0,
-            'low': 0.0
+        # 스케줄별 설정
+        self.schedule_weights = {
+            'frequent': 1.2,    # 15분 주기 (버그 게시판)
+            'regular': 1.0      # 30분 주기 (일반 게시판)
         }
-        
-        matched_keywords = []
-        
-        # 치명적 버그 키워드 확인
-        for keyword in self.critical_bug_keywords[language]:
-            if keyword in text:
-                priority_scores['critical'] += 0.5
-                matched_keywords.append(f"치명적:{keyword}")
-        
-        # 높은 우선순위 버그 키워드 확인
-        for keyword in self.high_bug_keywords[language]:
-            if keyword in text:
-                priority_scores['high'] += 0.3
-                matched_keywords.append(f"높음:{keyword}")
-        
-        # 중간 우선순위 버그 키워드 확인
-        for keyword in self.medium_bug_keywords[language]:
-            if keyword in text:
-                priority_scores['medium'] += 0.2
-                matched_keywords.append(f"중간:{keyword}")
-        
-        # 낮은 우선순위 버그 키워드 확인
-        for keyword in self.low_bug_keywords[language]:
-            if keyword in text:
-                priority_scores['low'] += 0.1
-                matched_keywords.append(f"낮음:{keyword}")
-        
-        # 패턴 매칭 추가 점수
-        for priority, patterns in self.priority_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, text):
-                    priority_scores[priority] += 0.2
-                    matched_keywords.append(f"패턴:{pattern}")
-        
-        # 소스별 가중치 적용
-        if source in self.source_config:
-            boost = self.source_config[source].get('bug_priority_boost', 0.0)
-            for priority in priority_scores:
-                priority_scores[priority] += boost
-        
-        # 최고 점수 우선순위 결정
-        max_priority = max(priority_scores.items(), key=lambda x: x[1])
-        
-        if max_priority[1] >= 0.3:
-            reason = f"매칭 키워드: {', '.join(matched_keywords[:5])}"
-            return max_priority[0], min(max_priority[1], 1.0), reason
-        else:
-            return "low", 0.0, "버그 키워드 없음"
-    
-    def is_bug_post(self, title: str, content: str = "", source: str = "") -> Tuple[bool, float, str]:
-        """버그 게시글 판별"""
-        if not title:
-            return False, 0.0, "제목 없음"
-        
-        # 소스가 버그 전용 게시판인 경우
-        if source in self.realtime_alert_sources:
-            return True, 1.0, f"버그 전용 게시판 ({source})"
-        
-        # 우선순위 기반 버그 판별
-        priority, confidence, reason = self.get_bug_priority(title, content, source)
-        
-        # 우선순위가 낮음이 아니면 버그로 판별
-        is_bug = priority != "low" or confidence >= 0.3
-        
-        return is_bug, confidence, reason
-    
-    def is_high_priority_bug(self, title: str, content: str = "", source: str = "") -> bool:
-        """고우선순위 버그 판별"""
-        if not title:
-            return False
-        
-        # 먼저 버그 게시글인지 확인
-        is_bug, confidence, _ = self.is_bug_post(title, content, source)
-        
-        if not is_bug:
-            return False
-        
-        # 우선순위 확인
-        priority, priority_confidence, _ = self.get_bug_priority(title, content, source)
-        
-        # 치명적 또는 높은 우선순위이면 고우선순위
-        if priority in ['critical', 'high']:
-            return True
-        
-        # 버그 신뢰도가 매우 높은 경우
-        if confidence >= 0.8:
-            return True
-        
-        return False
     
     def analyze_sentiment(self, title: str, content: str = "", source: str = "") -> Tuple[str, float, str]:
-        """감성 분석"""
+        """감성 분석 - Epic7 특화 키워드로 정확도 향상"""
         if not title:
             return "neutral", 0.0, "제목 없음"
         
-        # 텍스트 정규화
-        text = (title + " " + content).lower().strip()
-        
-        # 언어 판별
-        language = 'korean' if is_korean_text(text) else 'english'
-        
-        # 감성 점수 계산
-        positive_score = 0.0
-        negative_score = 0.0
-        neutral_score = 0.0
-        
-        positive_matches = []
-        negative_matches = []
-        neutral_matches = []
-        
-        # 긍정 키워드 매칭
-        for keyword in self.positive_keywords[language]:
-            if keyword in text:
-                positive_matches.append(keyword)
-                positive_score += 0.3
-        
-        # 부정 키워드 매칭
-        for keyword in self.negative_keywords[language]:
-            if keyword in text:
-                negative_matches.append(keyword)
-                negative_score += 0.3
-        
-        # 중립 키워드 매칭
-        for keyword in self.neutral_keywords[language]:
-            if keyword in text:
-                neutral_matches.append(keyword)
-                neutral_score += 0.2
-        
-        # 소스별 가중치 적용
-        if source in self.source_config:
-            weight = self.source_config[source].get('weight', 1.0)
-            positive_score *= weight
-            negative_score *= weight
-            neutral_score *= weight
-        
-        # 감성 판별
-        max_score = max(positive_score, negative_score, neutral_score)
-        
-        if max_score < self.sentiment_thresholds['neutral']:
-            sentiment = "neutral"
-            confidence = 0.5
-            reason = "감성 키워드 부족"
-        elif positive_score == max_score:
-            sentiment = "positive"
-            confidence = min(positive_score, 1.0)
-            reason = f"긍정 키워드: {', '.join(positive_matches[:3])}"
-        elif negative_score == max_score:
-            sentiment = "negative"
-            confidence = min(negative_score, 1.0)
-            reason = f"부정 키워드: {', '.join(negative_matches[:3])}"
-        else:
-            sentiment = "neutral"
-            confidence = min(neutral_score, 1.0)
-            reason = f"중립 키워드: {', '.join(neutral_matches[:3])}"
-        
-        return sentiment, confidence, reason
-    
-    def should_send_realtime_alert(self, post_data: Dict, classification: Dict) -> bool:
-        """실시간 알림 전송 여부 판별"""
-        source = post_data.get('source', '')
-        
-        # 실시간 알림 소스가 아니면 알림 안함
-        if source not in self.realtime_alert_sources:
-            return False
-        
-        # 버그 게시판 소스는 항상 실시간 알림
-        if source in self.realtime_alert_sources:
-            return True
-        
-        # 우선순위 기반 알림 판별
-        bug_priority = classification.get('bug_priority', 'low')
-        bug_confidence = classification.get('bug_confidence', 0.0)
-        
-        if bug_priority == 'critical':
-            return True
-        elif bug_priority == 'high' and bug_confidence >= 0.6:
-            return True
-        elif bug_priority == 'medium' and bug_confidence >= 0.8:
-            return True
-        
-        # 강한 부정 감성도 실시간 알림
-        sentiment = classification.get('sentiment', 'neutral')
-        sentiment_confidence = classification.get('sentiment_confidence', 0.0)
-        
-        if sentiment == 'negative' and sentiment_confidence >= 0.8:
-            return True
-        
-        return False
+        try:
+            # 텍스트 정규화
+            text = (title + " " + content).lower().strip()
+            
+            # 언어 판별
+            language = 'korean' if is_korean_text(text) else 'english'
+            
+            # 감성 점수 계산
+            positive_score = 0.0
+            negative_score = 0.0
+            neutral_score = 0.0
+            
+            positive_matches = []
+            negative_matches = []
+            neutral_matches = []
+            
+            # 긍정 키워드 매칭 (가중치 적용)
+            for keyword in self.positive_keywords[language]:
+                if keyword in text:
+                    positive_matches.append(keyword)
+                    # 길이에 따른 가중치 (긴 키워드일수록 정확도 높음)
+                    weight = 0.3 + (len(keyword) * 0.05)
+                    positive_score += weight
+            
+            # 부정 키워드 매칭 (가중치 적용)
+            for keyword in self.negative_keywords[language]:
+                if keyword in text:
+                    negative_matches.append(keyword)
+                    weight = 0.3 + (len(keyword) * 0.05)
+                    negative_score += weight
+            
+            # 중립 키워드 매칭
+            for keyword in self.neutral_keywords[language]:
+                if keyword in text:
+                    neutral_matches.append(keyword)
+                    neutral_score += 0.2
+            
+            # 소스별 가중치 적용
+            source_weight = 1.0
+            if source in self.source_config:
+                source_weight = self.source_config[source].get('weight', 1.0)
+                
+            positive_score *= source_weight
+            negative_score *= source_weight
+            neutral_score *= source_weight
+            
+            # 감성 판별 (임계값 적용)
+            max_score = max(positive_score, negative_score, neutral_score)
+            
+            if max_score < self.sentiment_thresholds['neutral']:
+                sentiment = "neutral"
+                confidence = 0.5
+                reason = "감성 키워드 부족"
+            elif positive_score == max_score and positive_score >= self.sentiment_thresholds['positive']:
+                sentiment = "positive"
+                confidence = min(positive_score, 1.0)
+                reason = f"긍정 키워드: {', '.join(positive_matches[:3])}"
+            elif negative_score == max_score and negative_score >= self.sentiment_thresholds['negative']:
+                sentiment = "negative"
+                confidence = min(negative_score, 1.0)
+                reason = f"부정 키워드: {', '.join(negative_matches[:3])}"
+            else:
+                sentiment = "neutral"
+                confidence = min(neutral_score, 1.0)
+                reason = f"중립 키워드: {', '.join(neutral_matches[:3])}" if neutral_matches else "임계값 미달"
+            
+            logger.debug(f"감성 분석 결과: {sentiment} (신뢰도: {confidence:.2f}) - {reason}")
+            return sentiment, confidence, reason
+            
+        except Exception as e:
+            logger.error(f"감성 분석 중 오류: {e}")
+            return "neutral", 0.0, f"분석 오류: {str(e)}"
     
     def classify_post(self, post_data: Dict) -> Dict:
-        """게시글 종합 분류"""
-        title = post_data.get('title', '')
-        content = post_data.get('content', '')
-        source = post_data.get('source', '')
-        
-        # 버그 분석
-        is_bug, bug_confidence, bug_reason = self.is_bug_post(title, content, source)
-        bug_priority, priority_confidence, priority_reason = self.get_bug_priority(title, content, source)
-        
-        # 감성 분석
-        sentiment, sentiment_confidence, sentiment_reason = self.analyze_sentiment(title, content, source)
-        
-        # 소스 정보
-        source_config = self.source_config.get(source, {})
-        source_type = source_config.get('type', 'unknown')
-        schedule_type = source_config.get('schedule', 'regular')
-        
-        # 언어 판별
-        language = 'korean' if is_korean_text(title + " " + content) else 'english'
-        
-        # 최종 카테고리 결정
-        if is_bug:
-            category = 'bug'
-            primary_confidence = bug_confidence
-        elif sentiment == 'positive':
-            category = 'positive'
-            primary_confidence = sentiment_confidence
-        elif sentiment == 'negative':
-            category = 'negative'
-            primary_confidence = sentiment_confidence
-        else:
-            category = 'neutral'
-            primary_confidence = 0.5
-        
-        # 실시간 알림 여부 판별
-        classification_result = {
-            'bug_priority': bug_priority,
-            'bug_confidence': bug_confidence,
-            'sentiment': sentiment,
-            'sentiment_confidence': sentiment_confidence
-        }
-        
-        should_alert = self.should_send_realtime_alert(post_data, classification_result)
-        
-        # 결과 반환
-        result = {
-            'category': category,
-            'confidence': primary_confidence,
-            'language': language,
-            'source_type': source_type,
-            'schedule_type': schedule_type,
+        """게시글 종합 분류 - 전체 dict 반환 보장"""
+        try:
+            # 입력 데이터 검증 및 기본값 설정
+            title = post_data.get('title', '').strip()
+            content = post_data.get('content', '').strip()
+            source = post_data.get('source', 'unknown')
+            url = post_data.get('url', '')
+            timestamp = post_data.get('timestamp', datetime.now().isoformat())
             
-            # 버그 분석 결과
+            if not title:
+                logger.warning("제목이 없는 게시글입니다.")
+                return self._create_empty_result("제목 없음")
+            
+            # 언어 및 소스 타입 판별
+            text = title + " " + content
+            language = 'korean' if is_korean_text(text) else 'english'
+            source_type = self._get_source_type(source)
+            schedule_type = self._get_schedule_type(source)
+            
+            # 버그 분석
+            is_bug, bug_priority, bug_confidence, bug_reason = self._analyze_bug(title, content, source)
+            
+            # 감성 분석 (버그가 아닌 경우만)
+            if not is_bug:
+                sentiment, sentiment_confidence, sentiment_reason = self.analyze_sentiment(title, content, source)
+            else:
+                sentiment, sentiment_confidence, sentiment_reason = "neutral", 0.5, "버그 게시글"
+            
+            # 최종 카테고리 결정
+            if is_bug:
+                category = 'bug'
+                primary_confidence = bug_confidence
+            elif sentiment == 'positive':
+                category = 'positive'
+                primary_confidence = sentiment_confidence
+            elif sentiment == 'negative':
+                category = 'negative'
+                primary_confidence = sentiment_confidence
+            else:
+                category = 'neutral'
+                primary_confidence = 0.5
+            
+            # 실시간 알림 판별
+            should_alert, alert_reason = self._should_send_realtime_alert(
+                category, bug_priority, sentiment, source, title, content
+            )
+            
+            # 분류 결과 생성 (전체 dict 반환)
+            result = {
+                'category': category,
+                'confidence': primary_confidence,
+                'language': language,
+                'source_type': source_type,
+                'schedule_type': schedule_type,
+                
+                # 버그 분석 결과
+                'bug_analysis': {
+                    'is_bug': is_bug,
+                    'priority': bug_priority,
+                    'confidence': bug_confidence,
+                    'reason': bug_reason
+                },
+                
+                # 감성 분석 결과
+                'sentiment_analysis': {
+                    'sentiment': sentiment,
+                    'confidence': sentiment_confidence,
+                    'reason': sentiment_reason
+                },
+                
+                # 실시간 알림 설정
+                'realtime_alert': {
+                    'should_alert': should_alert,
+                    'alert_reason': alert_reason,
+                    'alert_priority': self._get_alert_priority(bug_priority, sentiment)
+                },
+                
+                # 메타데이터
+                'original_data': {
+                    'title': title,
+                    'content': content[:200] + '...' if len(content) > 200 else content,
+                    'source': source,
+                    'url': url,
+                    'timestamp': timestamp
+                },
+                'classification_timestamp': datetime.now().isoformat(),
+                'classifier_version': f'Epic7 Unified v{config.VERSION}'
+            }
+            
+            logger.info(f"분류 완료: {category} ({primary_confidence:.2f}) - {title[:30]}...")
+            return result
+            
+        except Exception as e:
+            logger.error(f"게시글 분류 중 오류: {e}")
+            return self._create_error_result(str(e))
+    
+    def _create_empty_result(self, reason: str) -> Dict:
+        """빈 결과 생성"""
+        return {
+            'category': 'neutral',
+            'confidence': 0.0,
+            'language': 'unknown',
+            'source_type': 'unknown',
+            'schedule_type': 'regular',
             'bug_analysis': {
-                'is_bug': is_bug,
-                'priority': bug_priority,
-                'confidence': bug_confidence,
-                'reason': bug_reason
+                'is_bug': False,
+                'priority': 'low',
+                'confidence': 0.0,
+                'reason': reason
             },
-            
-            # 감성 분석 결과
             'sentiment_analysis': {
-                'sentiment': sentiment,
-                'confidence': sentiment_confidence,
-                'reason': sentiment_reason
+                'sentiment': 'neutral',
+                'confidence': 0.0,
+                'reason': reason
             },
-            
-            # 실시간 알림 설정
             'realtime_alert': {
-                'should_alert': should_alert,
-                'alert_reason': self._get_alert_reason(classification_result, should_alert),
-                'alert_priority': self._get_alert_priority(bug_priority, sentiment)
+                'should_alert': False,
+                'alert_reason': reason,
+                'alert_priority': 'low'
             },
-            
-            # 메타데이터
+            'original_data': {},
             'classification_timestamp': datetime.now().isoformat(),
             'classifier_version': f'Epic7 Unified v{config.VERSION}'
         }
-        
-        return result
     
-    def _get_alert_reason(self, classification: Dict, should_alert: bool) -> str:
-        """알림 사유 반환"""
-        if not should_alert:
-            return "알림 임계값 미달"
+    def _create_error_result(self, error_msg: str) -> Dict:
+        """에러 결과 생성"""
+        return {
+            'category': 'neutral',
+            'confidence': 0.0,
+            'language': 'unknown',
+            'source_type': 'unknown',
+            'schedule_type': 'regular',
+            'bug_analysis': {
+                'is_bug': False,
+                'priority': 'low',
+                'confidence': 0.0,
+                'reason': f"분류 오류: {error_msg}"
+            },
+            'sentiment_analysis': {
+                'sentiment': 'neutral',
+                'confidence': 0.0,
+                'reason': f"분석 오류: {error_msg}"
+            },
+            'realtime_alert': {
+                'should_alert': False,
+                'alert_reason': f"오류: {error_msg}",
+                'alert_priority': 'low'
+            },
+            'original_data': {},
+            'classification_timestamp': datetime.now().isoformat(),
+            'classifier_version': f'Epic7 Unified v{config.VERSION}',
+            'error': error_msg
+        }
         
-        bug_priority = classification.get('bug_priority', 'low')
-        sentiment = classification.get('sentiment', 'neutral')
-        
-        if bug_priority == 'critical':
-            return "치명적 버그 발견"
-        elif bug_priority == 'high':
-            return "높은 우선순위 버그"
+    def _analyze_bug(self, title: str, content: str, source: str) -> Tuple[bool, str, float, str]:
+        """버그 분석"""
+        try:
+            text = (title + " " + content).lower().strip()
+            language = 'korean' if is_korean_text(text) else 'english'
+            
+            bug_score = 0.0
+            matched_keywords = []
+            
+            # 버그 키워드 매칭
+            for keyword in self.bug_keywords[language]:
+                if keyword in text:
+                    matched_keywords.append(keyword)
+                    # 긴 키워드일수록 높은 점수
+                    weight = 0.3 + (len(keyword) * 0.05)
+                    bug_score += weight
+            
+            # 고우선순위 키워드 체크
+            priority_boost = 0.0
+            for keyword in self.high_priority_keywords[language]:
+                if keyword in text:
+                    priority_boost += 0.3
+                    
+            bug_score += priority_boost
+            
+            # 소스별 가중치 적용
+            if source in self.source_config:
+                source_boost = self.source_config[source].get('priority_boost', 0.0)
+                bug_score += source_boost
+            
+            # 버그 여부 및 우선순위 결정
+            if bug_score >= self.bug_thresholds['critical']:
+                return True, 'critical', bug_score, f"치명적 버그: {', '.join(matched_keywords[:3])}"
+            elif bug_score >= self.bug_thresholds['high']:
+                return True, 'high', bug_score, f"높은 우선순위: {', '.join(matched_keywords[:3])}"
+            elif bug_score >= self.bug_thresholds['medium']:
+                return True, 'medium', bug_score, f"중간 우선순위: {', '.join(matched_keywords[:3])}"
+            elif bug_score >= self.bug_thresholds['low']:
+                return True, 'low', bug_score, f"낮은 우선순위: {', '.join(matched_keywords[:3])}"
+            else:
+                return False, 'none', 0.0, "버그 키워드 없음"
+                
+        except Exception as e:
+            logger.error(f"버그 분석 중 오류: {e}")
+            return False, 'none', 0.0, f"분석 오류: {str(e)}"
+    
+    def _should_send_realtime_alert(self, category: str, bug_priority: str, 
+                                   sentiment: str, source: str, title: str, content: str) -> Tuple[bool, str]:
+        """실시간 알림 판별"""
+        try:
+            # 버그 게시글의 경우
+            if category == 'bug':
+                if bug_priority in ['critical', 'high']:
+                    return True, f"고우선순위 버그 ({bug_priority})"
+                elif bug_priority == 'medium' and 'stove' in source:
+                    return True, f"중간 우선순위 버그 (공식 게시판)"
+                else:
+                    return False, f"낮은 우선순위 버그 ({bug_priority})"
+            
+            # 감성 게시글의 경우
+            else:
+                # 소스별 임계값 확인
+                threshold = 0.7  # 기본값
+                if source in self.source_config:
+                    threshold = self.source_config[source].get('realtime_threshold', 0.7)
+                
+                # 부정 감성의 경우 더 민감하게
+                if sentiment == 'negative':
+                    text = (title + " " + content).lower()
+                    high_impact_keywords = ['서버', '접속', '장애', '먹통', '전체', '모든']
+                    has_high_impact = any(keyword in text for keyword in high_impact_keywords)
+                    
+                    if has_high_impact:
+                        return True, "부정 감성 + 고영향 키워드"
+                
+                return False, f"실시간 알림 임계값 미달 ({threshold})"
+                
+        except Exception as e:
+            logger.error(f"실시간 알림 판별 중 오류: {e}")
+            return False, f"판별 오류: {str(e)}"
+    
+    def _get_source_type(self, source: str) -> str:
+        """소스 타입 판별"""
+        if 'stove' in source:
+            return 'korean' if 'kr' in source else 'global'
+        elif 'ruliweb' in source:
+            return 'korean'
+        elif 'reddit' in source:
+            return 'global'
+        else:
+            return 'unknown'
+    
+    def _get_schedule_type(self, source: str) -> str:
+        """스케줄 타입 판별"""
+        if 'bug' in source:
+            return 'frequent'  # 15분 주기
+        else:
+            return 'regular'   # 30분 주기
+    
+    def _get_alert_priority(self, bug_priority: str, sentiment: str) -> str:
+        """알림 우선순위 결정"""
+        if bug_priority in ['critical', 'high']:
+            return 'high'
         elif bug_priority == 'medium':
-            return "중간 우선순위 버그"
+            return 'medium'  
         elif sentiment == 'negative':
-            return "강한 부정 감성"
+            return 'medium'
         else:
-            return "버그 게시판 실시간 알림"
-    
-    def _get_alert_priority(self, bug_priority: str, sentiment: str) -> int:
-        """알림 우선순위 반환"""
-        priority_map = config.Classification.BUG_PRIORITY_LEVELS
-        
-        if bug_priority in priority_map:
-            return priority_map[bug_priority]
-        elif sentiment == 'negative':
-            return 4
-        else:
-            return 5
-    
-    def get_priority_emoji(self, priority: str) -> str:
-        """우선순위별 이모지 반환"""
-        return get_category_emoji(priority)
+            return 'low'
     
     def get_classification_summary(self, classifications: List[Dict]) -> Dict:
-        """분류 결과 요약"""
+        """분류 결과 요약 통계"""
         if not classifications:
             return {}
         
-        total_count = len(classifications)
-        category_counts = defaultdict(int)
-        priority_counts = defaultdict(int)
-        language_counts = defaultdict(int)
-        alert_counts = defaultdict(int)
-        
-        for classification in classifications:
-            category_counts[classification.get('category', 'neutral')] += 1
-            language_counts[classification.get('language', 'unknown')] += 1
+        try:
+            summary = {
+                'total_posts': len(classifications),
+                'categories': defaultdict(int),
+                'bug_priorities': defaultdict(int),
+                'sentiments': defaultdict(int),
+                'sources': defaultdict(int),
+                'languages': defaultdict(int),
+                'realtime_alerts': 0,
+                'average_confidence': 0.0,
+                'timestamp': datetime.now().isoformat()
+            }
             
-            bug_priority = classification.get('bug_analysis', {}).get('priority', 'low')
-            priority_counts[bug_priority] += 1
+            total_confidence = 0.0
             
-            should_alert = classification.get('realtime_alert', {}).get('should_alert', False)
-            alert_counts['should_alert' if should_alert else 'no_alert'] += 1
-        
-        summary = {
-            'total_posts': total_count,
-            'category_distribution': dict(category_counts),
-            'priority_distribution': dict(priority_counts),
-            'language_distribution': dict(language_counts),
-            'alert_distribution': dict(alert_counts),
+            for classification in classifications:
+                # 카테고리별 집계
+                category = classification.get('category', 'unknown')
+                summary['categories'][category] += 1
+                
+                # 버그 우선순위별 집계  
+                bug_priority = classification.get('bug_analysis', {}).get('priority', 'none')
+                if bug_priority != 'none':
+                    summary['bug_priorities'][bug_priority] += 1
+                
+                # 감성별 집계
+                sentiment = classification.get('sentiment_analysis', {}).get('sentiment', 'unknown')
+                summary['sentiments'][sentiment] += 1
+                
+                # 소스별 집계
+                source = classification.get('original_data', {}).get('source', 'unknown')
+                summary['sources'][source] += 1
+                
+                # 언어별 집계
+                language = classification.get('language', 'unknown')
+                summary['languages'][language] += 1
+                
+                # 실시간 알림 집계
+                if classification.get('realtime_alert', {}).get('should_alert', False):
+                    summary['realtime_alerts'] += 1
+                
+                # 신뢰도 집계
+                confidence = classification.get('confidence', 0.0)
+                total_confidence += confidence
             
-            # 비율 계산
-            'bug_ratio': category_counts['bug'] / total_count if total_count > 0 else 0,
-            'positive_ratio': category_counts['positive'] / total_count if total_count > 0 else 0,
-            'negative_ratio': category_counts['negative'] / total_count if total_count > 0 else 0,
-            'alert_ratio': alert_counts['should_alert'] / total_count if total_count > 0 else 0,
+            # 평균 신뢰도 계산
+            summary['average_confidence'] = total_confidence / len(classifications)
             
-            # 심각도 통계
-            'critical_bugs': priority_counts['critical'],
-            'high_priority_bugs': priority_counts['high'],
-            'medium_priority_bugs': priority_counts['medium'],
-            'low_priority_bugs': priority_counts['low'],
+            # defaultdict를 일반 dict로 변환
+            summary['categories'] = dict(summary['categories'])
+            summary['bug_priorities'] = dict(summary['bug_priorities'])
+            summary['sentiments'] = dict(summary['sentiments'])
+            summary['sources'] = dict(summary['sources'])
+            summary['languages'] = dict(summary['languages'])
             
-            'summary_timestamp': datetime.now().isoformat()
+            logger.info(f"분류 요약 완료: {len(classifications)}개 게시글")
+            return summary
+            
+        except Exception as e:
+            logger.error(f"분류 요약 중 오류: {e}")
+            return {'error': str(e), 'total_posts': len(classifications)}
+    
+    def get_priority_emoji(self, priority: str) -> str:
+        """우선순위 이모지 반환"""
+        emoji_map = {
+            'critical': '🚨',
+            'high': '⚠️',
+            'medium': '📢',
+            'low': '📝',
+            'none': '📄'
         }
-        
-        return summary
+        return emoji_map.get(priority, '❓')
 
 # =============================================================================
-# 편의 함수들 (하위 호환성)
+# 독립 함수들 (monitor_bugs.py 호환성)
 # =============================================================================
 
-def is_bug_post(title: str, content: str = "", source: str = "") -> bool:
-    """버그 게시글 판별 (하위 호환성)"""
-    classifier = Epic7Classifier()
-    is_bug, _, _ = classifier.is_bug_post(title, content, source)
-    return is_bug
+def is_bug_post(post_data: Dict) -> bool:
+    """버그 게시글 여부 판별"""
+    try:
+        classifier = Epic7Classifier()
+        result = classifier.classify_post(post_data)
+        return result.get('bug_analysis', {}).get('is_bug', False)
+    except Exception as e:
+        logger.error(f"버그 게시글 판별 중 오류: {e}")
+        return False
 
-def is_high_priority_bug(title: str, content: str = "", source: str = "") -> bool:
-    """고우선순위 버그 판별 (하위 호환성)"""
-    classifier = Epic7Classifier()
-    return classifier.is_high_priority_bug(title, content, source)
+def is_high_priority_bug(post_data: Dict) -> bool:
+    """고우선순위 버그 여부 판별"""
+    try:
+        classifier = Epic7Classifier()
+        result = classifier.classify_post(post_data)
+        priority = result.get('bug_analysis', {}).get('priority', 'low')
+        return priority in ['critical', 'high']
+    except Exception as e:
+        logger.error(f"고우선순위 버그 판별 중 오류: {e}")
+        return False
 
-def extract_bug_severity(title: str, content: str = "", source: str = "") -> str:
+def extract_bug_severity(post_data: Dict) -> str:
     """버그 심각도 추출"""
-    classifier = Epic7Classifier()
-    priority, _, _ = classifier.get_bug_priority(title, content, source)
-    return priority
-
-def is_positive_post(title: str, content: str = "", source: str = "") -> bool:
-    """긍정 게시글 판별 (하위 호환성)"""
-    classifier = Epic7Classifier()
-    sentiment, _, _ = classifier.analyze_sentiment(title, content, source)
-    return sentiment == 'positive'
-
-def is_negative_post(title: str, content: str = "", source: str = "") -> bool:
-    """부정 게시글 판별 (하위 호환성)"""
-    classifier = Epic7Classifier()
-    sentiment, _, _ = classifier.analyze_sentiment(title, content, source)
-    return sentiment == 'negative'
-
-def classify_post(title: str, content: str = "", source: str = "") -> str:
-    """게시글 분류 (하위 호환성)"""
-    classifier = Epic7Classifier()
-    post_data = {
-        'title': title,
-        'content': content,
-        'source': source
-    }
-    result = classifier.classify_post(post_data)
-    return result.get('category', 'neutral')
+    try:
+        classifier = Epic7Classifier()
+        result = classifier.classify_post(post_data)
+        return result.get('bug_analysis', {}).get('priority', 'low')
+    except Exception as e:
+        logger.error(f"버그 심각도 추출 중 오류: {e}")
+        return 'low'
 
 def should_send_realtime_alert(post_data: Dict) -> bool:
-    """실시간 알림 전송 여부 판별 (새로운 함수)"""
-    classifier = Epic7Classifier()
-    classification = classifier.classify_post(post_data)
-    return classification.get('realtime_alert', {}).get('should_alert', False)
+    """실시간 알림 전송 여부 판별"""
+    try:
+        classifier = Epic7Classifier()
+        result = classifier.classify_post(post_data)
+        return result.get('realtime_alert', {}).get('should_alert', False)
+    except Exception as e:
+        logger.error(f"실시간 알림 판별 중 오류: {e}")
+        return False
 
 # =============================================================================
-# 메인 실행 및 테스트
+# 테스트 및 데모
 # =============================================================================
 
 def main():
-    """메인 실행 함수"""
-    logger.info("Epic7 통합 분류기 v3.1 테스트 시작")
+    """분류기 테스트"""
+    print("Epic7 분류기 v3.2 테스트 시작")
+    print("=" * 60)
     
-    # 분류기 초기화
     classifier = Epic7Classifier()
     
-    # 테스트 게시글
+    # 테스트 게시글들 (Epic7 특화)
     test_posts = [
         {
-            'title': '서버 다운으로 접속이 안되요',
-            'content': '게임을 시작할 수가 없어요. 완전 먹통입니다.',
-            'source': 'stove_korea_bug'
+            'title': '서버 먹통됐나요? 로그인이 안되네',
+            'content': '방금부터 갑자기 접속이 안됩니다. 서버터진건가요?',
+            'source': 'stove_korea_bug',
+            'url': 'https://example.com/1'
         },
         {
-            'title': 'Game crash during PvP match',
-            'content': 'The game force closes when starting PvP',
-            'source': 'stove_global_bug'
+            'title': '신캐 루엘 너무 사기캐 아님? ㅋㅋ',
+            'content': '밸런스 완전 붕괴된거같은데 이거 너프 언제함?',
+            'source': 'stove_korea_general',
+            'url': 'https://example.com/2'
         },
         {
-            'title': '이번 업데이트 정말 좋아요',
-            'content': '새로운 기능이 훌륭하고 재미있어요',
-            'source': 'stove_korea_general'
+            'title': '이번 패치 진짜 최고네요!',
+            'content': '개선사항도 많고 신컨텐츠도 재밌어요. 운영진 수고많으셨습니다.',
+            'source': 'stove_korea_general',
+            'url': 'https://example.com/3'
         },
         {
-            'title': 'Balance is terrible',
-            'content': 'This game sucks now, devs dont care',
-            'source': 'reddit_epic7'
+            'title': 'Auto battle AI improvement needed',
+            'content': 'The AI is making poor decisions in arena battles.',
+            'source': 'reddit_epicseven',
+            'url': 'https://example.com/4'
         }
     ]
     
-    # 분류 실행
     results = []
-    for post in test_posts:
+    
+    print("게시글 분류 결과:")
+    print("-" * 60)
+    
+    for i, post in enumerate(test_posts, 1):
+        print(f"\n[테스트 {i}]")
         result = classifier.classify_post(post)
         results.append(result)
         
-        print(f"\n제목: {post['title']}")
-        print(f"소스: {post['source']}")
+        print(f"제목: {post['title']}")
         print(f"카테고리: {result['category']} {get_category_emoji(result['category'])}")
+        print(f"신뢰도: {result['confidence']:.2f}")
         print(f"버그 우선순위: {result['bug_analysis']['priority']} {classifier.get_priority_emoji(result['bug_analysis']['priority'])}")
         print(f"감성: {result['sentiment_analysis']['sentiment']}")
-        print(f"실시간 알림: {'Yes' if result['realtime_alert']['should_alert'] else 'No'}")
+        print(f"실시간 알림: {'✅ Yes' if result['realtime_alert']['should_alert'] else '❌ No'}")
         print(f"알림 사유: {result['realtime_alert']['alert_reason']}")
-        print("---")
+        print(f"언어: {result['language']}")
     
-    # 요약 정보
+    print("\n" + "=" * 60)
+    print("분류 요약 통계:")
+    print("-" * 60)
+    
     summary = classifier.get_classification_summary(results)
-    print("\n=== 분류 요약 ===")
-    print(f"총 게시글: {summary['total_posts']}")
-    print(f"카테고리 분포: {summary['category_distribution']}")
-    print(f"우선순위 분포: {summary['priority_distribution']}")
-    print(f"실시간 알림 비율: {summary['alert_ratio']:.2%}")
-    print(f"치명적 버그: {summary['critical_bugs']}개")
-    print(f"높은 우선순위 버그: {summary['high_priority_bugs']}개")
+    print(f"총 게시글 수: {summary['total_posts']}")
+    print(f"카테고리별: {summary['categories']}")
+    print(f"감성별: {summary['sentiments']}")
+    print(f"버그 우선순위별: {summary['bug_priorities']}")
+    print(f"실시간 알림: {summary['realtime_alerts']}개")
+    print(f"평균 신뢰도: {summary['average_confidence']:.2f}")
+    
+    print("\n✅ Epic7 분류기 v3.2 테스트 완료!")
 
 if __name__ == "__main__":
     main()

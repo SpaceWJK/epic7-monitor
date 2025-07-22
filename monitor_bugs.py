@@ -2,19 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 모니터 v3.2 - 주기 분리 완성본
+Epic7 통합 모니터 v3.3 - 아키텍처 수정 완료본
 크롤러와 분류기를 통합하는 실시간 모니터링 시스템
 
 핵심 수정:
-- bug_only/sentiment_only 모드 추가 (15분/30분 주기 분리)
-- Force Crawl 옵션이 crawler.py에 제대로 전달됨
-- 새 게시글 판별 로직 개선
-- Discord 알림 정상화
-- 에러 핸들링 강화
-- 실행보고서 Discord 전송 제거 (일간 리포트 채널 정리)
+- 15분 주기: 통합 크롤링 + 분석 → 버그만 즉시 알림
+- 30분 주기: 크롤링 없음 → 누적 감성 데이터 알림
+- 중복 크롤링 완전 제거
+- 감성 데이터 누적 저장 시스템 추가
+- 24시간 일간 리포트는 generate_report.py에서 처리
 
 Author: Epic7 Monitoring Team
-Version: 3.2
+Version: 3.3
 Date: 2025-07-22
 """
 
@@ -65,18 +64,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# 감성 데이터 저장 설정
+# =============================================================================
+
+SENTIMENT_DATA_FILE = "sentiment_data_accumulated.json"
+SENTIMENT_DATA_RETENTION_HOURS = 72  # 72시간 데이터 보존
+
+# =============================================================================
 # 모니터링 시스템 설정
 # =============================================================================
 
 class Epic7Monitor:
     """Epic7 통합 모니터링 시스템"""
     
-    def __init__(self, mode: str = "monitoring", debug: bool = False, force_crawl: bool = False):
+    def __init__(self, mode: str = "unified", debug: bool = False, force_crawl: bool = False):
         """
         모니터링 시스템 초기화
         
         Args:
-            mode: 실행 모드 ('monitoring', 'debug', 'bug_only', 'sentiment_only')
+            mode: 실행 모드 ('unified', 'sentiment_alert', 'debug')
             debug: 디버그 모드 여부
             force_crawl: 강제 크롤링 여부
         """
@@ -96,6 +102,7 @@ class Epic7Monitor:
             'high_priority_bugs': 0,
             'realtime_alerts': 0,
             'sentiment_posts': 0,
+            'accumulated_sentiment_sent': 0,
             'errors': 0,
             'mode': mode,
             'debug': debug,
@@ -110,7 +117,7 @@ class Epic7Monitor:
         if debug:
             logging.getLogger().setLevel(logging.DEBUG)
         
-        logger.info(f"Epic7 모니터링 시스템 v3.2 초기화 완료 - 모드: {mode}, force_crawl: {force_crawl}")
+        logger.info(f"Epic7 모니터링 시스템 v3.3 초기화 완료 - 모드: {mode}, force_crawl: {force_crawl}")
     
     def _check_discord_webhooks(self) -> Dict[str, str]:
         """Discord 웹훅 환경변수 확인"""
@@ -152,6 +159,72 @@ class Epic7Monitor:
             
         except Exception as e:
             logger.error(f"{func_name} 실행 중 오류: {e}")
+            return []
+    
+    def save_sentiment_data(self, sentiment_posts: List[Dict]) -> bool:
+        """감성 분석 결과 누적 저장"""
+        if not sentiment_posts:
+            return True
+            
+        try:
+            # 기존 데이터 로드
+            accumulated_data = self.load_accumulated_sentiment_data()
+            
+            # 새로운 감성 데이터 추가
+            current_time = datetime.now()
+            for post in sentiment_posts:
+                sentiment_entry = {
+                    'timestamp': current_time.isoformat(),
+                    'title': post.get('title', ''),
+                    'url': post.get('url', ''),
+                    'source': post.get('source', ''),
+                    'classification': post.get('classification', {}),
+                    'sentiment': post.get('classification', {}).get('sentiment_analysis', {}).get('sentiment', 'neutral'),
+                    'confidence': post.get('classification', {}).get('sentiment_analysis', {}).get('confidence', 0.0),
+                    'save_time': current_time.isoformat()
+                }
+                accumulated_data.append(sentiment_entry)
+            
+            # 72시간 이전 데이터 정리
+            cutoff_time = current_time - timedelta(hours=SENTIMENT_DATA_RETENTION_HOURS)
+            accumulated_data = [
+                entry for entry in accumulated_data 
+                if datetime.fromisoformat(entry['save_time']) > cutoff_time
+            ]
+            
+            # 파일에 저장
+            with open(SENTIMENT_DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(accumulated_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"💾 감성 데이터 저장 완료: {len(sentiment_posts)}개 추가, 총 {len(accumulated_data)}개 누적")
+            return True
+            
+        except Exception as e:
+            logger.error(f"감성 데이터 저장 실패: {e}")
+            return False
+    
+    def load_accumulated_sentiment_data(self) -> List[Dict]:
+        """누적된 감성 데이터 로드"""
+        try:
+            if os.path.exists(SENTIMENT_DATA_FILE):
+                with open(SENTIMENT_DATA_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                # 72시간 이전 데이터 필터링
+                cutoff_time = datetime.now() - timedelta(hours=SENTIMENT_DATA_RETENTION_HOURS)
+                filtered_data = [
+                    entry for entry in data 
+                    if datetime.fromisoformat(entry['save_time']) > cutoff_time
+                ]
+                
+                logger.info(f"📊 누적 감성 데이터 로드: {len(filtered_data)}개")
+                return filtered_data
+            else:
+                logger.info("📊 누적 감성 데이터 파일 없음 - 새로 시작")
+                return []
+                
+        except Exception as e:
+            logger.error(f"감성 데이터 로드 실패: {e}")
             return []
     
     def classify_posts(self, posts: List[Dict]) -> Tuple[List[Dict], List[Dict], List[Dict]]:
@@ -217,48 +290,79 @@ class Epic7Monitor:
         return bug_posts, sentiment_posts, realtime_alerts
     
     def send_realtime_alerts(self, alert_posts: List[Dict]) -> bool:
-        """실시간 알림 전송"""
+        """실시간 알림 전송 (버그만)"""
         if not alert_posts:
-            logger.info("실시간 알림: 전송할 게시글이 없습니다.")
+            logger.info("실시간 버그 알림: 전송할 게시글이 없습니다.")
             return True
         
         if not self.webhooks.get('bug'):
-            logger.warning("실시간 알림: Discord 웹훅이 설정되지 않았습니다.")
+            logger.warning("실시간 버그 알림: Discord 웹훅이 설정되지 않았습니다.")
             return False
         
         try:
-            logger.info(f"🚨 실시간 알림 전송 시작: {len(alert_posts)}개 게시글")
+            logger.info(f"🚨 실시간 버그 알림 전송 시작: {len(alert_posts)}개 게시글")
             
             # 알림 전송
             success = send_bug_alert(alert_posts)
             
             if success:
-                logger.info(f"🚨 실시간 알림 전송 성공: {len(alert_posts)}개 게시글")
+                logger.info(f"🚨 실시간 버그 알림 전송 성공: {len(alert_posts)}개 게시글")
             else:
-                logger.error("🚨 실시간 알림 전송 실패")
+                logger.error("🚨 실시간 버그 알림 전송 실패")
             
             return success
             
         except Exception as e:
-            logger.error(f"실시간 알림 전송 중 오류: {e}")
+            logger.error(f"실시간 버그 알림 전송 중 오류: {e}")
             return False
     
-    def send_batch_alerts(self, bug_posts: List[Dict], sentiment_posts: List[Dict]) -> bool:
-        """배치 알림 전송 (감성 동향)"""
-        if not sentiment_posts or not self.webhooks.get('sentiment'):
+    def send_accumulated_sentiment_alerts(self) -> bool:
+        """누적된 감성 데이터 알림 전송 (30분 주기)"""
+        if not self.webhooks.get('sentiment'):
+            logger.warning("감성 동향 알림: Discord 웹훅이 설정되지 않았습니다.")
             return False
         
         try:
-            logger.info(f"📊 감성 동향 알림 전송 시작: {len(sentiment_posts)}개 게시글")
+            # 누적된 감성 데이터 로드
+            accumulated_data = self.load_accumulated_sentiment_data()
+            
+            if not accumulated_data:
+                logger.info("📊 감성 동향 알림: 누적된 감성 데이터가 없습니다.")
+                return True
+            
+            # 최근 30분간 데이터만 필터링 (30분 주기 알림용)
+            cutoff_time = datetime.now() - timedelta(minutes=30)
+            recent_data = [
+                entry for entry in accumulated_data
+                if datetime.fromisoformat(entry['timestamp']) > cutoff_time
+            ]
+            
+            if not recent_data:
+                logger.info("📊 감성 동향 알림: 최근 30분간 새로운 감성 데이터가 없습니다.")
+                return True
+            
+            logger.info(f"📊 감성 동향 알림 전송 시작: 최근 30분간 {len(recent_data)}개 데이터")
             
             # 감성 분석 요약
-            sentiment_summary = self._create_sentiment_summary(sentiment_posts)
+            sentiment_summary = self._create_accumulated_sentiment_summary(recent_data)
             
-            # 알림 전송
-            success = send_sentiment_notification(sentiment_posts, sentiment_summary)
+            # 알림 전송 (recent_data를 posts 형태로 변환)
+            posts_for_notification = []
+            for entry in recent_data:
+                post_data = {
+                    'title': entry['title'],
+                    'url': entry['url'],
+                    'source': entry['source'],
+                    'classification': entry['classification'],
+                    'timestamp': entry['timestamp']
+                }
+                posts_for_notification.append(post_data)
+            
+            success = send_sentiment_notification(posts_for_notification, sentiment_summary)
             
             if success:
-                logger.info(f"📊 감성 동향 알림 전송 성공: {len(sentiment_posts)}개 게시글")
+                self.stats['accumulated_sentiment_sent'] = len(recent_data)
+                logger.info(f"📊 감성 동향 알림 전송 성공: {len(recent_data)}개 데이터")
             else:
                 logger.error("📊 감성 동향 알림 전송 실패")
             
@@ -268,17 +372,18 @@ class Epic7Monitor:
             logger.error(f"감성 동향 알림 전송 중 오류: {e}")
             return False
     
-    def _create_sentiment_summary(self, posts: List[Dict]) -> Dict:
-        """감성 분석 요약 생성"""
+    def _create_accumulated_sentiment_summary(self, data: List[Dict]) -> Dict:
+        """누적된 감성 데이터 요약 생성"""
         sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
         
-        for post in posts:
-            sentiment = post.get('classification', {}).get('sentiment_analysis', {}).get('sentiment', 'neutral')
+        for entry in data:
+            sentiment = entry.get('sentiment', 'neutral')
             sentiment_counts[sentiment] += 1
         
         return {
-            'total_posts': len(posts),
+            'total_posts': len(data),
             'sentiment_distribution': sentiment_counts,
+            'time_period': '최근 30분간',
             'timestamp': datetime.now().isoformat()
         }
     
@@ -288,7 +393,7 @@ class Epic7Monitor:
         execution_time = end_time - self.start_time
         
         report = f"""
-🎯 **Epic7 모니터링 실행 보고서**
+🎯 **Epic7 모니터링 실행 보고서 v3.3**
 
 **실행 정보**
 - 모드: {self.mode.upper()}
@@ -304,8 +409,15 @@ class Epic7Monitor:
 - 버그 게시글: {self.stats['bug_posts']}개
 - 고우선순위 버그: {self.stats['high_priority_bugs']}개
 - 감성 게시글: {self.stats['sentiment_posts']}개
-- 실시간 알림 전송: {self.stats['realtime_alerts']}개
+- 실시간 버그 알림: {self.stats['realtime_alerts']}개
+- 감성 동향 알림: {self.stats['accumulated_sentiment_sent']}개
 - 오류 발생: {self.stats['errors']}개
+
+**아키텍처 정보**
+- 15분 주기: {'통합 크롤링 + 버그 알림' if self.mode == 'unified' else 'N/A'}
+- 30분 주기: {'감성 데이터 알림만' if self.mode == 'sentiment_alert' else 'N/A'}
+- 중복 크롤링: 제거됨 ✅
+- 감성 데이터 저장: 활성화됨 ✅
 
 **성능 지표**
 - 성공률: {((self.stats['total_crawled'] - self.stats['errors']) / max(1, self.stats['total_crawled']) * 100):.1f}%
@@ -321,98 +433,62 @@ class Epic7Monitor:
         
         return report.strip()
     
-    def run_monitoring_cycle(self) -> bool:
-        """기본 모니터링 사이클 실행"""
+    def run_unified_monitoring(self) -> bool:
+        """통합 모니터링 (15분 주기) - 전체 크롤링 + 버그만 즉시 알림"""
         try:
-            logger.info("🚀 기본 모니터링 사이클 시작")
+            logger.info("🚀 통합 모니터링 시작 (15분 주기) - 전체 크롤링 + 분석")
             
-            posts = self._safe_crawl_execution(crawl_by_schedule, "스케줄 기반 크롤링")
+            # 전체 크롤링 (버그 + 일반 게시판 모두)
+            posts = self._safe_crawl_execution(crawl_by_schedule, "통합 게시판 크롤링")
             self.stats['total_crawled'] = len(posts)
             
             if not posts:
-                logger.info("새로운 게시글이 없습니다.")
+                logger.info("통합 모니터링: 새로운 게시글이 없습니다.")
                 return True
             
             # 게시글 분류
             bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(posts)
             
-            # 실시간 알림 전송
-            if realtime_alerts:
-                self.send_realtime_alerts(realtime_alerts)
-            
-            # 배치 알림 전송 (감성 동향)
-            if sentiment_posts:
-                self.send_batch_alerts(bug_posts, sentiment_posts)
-            
-            logger.info("✅ 기본 모니터링 사이클 완료")
-            return True
-            
-        except Exception as e:
-            logger.error(f"💥 기본 모니터링 사이클 실행 중 오류: {e}")
-            return False
-    
-    def run_bug_only_mode(self) -> bool:
-        """버그 전용 모니터링 (15분 주기)"""
-        try:
-            logger.info("🐛 버그 전용 모니터링 시작 (15분 주기)")
-            
-            # 버그 게시판만 크롤링
-            posts = self._safe_crawl_execution(crawl_frequent_sites, "버그 게시판 크롤링")
-            self.stats['total_crawled'] = len(posts)
-            
-            if not posts:
-                logger.info("버그 게시판에 새로운 게시글이 없습니다.")
-                return True
-            
-            # 게시글 분류
-            bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(posts)
-            
-            # 버그 알림만 전송 (실시간 + 일반 게시판에서 버그로 분류된 것 포함)
+            # 1. 버그 관련 알림만 즉시 전송
             all_bug_alerts = realtime_alerts + [post for post in bug_posts if post not in realtime_alerts]
             
             if all_bug_alerts:
                 self.send_realtime_alerts(all_bug_alerts)
-                logger.info(f"🐛 버그 알림 전송 완료: {len(all_bug_alerts)}개")
+                logger.info(f"🚨 통합 모니터링: 버그 알림 전송 완료 {len(all_bug_alerts)}개")
             
-            logger.info("✅ 버그 전용 모니터링 완료")
+            # 2. 감성 분석 결과는 저장만 (알림 안함)
+            if sentiment_posts:
+                self.save_sentiment_data(sentiment_posts)
+                logger.info(f"💾 통합 모니터링: 감성 데이터 저장 완료 {len(sentiment_posts)}개 (알림 없음)")
+            
+            logger.info("✅ 통합 모니터링 완료 - 버그 알림 전송 + 감성 데이터 저장")
             return True
             
         except Exception as e:
-            logger.error(f"💥 버그 전용 모니터링 실행 중 오류: {e}")
+            logger.error(f"💥 통합 모니터링 실행 중 오류: {e}")
             return False
     
-    def run_sentiment_only_mode(self) -> bool:
-        """유저 동향 분석 전용 (30분 주기)"""
+    def run_sentiment_alert_only(self) -> bool:
+        """감성 알림 전용 (30분 주기) - 크롤링 없음, 누적 데이터만 알림"""
         try:
-            logger.info("📊 유저 동향 분석 전용 시작 (30분 주기)")
+            logger.info("📊 감성 알림 전용 시작 (30분 주기) - 크롤링 없음, 누적 데이터 알림만")
             
-            # 일반 게시판만 크롤링
-            posts = self._safe_crawl_execution(crawl_regular_sites, "일반 게시판 크롤링")
-            self.stats['total_crawled'] = len(posts)
+            # 크롤링은 하지 않음! 누적된 감성 데이터만 알림
+            self.stats['total_crawled'] = 0  # 크롤링 안함
             
-            if not posts:
-                logger.info("일반 게시판에 새로운 게시글이 없습니다.")
-                return True
+            # 누적된 감성 데이터 알림 전송
+            success = self.send_accumulated_sentiment_alerts()
             
-            # 게시글 분류
-            bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(posts)
+            if success:
+                logger.info("📊 감성 알림 전용 완료 - 누적 감성 데이터 알림 전송 완료")
+            else:
+                logger.info("📊 감성 알림 전용 완료 - 전송할 감성 데이터 없음")
             
-            # 일반 게시판에서 버그로 분류된 것은 즉시 버그 알림
-            bug_from_sentiment = [post for post in bug_posts] + [post for post in realtime_alerts]
-            if bug_from_sentiment:
-                logger.info(f"📊 일반 게시판에서 버그 감지: {len(bug_from_sentiment)}개 → 즉시 버그 알림")
-                self.send_realtime_alerts(bug_from_sentiment)
-            
-            # 유저 동향 알림 전송 (긍정/부정/중립)
-            if sentiment_posts:
-                self.send_batch_alerts(bug_posts, sentiment_posts)
-                logger.info(f"📊 유저 동향 알림 전송 완료: {len(sentiment_posts)}개")
-            
-            logger.info("✅ 유저 동향 분석 전용 완료")
+            logger.info("✅ 감성 알림 전용 완료")
             return True
             
         except Exception as e:
-            logger.error(f"💥 유저 동향 분석 전용 실행 중 오류: {e}")
+            logger.error(f"💥 감성 알림 전용 실행 중 오류: {e}")
             return False
     
     def run_debug_mode(self) -> bool:
@@ -422,26 +498,35 @@ class Epic7Monitor:
             
             # 테스트 크롤링
             logger.info("테스트 크롤링 실행...")
-            frequent_posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 간격 크롤링")
-            regular_posts = self._safe_crawl_execution(crawl_regular_sites, "30분 간격 크롤링")
+            test_posts = self._safe_crawl_execution(crawl_by_schedule, "디버그 테스트 크롤링")
             
-            all_posts = frequent_posts + regular_posts
-            self.stats['total_crawled'] = len(all_posts)
+            self.stats['total_crawled'] = len(test_posts)
             
-            if not all_posts:
-                logger.info("테스트 크롤링: 새로운 게시글이 없습니다.")
+            if not test_posts:
+                logger.info("디버그 테스트: 새로운 게시글이 없습니다.")
                 return True
             
             # 테스트 분류
             logger.info("테스트 분류 실행...")
-            bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(all_posts)
+            bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(test_posts)
             
             # 디버그 정보 출력
             logger.info(f"디버그 결과:")
-            logger.info(f"  - 총 게시글: {len(all_posts)}개")
+            logger.info(f"  - 총 게시글: {len(test_posts)}개")
             logger.info(f"  - 버그 게시글: {len(bug_posts)}개")
             logger.info(f"  - 감성 게시글: {len(sentiment_posts)}개")
             logger.info(f"  - 실시간 알림: {len(realtime_alerts)}개")
+            
+            # 감성 데이터 저장 테스트
+            if sentiment_posts:
+                logger.info("🔧 감성 데이터 저장 테스트...")
+                save_success = self.save_sentiment_data(sentiment_posts)
+                logger.info(f"🔧 감성 데이터 저장 테스트 결과: {'성공' if save_success else '실패'}")
+            
+            # 감성 데이터 로드 테스트
+            logger.info("🔧 누적 감성 데이터 로드 테스트...")
+            accumulated_data = self.load_accumulated_sentiment_data()
+            logger.info(f"🔧 누적 감성 데이터: {len(accumulated_data)}개")
             
             # 샘플 출력
             if bug_posts:
@@ -451,11 +536,17 @@ class Epic7Monitor:
                     bug_priority = classification.get('bug_analysis', {}).get('priority', 'low')
                     logger.info(f"  - {post['title'][:50]}... (우선순위: {bug_priority})")
             
-            # 디버그 모드에서도 알림 테스트
+            # 디버그 모드에서도 알림 테스트 (소량)
             if realtime_alerts and self.webhooks.get('bug'):
-                logger.info("🔧 디버그 모드 알림 테스트 시작...")
-                test_success = self.send_realtime_alerts(realtime_alerts[:3])  # 최대 3개만 테스트
-                logger.info(f"🔧 디버그 모드 알림 테스트 결과: {'성공' if test_success else '실패'}")
+                logger.info("🔧 디버그 모드 버그 알림 테스트 시작...")
+                test_success = self.send_realtime_alerts(realtime_alerts[:2])  # 최대 2개만 테스트
+                logger.info(f"🔧 디버그 모드 버그 알림 테스트 결과: {'성공' if test_success else '실패'}")
+            
+            # 감성 알림 테스트
+            if accumulated_data and self.webhooks.get('sentiment'):
+                logger.info("🔧 디버그 모드 감성 알림 테스트 시작...")
+                test_sentiment_success = self.send_accumulated_sentiment_alerts()
+                logger.info(f"🔧 디버그 모드 감성 알림 테스트 결과: {'성공' if test_sentiment_success else '실패'}")
             
             logger.info("✅ 디버그 모드 완료")
             return True
@@ -472,12 +563,14 @@ class Epic7Monitor:
             # 모드별 실행
             if self.mode == "debug":
                 success = self.run_debug_mode()
-            elif self.mode == "bug_only":
-                success = self.run_bug_only_mode()
-            elif self.mode == "sentiment_only":
-                success = self.run_sentiment_only_mode()
+            elif self.mode == "unified":
+                success = self.run_unified_monitoring()  # 15분 주기
+            elif self.mode == "sentiment_alert":
+                success = self.run_sentiment_alert_only()  # 30분 주기
             else:
-                success = self.run_monitoring_cycle()
+                # 기본값은 unified 모드
+                logger.warning(f"알 수 없는 모드 '{self.mode}', unified 모드로 실행합니다.")
+                success = self.run_unified_monitoring()
             
             # 실행 보고서 생성
             report = self.generate_execution_report()
@@ -504,24 +597,29 @@ class Epic7Monitor:
 def parse_arguments():
     """명령행 인자 파싱"""
     parser = argparse.ArgumentParser(
-        description="Epic7 통합 모니터링 시스템 v3.2 (주기 분리 완성본)",
+        description="Epic7 통합 모니터링 시스템 v3.3 (아키텍처 수정 완료본)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 사용 예시:
-  python monitor_bugs.py                      # 기본 모니터링 모드
-  python monitor_bugs.py --debug              # 디버그 모드
-  python monitor_bugs.py --mode bug_only      # 버그 전용 모드 (15분 주기)
-  python monitor_bugs.py --mode sentiment_only # 유저 동향 전용 모드 (30분 주기)
-  python monitor_bugs.py --force-crawl        # 강제 크롤링 모드
-  python monitor_bugs.py --mode bug_only --force-crawl # 버그 전용 + 강제 크롤링
+  python monitor_bugs.py                        # 통합 모니터링 모드 (15분 주기)
+  python monitor_bugs.py --mode unified         # 통합 모니터링 모드 (15분 주기)
+  python monitor_bugs.py --mode sentiment_alert # 감성 알림 모드 (30분 주기)
+  python monitor_bugs.py --debug                # 디버그 모드
+  python monitor_bugs.py --force-crawl          # 강제 크롤링 모드
+  python monitor_bugs.py --mode unified --force-crawl # 통합 모니터링 + 강제 크롤링
+
+모드 설명:
+  unified       : 15분 주기 - 전체 크롤링 + 분류 → 버그만 즉시 알림
+  sentiment_alert: 30분 주기 - 크롤링 없음 → 누적 감성 데이터 알림
+  debug         : 디버그 모드 - 모든 기능 테스트
         """
     )
     
     parser.add_argument(
         '--mode',
-        choices=['monitoring', 'debug', 'bug_only', 'sentiment_only'],
-        default='monitoring',
-        help='실행 모드 (default: monitoring)'
+        choices=['unified', 'sentiment_alert', 'debug'],
+        default='unified',
+        help='실행 모드 (default: unified)'
     )
     
     parser.add_argument(
@@ -545,7 +643,7 @@ def parse_arguments():
     parser.add_argument(
         '--version',
         action='version',
-        version='Epic7 Monitor v3.2 (Schedule Separated)'
+        version='Epic7 Monitor v3.3 (Architecture Fixed)'
     )
         
     return parser.parse_args()
