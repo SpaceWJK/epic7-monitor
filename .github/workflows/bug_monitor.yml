@@ -103,6 +103,10 @@ jobs:
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
           DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+          # Reddit API 환경변수 추가
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
           DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
           FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
         run: |
