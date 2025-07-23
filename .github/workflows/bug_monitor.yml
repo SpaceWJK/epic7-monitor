@@ -1,11 +1,13 @@
-name: 🎮 Epic Seven Bug Monitor (Schedule Separated v4.0)
+name: 🎮 Epic Seven Bug Monitor
 
 on:
   schedule:
-    # 15분 주기: 버그 게시판 전용 모니터링
+    # 15분 주기: 전체 크롤링 + 버그 즉시 알림 + 감성 저장
     - cron: "*/15 * * * *"
-    # 30분 주기: 유저 동향 분석 (일반 게시판)
+    # 30분 주기: 누적된 감성 데이터 알림
     - cron: "*/30 * * * *"
+    # 24시간 주기: 일간 리포트 (매일 오전 9시)
+    - cron: "0 9 * * *"
 
   workflow_dispatch:
     inputs:
@@ -19,27 +21,27 @@ on:
         required: false
         default: 'false'
         type: boolean
-      monitor_mode:
-        description: '🎯 Monitor mode selection'
+      execution_mode:
+        description: '🎯 Execution mode selection'
         required: false
         default: 'auto'
         type: choice
         options:
           - 'auto'
-          - 'bug_only'
-          - 'sentiment_only'
+          - 'force_15min'
+          - 'force_30min'
+          - 'force_daily'
 
 env:
   TZ: Asia/Seoul
   PYTHONUNBUFFERED: 1
 
 jobs:
-  # 15분 주기: 버그 게시판 모니터링
-  bug-monitor:
-    name: 🐛 Bug Monitoring (15min)
+  # 통합 모니터링 Job
+  unified-monitor:
+    name: 🎮 Epic Seven Unified Monitor
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: github.event.schedule == '*/15 * * * *' || github.event.inputs.monitor_mode == 'bug_only' || github.event.inputs.monitor_mode == 'auto'
 
     steps:
       - name: 📥 Checkout Repository
@@ -91,169 +93,132 @@ jobs:
           echo "🔍 Package versions:"
           pip show selenium requests beautifulsoup4 deep-translator
 
-      - name: 🐛 Run Bug Monitoring (15min)
+      - name: 🎯 Determine Execution Mode
+        id: mode
+        run: |
+          current_minute=$(date +%M)
+          current_hour=$(date +%H)
+          execution_mode="${{ github.event.inputs.execution_mode || 'auto' }}"
+          
+          if [ "$execution_mode" = "auto" ]; then
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              # 스케줄 기반 자동 판별
+              if [ "$current_hour" = "09" ] && [ "$current_minute" = "00" ]; then
+                echo "mode=daily" >> $GITHUB_OUTPUT
+                echo "🗓️ Daily report mode detected"
+              elif [ $(($current_minute % 30)) -eq 0 ] && [ "$current_minute" != "00" ]; then
+                echo "mode=30min" >> $GITHUB_OUTPUT
+                echo "📊 30min sentiment mode detected"
+              else
+                echo "mode=15min" >> $GITHUB_OUTPUT
+                echo "🐛 15min bug monitoring mode detected"
+              fi
+            else
+              echo "mode=15min" >> $GITHUB_OUTPUT
+              echo "🔧 Manual execution - defaulting to 15min mode"
+            fi
+          else
+            # 수동 모드 설정
+            case "$execution_mode" in
+              "force_15min") echo "mode=15min" >> $GITHUB_OUTPUT ;;
+              "force_30min") echo "mode=30min" >> $GITHUB_OUTPUT ;;
+              "force_daily") echo "mode=daily" >> $GITHUB_OUTPUT ;;
+              *) echo "mode=15min" >> $GITHUB_OUTPUT ;;
+            esac
+            echo "🎯 Manual mode: $execution_mode"
+          fi
+
+      - name: 🚀 Execute Epic Seven Monitor
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
           DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
           DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
           FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
         run: |
-          echo "🐛 Starting Bug Monitoring (15min cycle)..."
+          execution_mode="${{ steps.mode.outputs.mode }}"
+          echo "🚀 Starting Epic Seven Monitor in $execution_mode mode..."
           echo "⚙️ Debug Mode: $DEBUG_MODE"
           echo "🔄 Force Crawl: $FORCE_CRAWL"
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           
-          # 조건별 실행 (15분 스케줄)
-          if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
-            echo "🔍 Running bug monitoring in debug mode with force crawl..."
-            python monitor_bugs.py --schedule 15min --debug --force-crawl
-          elif [ "$DEBUG_MODE" = "true" ]; then
-            echo "🔍 Running bug monitoring in debug mode..."
-            python monitor_bugs.py --schedule 15min --debug
-          elif [ "$FORCE_CRAWL" = "true" ]; then
-            echo "🔄 Running bug monitoring with force crawl..."
-            python monitor_bugs.py --schedule 15min --force-crawl
-          else
-            echo "🐛 Running bug monitoring in normal mode..."
-            python monitor_bugs.py --schedule 15min
+          # 실행 플래그 설정
+          debug_flag=""
+          force_flag=""
+          
+          if [ "$DEBUG_MODE" = "true" ]; then
+            debug_flag="--debug"
           fi
+          
+          if [ "$FORCE_CRAWL" = "true" ]; then
+            force_flag="--force-crawl"
+          fi
+          
+          # 모드별 실행
+          case "$execution_mode" in
+            "15min")
+              echo "🐛 Running 15min cycle: Full crawling + Bug alerts + Sentiment storage"
+              python monitor_bugs.py --schedule 15min $debug_flag $force_flag
+              ;;
+            "30min") 
+              echo "📊 Running 30min cycle: Accumulated sentiment notification"
+              python monitor_bugs.py --schedule 30min $debug_flag $force_flag
+              ;;
+            "daily")
+              echo "📋 Running daily cycle: Daily report generation"
+              python generate_report.py --daily $debug_flag
+              ;;
+            *)
+              echo "🔧 Unknown mode, defaulting to 15min"
+              python monitor_bugs.py --schedule 15min $debug_flag $force_flag
+              ;;
+          esac
 
-      - name: 📊 Bug Monitor Execution Summary
+      - name: 📊 Execution Summary
         run: |
-          echo "🐛 Bug Monitor Summary:"
+          execution_mode="${{ steps.mode.outputs.mode }}"
+          echo "📊 Epic Seven Monitor Summary ($execution_mode):"
           echo "⏰ Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🖥️ System Info:"
           echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
           echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
+          
+          # 실행 결과 로그 확인
+          if [ -f "monitoring_stats.json" ]; then
+            echo "📈 Monitoring Stats:"
+            cat monitoring_stats.json | head -20
+          fi
 
-      - name: 🔄 Commit Bug Monitor Changes
+      - name: 🔄 Commit Changes
         if: success()
         run: |
-          echo "🔄 Committing bug monitor changes..."
+          echo "🔄 Committing changes..."
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
           if [[ -n $(git status --porcelain) ]]; then
-            echo "📝 Bug monitor changes detected, committing..."
+            execution_mode="${{ steps.mode.outputs.mode }}"
+            echo "📝 Changes detected, committing..."
             git add *.json *.html *.log 2>/dev/null || true
-            git commit -m "🐛 Bug Monitor: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            
+            case "$execution_mode" in
+              "15min") commit_msg="🐛 Bug Monitor: $(date '+%Y-%m-%d %H:%M:%S')" ;;
+              "30min") commit_msg="📊 Sentiment Analysis: $(date '+%Y-%m-%d %H:%M:%S')" ;;
+              "daily") commit_msg="📋 Daily Report: $(date '+%Y-%m-%d %H:%M:%S')" ;;
+              *) commit_msg="🎮 Epic7 Monitor: $(date '+%Y-%m-%d %H:%M:%S')" ;;
+            esac
+            
+            git commit -m "$commit_msg" || true
             git push || echo "⚠️ Push failed - continuing..."
           else
-            echo "✅ No bug monitor changes to commit"
+            echo "✅ No changes to commit"
           fi
 
-  # 30분 주기: 유저 동향 분석
-  sentiment-monitor:
-    name: 📊 User Sentiment Analysis (30min)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    if: github.event.schedule == '*/30 * * * *' || github.event.inputs.monitor_mode == 'sentiment_only' || github.event.inputs.monitor_mode == 'auto'
-
-    steps:
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: 🐍 Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: 🔧 Install Chrome & ChromeDriver
-        run: |
-          # Chrome 138+ 호환성을 위한 설치
-          echo "🌐 Installing Chrome and ChromeDriver..."
-          
-          # Chrome 설치
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-          
-          # ChromeDriver 설치
-          CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
-          echo "Chrome version: $CHROME_VERSION"
-          
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
-          unzip -q chromedriver-linux64.zip
-          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
-          
-          # 임시 파일 정리
-          rm -f chromedriver-linux64.zip
-          rm -rf chromedriver-linux64
-          
-          # 설치 확인
-          echo "✅ Chrome: $(google-chrome --version)"
-          echo "✅ ChromeDriver: $(chromedriver --version)"
-
-      - name: 📦 Install Python Dependencies
-        run: |
-          echo "📦 Installing Python dependencies..."
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt --quiet
-          
-          echo "🔍 Package versions:"
-          pip show selenium requests beautifulsoup4 deep-translator
-
-      - name: 📊 Run User Sentiment Analysis (30min)
-        env:
-          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
-          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
-          DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
-          FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
-        run: |
-          echo "📊 Starting User Sentiment Analysis (30min cycle)..."
-          echo "⚙️ Debug Mode: $DEBUG_MODE"
-          echo "🔄 Force Crawl: $FORCE_CRAWL"
-          echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          
-          # 조건별 실행 (30분 스케줄)
-          if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
-            echo "🔍 Running sentiment analysis in debug mode with force crawl..."
-            python monitor_bugs.py --schedule 30min --debug --force-crawl
-          elif [ "$DEBUG_MODE" = "true" ]; then
-            echo "🔍 Running sentiment analysis in debug mode..."
-            python monitor_bugs.py --schedule 30min --debug
-          elif [ "$FORCE_CRAWL" = "true" ]; then
-            echo "🔄 Running sentiment analysis with force crawl..."
-            python monitor_bugs.py --schedule 30min --force-crawl
-          else
-            echo "📊 Running sentiment analysis in normal mode..."
-            python monitor_bugs.py --schedule 30min
-          fi
-
-      - name: 📊 Sentiment Analysis Summary
-        run: |
-          echo "📊 Sentiment Analysis Summary:"
-          echo "⏰ Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "🖥️ System Info:"
-          echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
-          echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
-
-      - name: 🔄 Commit Sentiment Analysis Changes
-        if: success()
-        run: |
-          echo "🔄 Committing sentiment analysis changes..."
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "📝 Sentiment analysis changes detected, committing..."
-            git add *.json *.html *.log 2>/dev/null || true
-            git commit -m "📊 Sentiment Analysis: $(date '+%Y-%m-%d %H:%M:%S')" || true
-            git push || echo "⚠️ Push failed - continuing..."
-          else
-            echo "✅ No sentiment analysis changes to commit"
-          fi
-
-  # 공통 에러 처리
+  # 실패시 알림
   failure-notification:
     name: 🚨 Failure Notification
     runs-on: ubuntu-latest
-    needs: [bug-monitor, sentiment-monitor]
+    needs: [unified-monitor]
     if: failure()
 
     steps:
@@ -280,6 +245,11 @@ jobs:
                        {
                          \"name\": \"🔧 Debug 모드\",
                          \"value\": \"${{ github.event.inputs.debug_mode || 'false' }}\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🎯 실행 모드\",
+                         \"value\": \"${{ github.event.inputs.execution_mode || 'auto' }}\",
                          \"inline\": true
                        },
                        {

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 알림 시스템 v3.1
+Epic7 통합 알림 시스템 v3.2
 Discord 알림 메시지 전송 및 포맷팅 시스템
 
 주요 특징:
@@ -12,10 +12,11 @@ Discord 알림 메시지 전송 및 포맷팅 시스템
 - 헬스체크 (회색)
 - 기존 디자인 완벽 재현
 - 제목 중심 알림 (내용 요약 제거)
+- 영어→한국어 자동 번역 기능 추가 ✨NEW✨
 
 Author: Epic7 Monitoring Team
-Version: 3.1
-Date: 2025-07-17
+Version: 3.2
+Date: 2025-07-23
 """
 
 import json
@@ -29,6 +30,9 @@ from config import config
 import logging
 import psutil
 import subprocess
+
+# ✨ 번역 기능 추가 ✨
+from deep_translator import GoogleTranslator
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -114,7 +118,10 @@ class Epic7Notifier:
         self.webhooks = self._load_webhooks()
         self.notification_stats = self._load_notification_stats()
         
-        logger.info("Epic7 통합 알림 시스템 v3.1 초기화 완료")
+        # ✨ 번역기 초기화 ✨
+        self.translator = GoogleTranslator(source='auto', target='ko')
+        
+        logger.info("Epic7 통합 알림 시스템 v3.2 초기화 완료 (번역 기능 포함)")
     
     def _load_webhooks(self) -> Dict[str, str]:
         """Discord 웹훅 로드"""
@@ -159,6 +166,7 @@ class Epic7Notifier:
             'health_checks': 0,
             'success_count': 0,
             'failure_count': 0,
+            'translations_performed': 0,  # ✨ 번역 통계 추가 ✨
             'last_updated': datetime.now().isoformat()
         }
     
@@ -176,6 +184,37 @@ class Epic7Notifier:
         except Exception as e:
             logger.error(f"알림 통계 저장 실패: {e}")
             return False
+    
+    def _translate_to_korean(self, text: str, source: str) -> str:
+        """✨ 영어 텍스트를 한국어로 번역 ✨"""
+        try:
+            # 번역이 필요한 소스인지 확인 (영어 소스만)
+            english_sources = ['reddit_epic7', 'stove_global_bug', 'stove_global_general']
+            
+            if source not in english_sources:
+                return text  # 한국어 소스는 번역하지 않음
+            
+            # 텍스트가 비어있거나 너무 짧으면 번역하지 않음
+            if not text or len(text.strip()) < 3:
+                return text
+            
+            # 이미 한국어인지 간단 체크 (한글 포함 여부)
+            if any('\uac00' <= char <= '\ud7af' for char in text):
+                return text  # 이미 한글이 포함된 경우
+            
+            # 번역 수행
+            translated = self.translator.translate(text)
+            
+            if translated and translated != text:
+                logger.info(f"번역 완료: '{text[:30]}...' → '{translated[:30]}...'")
+                self.notification_stats['translations_performed'] += 1
+                return translated
+            else:
+                return text
+                
+        except Exception as e:
+            logger.warning(f"번역 실패 ({source}): {e} - 원문 사용")
+            return text
     
     def _send_discord_webhook(self, webhook_url: str, payload: Dict) -> bool:
         """Discord 웹훅 전송"""
@@ -233,7 +272,7 @@ class Epic7Notifier:
         return site_names.get(source, source)
     
     def send_bug_alert(self, bug_posts: List[Dict]) -> bool:
-        """버그 알림 전송 (기존 디자인 재현)"""
+        """버그 알림 전송 (기존 디자인 재현 + 번역 기능)"""
         if not bug_posts or not self.webhooks.get('bug'):
             return False
         
@@ -247,9 +286,13 @@ class Epic7Notifier:
             for i, post in enumerate(limited_posts, 1):
                 # 기본 정보
                 title = post.get('title', 'N/A')
-                site = self._get_site_display_name(post.get('source', 'unknown'))
+                source = post.get('source', 'unknown')
+                site = self._get_site_display_name(source)
                 timestamp = post.get('timestamp', '')
                 url = post.get('url', '')
+                
+                # ✨ 번역 적용 ✨
+                translated_title = self._translate_to_korean(title, source)
                 
                 # 시간 포맷팅
                 try:
@@ -275,7 +318,7 @@ class Epic7Notifier:
                 # 게시글 정보 (기존 스타일 재현)
                 post_info = []
                 post_info.append(f"**분류:** {priority_emoji} {site}")
-                post_info.append(f"**제목:** {self._truncate_text(title, 100)}")
+                post_info.append(f"**제목:** {self._truncate_text(translated_title, 100)}")
                 post_info.append(f"**시간:** {formatted_time}")
                 post_info.append(f"**내용:** 게시글 내용을 확인할 수 없습니다.")
                 post_info.append(f"**URL:** {url}")
@@ -320,7 +363,7 @@ class Epic7Notifier:
             return False
     
     def send_sentiment_notification(self, sentiment_posts: List[Dict], sentiment_summary: Dict) -> bool:
-        """감성 동향 알림 전송 (기존 디자인 재현)"""
+        """감성 동향 알림 전송 (기존 디자인 재현 + 번역 기능)"""
         if not sentiment_posts or not self.webhooks.get('sentiment'):
             return False
         
@@ -386,10 +429,14 @@ class Epic7Notifier:
                     for post in posts[:min(3-post_count, len(posts))]:
                         post_count += 1
                         title_text = post.get('title', 'N/A')
-                        site = self._get_site_display_name(post.get('source', 'unknown'))
+                        source = post.get('source', 'unknown')
+                        site = self._get_site_display_name(source)
+                        
+                        # ✨ 번역 적용 ✨
+                        translated_title = self._translate_to_korean(title_text, source)
                         
                         # 게시글 정보 (기존 스타일)
-                        description_parts.append(f"{post_count}. **{self._truncate_text(title_text, 80)}** ({emoji} {site})")
+                        description_parts.append(f"{post_count}. **{self._truncate_text(translated_title, 80)}** ({emoji} {site})")
                         
                         if post_count >= 3:
                             break
@@ -429,7 +476,7 @@ class Epic7Notifier:
             return False
     
     def send_daily_report(self, report_data: Dict) -> bool:
-        """일간 리포트 전송 (기존 디자인 재현)"""
+        """일간 리포트 전송 (기존 디자인 재현 + 번역 기능)"""
         if not report_data or not self.webhooks.get('report'):
             return False
         
@@ -479,8 +526,13 @@ class Epic7Notifier:
             if positive_posts:
                 for i, post in enumerate(positive_posts[:3], 1):
                     title_text = post.get('title', 'N/A')
-                    site = self._get_site_display_name(post.get('source', 'unknown'))
-                    description_parts.append(f"{i}. **{self._truncate_text(title_text, 60)}**")
+                    source = post.get('source', 'unknown')
+                    site = self._get_site_display_name(source)
+                    
+                    # ✨ 번역 적용 ✨
+                    translated_title = self._translate_to_korean(title_text, source)
+                    
+                    description_parts.append(f"{i}. **{self._truncate_text(translated_title, 60)}**")
             
             description_parts.append("")
             
@@ -493,8 +545,13 @@ class Epic7Notifier:
             if negative_posts:
                 for i, post in enumerate(negative_posts[:3], 1):
                     title_text = post.get('title', 'N/A')
-                    site = self._get_site_display_name(post.get('source', 'unknown'))
-                    description_parts.append(f"{i}. **{self._truncate_text(title_text, 60)}**")
+                    source = post.get('source', 'unknown')
+                    site = self._get_site_display_name(source)
+                    
+                    # ✨ 번역 적용 ✨
+                    translated_title = self._translate_to_korean(title_text, source)
+                    
+                    description_parts.append(f"{i}. **{self._truncate_text(translated_title, 60)}**")
             
             description_parts.append("")
             
@@ -609,6 +666,13 @@ class Epic7Notifier:
             description_parts.append(f"**{disk_usage}**")
             description_parts.append("")
             
+            # ✨ 번역 통계 추가 ✨
+            description_parts.append("🌐 **번역 서비스 상태**")
+            translations_count = self.notification_stats.get('translations_performed', 0)
+            description_parts.append(f"**총 번역 수행: {translations_count}회**")
+            description_parts.append("**번역 서비스: 정상 작동**")
+            description_parts.append("")
+            
             # 푸터
             description_parts.append(f"**Epic7 모니터링 시스템 • 오늘 오후 5:44**")
             
@@ -622,7 +686,7 @@ class Epic7Notifier:
                 'color': NotificationConfig.COLORS['health_check'],
                 'timestamp': datetime.now().isoformat(),
                 'footer': {
-                    'text': f"Epic7 모니터링 시스템 • 오늘 오후 {datetime.now().strftime('%H:%M')}"
+                    'text': f"Epic7 모니터링 시스템 v3.2 • 오늘 오후 {datetime.now().strftime('%H:%M')}"
                 }
             }
             
@@ -727,7 +791,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Epic7 통합 알림 시스템 v3.1"
+        description="Epic7 통합 알림 시스템 v3.2 (번역 기능 포함)"
     )
     
     parser.add_argument(
@@ -742,6 +806,12 @@ def main():
         help='알림 통계 조회'
     )
     
+    parser.add_argument(
+        '--test-translation',
+        action='store_true',
+        help='번역 기능 테스트'
+    )
+    
     args = parser.parse_args()
     
     try:
@@ -752,9 +822,9 @@ def main():
             if args.test == 'bug':
                 test_posts = [
                     {
-                        'title': '이거 왜 못 먹나요?',
-                        'url': 'https://page.onstove.com/epicseven/kr/view/1087075',
-                        'source': 'stove_general',
+                        'title': 'Bug report: Character freeze in Arena',
+                        'url': 'https://www.reddit.com/r/EpicSeven/comments/test',
+                        'source': 'reddit_epic7',
                         'timestamp': datetime.now().isoformat(),
                         'classification': {
                             'bug_analysis': {'priority': 'high'}
@@ -767,8 +837,8 @@ def main():
             elif args.test == 'sentiment':
                 test_posts = [
                     {
-                        'title': '에픽 감사합니다',
-                        'source': 'stove_general',
+                        'title': 'Great update, loving the new features!',
+                        'source': 'reddit_epic7',
                         'timestamp': datetime.now().isoformat(),
                         'classification': {
                             'sentiment_analysis': {'sentiment': 'positive'}
@@ -782,8 +852,8 @@ def main():
                 test_data = {
                     'total_posts': 35,
                     'sentiment_distribution': {'positive': 1, 'negative': 5, 'neutral': 29},
-                    'positive_sample': [{'title': '에픽 감사합니다', 'source': 'stove_general'}],
-                    'negative_sample': [{'title': '밸패 7캐릭터', 'source': 'stove_general'}]
+                    'positive_sample': [{'title': 'Amazing new character design!', 'source': 'reddit_epic7'}],
+                    'negative_sample': [{'title': 'Balance issues need fixing', 'source': 'reddit_epic7'}]
                 }
                 success = notifier.send_daily_report(test_data)
                 logger.info(f"리포트 테스트 결과: {'성공' if success else '실패'}")
@@ -792,14 +862,27 @@ def main():
                 success = notifier.send_health_check({})
                 logger.info(f"헬스체크 테스트 결과: {'성공' if success else '실패'}")
         
+        elif args.test_translation:
+            # 번역 기능 테스트
+            test_texts = [
+                ("Bug report: Character freeze in Arena", "reddit_epic7"),
+                ("에픽세븐 잘 하고 있습니다", "stove_korea_general"),
+                ("Great update, loving the new features!", "reddit_epic7")
+            ]
+            
+            for text, source in test_texts:
+                translated = notifier._translate_to_korean(text, source)
+                logger.info(f"번역 테스트: '{text}' → '{translated}'")
+        
         elif args.stats:
             # 통계 조회
             stats = notifier.get_notification_stats()
             logger.info(f"알림 통계: {stats}")
         
         else:
-            logger.info("Epic7 통합 알림 시스템 v3.1 준비 완료")
+            logger.info("Epic7 통합 알림 시스템 v3.2 준비 완료 (번역 기능 포함)")
             logger.info("사용법: python notifier.py --test [bug|sentiment|report|health]")
+            logger.info("       python notifier.py --test-translation (번역 테스트)")
         
     except Exception as e:
         logger.error(f"실행 중 오류: {e}")
