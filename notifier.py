@@ -277,8 +277,8 @@ class Epic7Notifier:
             return False
         
         try:
-            # 최대 5개 게시글만 처리
-            limited_posts = bug_posts[:5]
+            # 최대 10개 게시글만 처리
+            limited_posts = bug_posts[:10]
             
             # 메시지 구성
             description_parts = []

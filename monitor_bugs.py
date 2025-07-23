@@ -541,7 +541,7 @@ class Epic7Monitor:
             # 디버그 모드에서도 알림 테스트 (소량)
             if realtime_alerts and self.webhooks.get('bug'):
                 logger.info("🔧 디버그 모드 버그 알림 테스트 시작...")
-                test_success = self.send_realtime_alerts(realtime_alerts[:2])  # 최대 2개만 테스트
+                test_success = self.send_realtime_alerts(realtime_alerts[:10])  # 최대 10개만 테스트
                 logger.info(f"🔧 디버그 모드 버그 알림 테스트 결과: {'성공' if test_success else '실패'}")
             
             # 감성 알림 테스트
