@@ -461,5 +461,11 @@
     "timestamp": "2025-07-23T19:33:31.068500",
     "url": "https://page.onstove.com/epicseven/kr/view/10914017",
     "source": "stove_korea_general"
+  },
+  "84116654": {
+    "content": "Claimed summon ticket for rank 40 (growth pack 3), shows I claimed it, but never gave me a hero or anything",
+    "timestamp": "2025-07-23T19:48:38.114940",
+    "url": "https://page.onstove.com/epicseven/global/view/10914077",
+    "source": "stove_global_bug"
   }
 }
