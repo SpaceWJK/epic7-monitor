@@ -1,0 +1,1519 @@
+[
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "망게임 갓게임차이?",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913493",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "망게임 갓게임차이?",
+        "content": "어차피 운이다 본인운이없는거 복귀유저들은 큰기대안함 또 접는다 몇억을과금하든 본인선택임 ㅎ",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913493",
+        "timestamp": "2025-07-23T17:19:54.818175"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.488987",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "7주년 바로 직전인데 게임이 너무 심심합니다(복귀유저/심히주관적)",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913275",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "negative",
+      "confidence": 0.8500000000000001,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "negative",
+        "confidence": 0.8500000000000001,
+        "reason": "부정 키워드: 똑같, 힘들어"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "medium"
+      },
+      "original_data": {
+        "title": "7주년 바로 직전인데 게임이 너무 심심합니다(복귀유저/심히주관적)",
+        "content": "뭐 장비도 15강된거주고 영웅도 주고 뽑기도줘도너무 조용합니다복귀해봤자 한플랑이랑 현역영웅없어서 실레나는 진입생각도못하고아레나도 똑같고에픽대시도 맨날 같은 행동력소모,깃발소모 외에는 특출난게 없고pve는 더 힘들어지거나 접대캐 강제뽑기가 되고과금도 핫타임패키지만 ...",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913275",
+        "timestamp": "2025-07-23T17:20:10.065081"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489234",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "negative",
+    "confidence": 0.8500000000000001,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "영웅 뭐받나욤",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913207",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.4,
+        "reason": "중립 키워드: 확인, 뭐"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "영웅 뭐받나욤",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913207",
+        "timestamp": "2025-07-23T17:20:40.879758"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489353",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "월뽑 17일차",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912964",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑 17일차",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912964",
+        "timestamp": "2025-07-23T17:21:13.692508"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489485",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "월뽑 무득",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912775",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑 무득",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912775",
+        "timestamp": "2025-07-23T17:21:46.243078"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489588",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "나도이제 집 오우너",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912459",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "나도이제 집 오우너",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912459",
+        "timestamp": "2025-07-23T17:22:17.908871"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489690",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "이번에 오토마톤 업데이트 한놈 장난하나",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912227",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "negative",
+      "confidence": 0.4,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "negative",
+        "confidence": 0.4,
+        "reason": "부정 키워드: 열받"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "medium"
+      },
+      "original_data": {
+        "title": "이번에 오토마톤 업데이트 한놈 장난하나",
+        "content": "안그래도 켜서 귀찮게 게임하는데 ㅈㄴ 쉽게깨던 오토마톤도 열받게 만들어 놨네 더러워서 못하겟다맨날 신캐에 pvp 밸런스 ㅄ로 만들어 놓고 pve컨텐츠 까지 열받게 만드네&nbsp;걍망해라 개 ㅄ게임&nbsp;접을란다&nbsp;",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912227",
+        "timestamp": "2025-07-23T17:22:32.551283"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489867",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "negative",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "로엔나 VS 페네 직업이 다르기는 한데 뭘 가져가야 하나요?",
+    "url": "https://page.onstove.com/epicseven/kr/view/10911840",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "로엔나 VS 페네 직업이 다르기는 한데 뭘 가져가야 하나요?",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10911840",
+        "timestamp": "2025-07-23T17:23:04.614415"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.489994",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "오늘 더워서 에팍세븐 조금함",
+    "url": "https://page.onstove.com/epicseven/kr/view/10911419",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "오늘 더워서 에팍세븐 조금함",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10911419",
+        "timestamp": "2025-07-23T17:23:37.086205"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490099",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "뉴비 영웅 소환권 질문 있어요",
+    "url": "https://page.onstove.com/epicseven/kr/view/10911036",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.6000000000000001,
+        "reason": "중립 키워드: 질문, 확인, 소환"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "뉴비 영웅 소환권 질문 있어요",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10911036",
+        "timestamp": "2025-07-23T17:24:24.087911"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490334",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.6000000000000001,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "1뽑 최소 2천원짜리 가챠 결과",
+    "url": "https://page.onstove.com/epicseven/kr/view/10910913",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "1뽑 최소 2천원짜리 가챠 결과",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10910913",
+        "timestamp": "2025-07-23T17:24:56.061151"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490501",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "대난투  뭐 업글하나요?",
+    "url": "https://page.onstove.com/epicseven/kr/view/10910502",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.4,
+        "reason": "중립 키워드: 확인, 뭐"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "대난투  뭐 업글하나요?",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10910502",
+        "timestamp": "2025-07-23T17:25:26.183806"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490629",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "풀성장 고민",
+    "url": "https://page.onstove.com/epicseven/kr/view/10910205",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "풀성장 고민",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10910205",
+        "timestamp": "2025-07-23T17:25:58.981580"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490732",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "월뽑이벤은 편차가 크긴크네요",
+    "url": "https://page.onstove.com/epicseven/kr/view/10910127",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑이벤은 편차가 크긴크네요",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10910127",
+        "timestamp": "2025-07-23T17:26:29.431244"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490835",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "오늘 시작한..",
+    "url": "https://page.onstove.com/epicseven/kr/view/10909892",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "오늘 시작한..",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10909892",
+        "timestamp": "2025-07-23T17:27:00.754223"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.490933",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Account Restrictions",
+    "url": "https://page.onstove.com/epicseven/global/view/10912882",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Account Restrictions",
+        "content": "I can't enter the game and they notified me of Payment Abuse even though I didn't file for anything that would harm my account",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10912882",
+        "timestamp": "2025-07-23T17:27:37.070646"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491053",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "ml poli should affect both teams",
+    "url": "https://page.onstove.com/epicseven/global/view/10911303",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.6000000000000001,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.6000000000000001,
+        "reason": "긍정 키워드: strong"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "ml poli should affect both teams",
+        "content": "-50% resource is way too strongit should affect both teams like harsetti and mort's no counter",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10911303",
+        "timestamp": "2025-07-23T17:28:04.934984"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491275",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.6000000000000001,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "still no sexflan nerf meanwhile green ***** archer still has no buff",
+    "url": "https://page.onstove.com/epicseven/global/view/10911293",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.5,
+        "reason": "긍정 키워드: buff"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "still no sexflan nerf meanwhile green ***** archer still has no buff",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10911293",
+        "timestamp": "2025-07-23T17:28:35.116973"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491387",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "How long does it take for customer support to usually respond ?",
+    "url": "https://page.onstove.com/epicseven/global/view/10910080",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.4,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.4,
+        "reason": "긍정 키워드: op"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "How long does it take for customer support to usually respond ?",
+        "content": "I’ve submitted a restoration ticket to use my one time recovery hoping to get AWHwayoung back but haven’t gotten a response in almost two weeks",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10910080",
+        "timestamp": "2025-07-23T17:28:48.460634"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491584",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Epic 7 is generous or They have to generous because newbie won't play",
+    "url": "https://page.onstove.com/epicseven/global/view/10909941",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 1.0,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 1.0,
+        "reason": "긍정 키워드: op, meta, buff"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Epic 7 is generous or They have to generous because newbie won't play",
+        "content": "Terrible loreTerrible gameTerrible metaTerrible StoryBiased buff / Story only for only few unitcore game loop over and overonly thing that keep thi...",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10909941",
+        "timestamp": "2025-07-23T17:29:02.672752"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491728",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 1.0,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Can't believed Genshin are getting Alice and Varka before Luna skin, buff lore",
+    "url": "https://page.onstove.com/epicseven/global/view/10909916",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.5,
+        "reason": "긍정 키워드: buff"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Can't believed Genshin are getting Alice and Varka before Luna skin, buff lore",
+        "content": "Epic 7 what a disappointment gameEpic 7 years without any progress in story reset past 7 years and simple re write t",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10909916",
+        "timestamp": "2025-07-23T17:29:16.718765"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491852",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "I'm searching for Code",
+    "url": "https://page.onstove.com/epicseven/global/view/10908981",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "I'm searching for Code",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10908981",
+        "timestamp": "2025-07-23T17:29:47.742391"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.491950",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Can somebody help please?",
+    "url": "https://page.onstove.com/epicseven/global/view/10907389",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: help"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Can somebody help please?",
+        "content": "Hi, I am a returning heir after almost 2 years, logged in a week ago Recently, I have come across of Origins",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10907389",
+        "timestamp": "2025-07-23T17:30:17.005103"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.492171",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Need PVE team Idea Please im new here.",
+    "url": "https://page.onstove.com/epicseven/global/view/10903517",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: who"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Need PVE team Idea Please im new here.",
+        "content": "Hello guys so after watching multiple tier list for pve im kinda confused on who i can put in my team so i will tell you who i have;i have iseria, ...",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10903517",
+        "timestamp": "2025-07-23T17:30:46.763384"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.492489",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Brawl Appreciation Post",
+    "url": "https://page.onstove.com/epicseven/global/view/10901727",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Brawl Appreciation Post",
+        "content": "Just wanted to say some words of appreciation Have always been a fan of the Brawl mode, and I'm happy to see it back",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10901727",
+        "timestamp": "2025-07-23T17:31:14.472668"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.492777",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Arena Maintenance",
+    "url": "https://page.onstove.com/epicseven/global/view/10899985",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Arena Maintenance",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10899985",
+        "timestamp": "2025-07-23T17:32:16.023616"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493033",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "Potential to have these sheets distributed?",
+    "url": "https://page.onstove.com/epicseven/global/view/10893742",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.5,
+        "reason": "긍정 키워드: love"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Potential to have these sheets distributed?",
+        "content": "I love the character sheets that SG show of the characters in the introduction videos, but only some of them get posted when the character is relea...",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10893742",
+        "timestamp": "2025-07-23T17:32:30.847731"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493162",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "일리나브 나온다길레 후다닥 그렸는데",
+    "url": "https://bbs.ruliweb.com/game/84834/read/101558",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "일리나브 나온다길레 후다닥 그렸는데",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/101558",
+        "timestamp": "2025-07-23T17:32:50.315038"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493270",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "쫄작의 A to Z",
+    "url": "https://bbs.ruliweb.com/game/84834/read/35885",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "쫄작의 A to Z",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/35885",
+        "timestamp": "2025-07-23T17:32:50.325886"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493366",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "[공략] 에픽세븐 하루에 무조건 해야하는 컨텐츠 13가지",
+    "url": "https://bbs.ruliweb.com/game/84834/read/35820",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5400000000000001,
+        "reason": "중립 키워드: 확인, 공략, 조건"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "[공략] 에픽세븐 하루에 무조건 해야하는 컨텐츠 13가지",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/35820",
+        "timestamp": "2025-07-23T17:32:50.337050"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493502",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5400000000000001,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "아직게임이.....",
+    "url": "https://bbs.ruliweb.com/game/84834/read/34506",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "아직게임이.....",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/34506",
+        "timestamp": "2025-07-23T17:32:50.347029"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493606",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "루나는 실패했지만 이번엔 성공",
+    "url": "https://bbs.ruliweb.com/game/84834/read/32536",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.18000000000000002,
+        "reason": "중립 키워드: 확인"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "루나는 실패했지만 이번엔 성공",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/32536",
+        "timestamp": "2025-07-23T17:32:50.357634"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493710",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.18000000000000002,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "키리스, 디에리아, 엘슨없이 심연 50~80층 공략(데이터주의)",
+    "url": "https://bbs.ruliweb.com/game/84834/read/32225",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.36000000000000004,
+        "reason": "중립 키워드: 확인, 공략"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "키리스, 디에리아, 엘슨없이 심연 50~80층 공략(데이터주의)",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/32225",
+        "timestamp": "2025-07-23T17:32:50.368665"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493825",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.36000000000000004,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "이런 경우도 있네요요? ㄷㄷ",
+    "url": "https://bbs.ruliweb.com/game/84834/read/32202",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "이런 경우도 있네요요? ㄷㄷ",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/32202",
+        "timestamp": "2025-07-23T17:32:50.383880"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.493924",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "에픽게리온7 - 잔혹한 월광의 태제 -",
+    "url": "https://bbs.ruliweb.com/game/84834/read/31874",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "에픽게리온7 - 잔혹한 월광의 태제 -",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/31874",
+        "timestamp": "2025-07-23T17:32:50.399398"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.494026",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "[영상] 484만원어치 월광소환 갑니다",
+    "url": "https://bbs.ruliweb.com/game/84834/read/31759",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5400000000000001,
+        "reason": "중립 키워드: 확인, 소환, 월광소환"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "[영상] 484만원어치 월광소환 갑니다",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/31759",
+        "timestamp": "2025-07-23T17:32:50.411022"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.494130",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5400000000000001,
+    "save_time": "2025-07-23T17:32:54.090279"
+  },
+  {
+    "timestamp": "2025-07-23T17:32:54.090279",
+    "title": "280번에 5성 하나 뜨는건가",
+    "url": "https://bbs.ruliweb.com/game/84834/read/30772",
+    "source": "ruliweb_epic7",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "korean",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.8)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "280번에 5성 하나 뜨는건가",
+        "content": "루리웹 게시글 - 링크에서 확인",
+        "source": "ruliweb_epic7",
+        "url": "https://bbs.ruliweb.com/game/84834/read/30772",
+        "timestamp": "2025-07-23T17:32:50.421222"
+      },
+      "classification_timestamp": "2025-07-23T17:32:50.494232",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T17:32:54.090279"
+  }
+]
