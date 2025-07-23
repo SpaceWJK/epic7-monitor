@@ -511,7 +511,7 @@ class Epic7Monitor:
             
             # 테스트 크롤링
             logger.info("테스트 크롤링 실행...")
-            test_posts = self._safe_crawl_execution(crawl_by_schedule, "디버그 테스트 크롤링")
+            test_posts = self._safe_crawl_execution(crawl_by_schedule, "디버그 테스트 크롤링", "15min")
             
             self.stats['total_crawled'] = len(test_posts)
             
