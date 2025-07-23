@@ -393,23 +393,15 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome,
         
         # 스토브 게시글 내용 추출용 CSS Selector (0714 성공 버전)
         content_selectors = [
-            # 스토브 게시글 전용 선택자 (우선순위 높음)
+            # Vue.js 메타 태그에서 본문 추출 (최우선)
+            'meta[data-vmid="description"]',
+            'meta[name="description"]',
+    
+            # 백업 선택자들
             'div.s-article-content',
             'div.s-article-content-text',
-            'div[class*="s-article-content"]',
             'section.s-article-body',
-            'div.s-board-content',
-            
-            # 일반적인 게시글 선택자
-            'div.article-content',
-            'div.post-content',
-            'div.content-body',
-            'main.content',
-            
-            # 텍스트 영역 선택자
-            'div[class*="text-content"]',
-            'div[class*="post-body"]',
-            'div[class*="article-body"]'
+            'div.s-board-content'            
         ]
            
         # 🚀 핵심 개선: 의미있는 본문 추출 알고리즘
