@@ -391,48 +391,27 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome,
         time.sleep(2)
         print("[DEBUG] 단계별 스크롤링 완료")
         
-        # 🔥 2025년 Stove 구조 최적화 CSS Selector (우선순위 재배치)
+        # 스토브 게시글 내용 추출용 CSS Selector (0714 성공 버전)
         content_selectors = [
-            # 2025년 최신 구조 (최우선)
-            'div[class*="article-content"]',
-            'div[class*="post-content"]', 
-            'div[class*="board-content"]',
-            'section[class*="content"]',
-            'div[class*="text-content"]',
-            'div[class*="content-body"]',
-            'div[class*="post-body"]',
-            'div[class*="article-body"]',
-            
-            # React/Vue 컴포넌트 대응
-            'div[data-testid*="content"]',
-            'div[data-testid*="post"]', 
-            'div[data-testid*="article"]',
-            'section[data-testid*="content"]',
-            
-            # 기존 Stove 구조 (백업)
+            # 스토브 게시글 전용 선택자 (우선순위 높음)
             'div.s-article-content',
             'div.s-article-content-text',
+            'div[class*="s-article-content"]',
             'section.s-article-body',
             'div.s-board-content',
             
-            # 포괄적 선택자 (최후)
-            '#content',
-            '#post-content', 
-            '#article-content',
-            '#main-content',
-            'main [class*="content"]',
-            'article [class*="content"]',
-            '[id*="content"]',
-            'div[class*="body"]',
-            '.content',
-            '.post',
-            '.article',
-            'main article',
-            'main section',
-            'main div:not([class*="header"]):not([class*="nav"]):not([class*="footer"])',
-            'p'
+            # 일반적인 게시글 선택자
+            'div.article-content',
+            'div.post-content',
+            'div.content-body',
+            'main.content',
+            
+            # 텍스트 영역 선택자
+            'div[class*="text-content"]',
+            'div[class*="post-body"]',
+            'div[class*="article-body"]'
         ]
-        
+           
         # 🚀 핵심 개선: 의미있는 본문 추출 알고리즘
         for i, selector in enumerate(content_selectors):
             try:
