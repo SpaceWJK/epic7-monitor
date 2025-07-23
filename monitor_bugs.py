@@ -447,6 +447,8 @@ class Epic7Monitor:
         return report.strip()
         
     def run_15min_schedule(self) -> bool:
+        """15분 스케줄 실행 - 전체 크롤링 + 버그 알림 + 감성 저장"""
+        try:
             # crawl_frequent_sites()가 이미 전체 크롤링을 처리
             posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 주기 전체 크롤링")
             
