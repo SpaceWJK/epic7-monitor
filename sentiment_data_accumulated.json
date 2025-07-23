@@ -2171,5 +2171,456 @@
     "sentiment": "neutral",
     "confidence": 0.5,
     "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "뉴비 실레나 해봤음.",
+    "url": "https://page.onstove.com/epicseven/kr/view/10914580",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 누구"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "뉴비 실레나 해봤음.",
+        "content": "어느글에..뉴비도 마스터는 쉽다 라고 해서 등급심사중인데....속도세븐 이란 것을 실감하고 줘 터지고 옴.1.2.3.4등 전부 상대편 공격.... 어짜피 한방에 죽어서 1~2번째 공격 받으면 끝나있네요..누구냐..마스터 까진 쉽다는 그사람은........",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10914580",
+        "timestamp": "2025-07-23T23:01:17.510675"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.241993",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "Account Restrictions",
+    "url": "https://page.onstove.com/epicseven/global/view/10912882",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.4,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.4,
+        "reason": "긍정 키워드: op"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Account Restrictions",
+        "content": "I can't enter the game and they notified me of Payment Abuse even though I didn't file for anything that would harm my account. Please help me develop",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10912882",
+        "timestamp": "2025-07-23T23:01:56.361900"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.242228",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "ml poli should affect both teams",
+    "url": "https://page.onstove.com/epicseven/global/view/10911303",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.6000000000000001,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.6000000000000001,
+        "reason": "긍정 키워드: strong"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "ml poli should affect both teams",
+        "content": "-50% resource is way too strong it should affect both teams like harsetti and mort's no counter",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10911303",
+        "timestamp": "2025-07-23T23:02:00.475944"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.242623",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.6000000000000001,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "still no sexflan nerf meanwhile green ***** archer still has no buff",
+    "url": "https://page.onstove.com/epicseven/global/view/10911293",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.5,
+        "reason": "긍정 키워드: buff"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "still no sexflan nerf meanwhile green ***** archer still has no buff",
+        "content": "Start Game\nEpic Seven\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10911293",
+        "timestamp": "2025-07-23T23:03:50.913561"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.242821",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "How long does it take for customer support to usually respond ?",
+    "url": "https://page.onstove.com/epicseven/global/view/10910080",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.4,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.4,
+        "reason": "긍정 키워드: op"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "How long does it take for customer support to usually respond ?",
+        "content": "I’ve submitted a restoration ticket to use my one time recovery hoping to get AWHwayoung back but haven’t gotten a response in almost two weeks. I sub",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10910080",
+        "timestamp": "2025-07-23T23:03:53.294526"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.243078",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "Epic 7 is generous or They have to generous because newbie won't play",
+    "url": "https://page.onstove.com/epicseven/global/view/10909941",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 1.0,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 1.0,
+        "reason": "긍정 키워드: op, meta, buff"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Epic 7 is generous or They have to generous because newbie won't play",
+        "content": "Terrible lore Terrible game Terrible meta Terrible Story Biased buff / Story only for only few unit core game loop over and over only thing that keep",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10909941",
+        "timestamp": "2025-07-23T23:03:55.750813"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.243301",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 1.0,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "Can't believed Genshin are getting Alice and Varka before Luna skin, buff lore",
+    "url": "https://page.onstove.com/epicseven/global/view/10909916",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.5,
+        "reason": "긍정 키워드: buff"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Can't believed Genshin are getting Alice and Varka before Luna skin, buff lore",
+        "content": "Epic 7 what a disappointment game Epic 7 years without any progress in story. throw every thing ,every lore to the bin. reset past 7 years and simple",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10909916",
+        "timestamp": "2025-07-23T23:03:56.971294"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.243562",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "I'm searching for Code",
+    "url": "https://page.onstove.com/epicseven/global/view/10908981",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "I'm searching for Code",
+        "content": "Start Game\nEpic Seven\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10908981",
+        "timestamp": "2025-07-23T23:05:46.059614"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.243719",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "Need PVE team Idea Please im new here.",
+    "url": "https://page.onstove.com/epicseven/global/view/10903517",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: who"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Need PVE team Idea Please im new here.",
+        "content": "Hello guys so after watching multiple tier list for pve im kinda confused on who i can put in my team so i will tell you who i have; i have iseria, da",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10903517",
+        "timestamp": "2025-07-23T23:05:55.107270"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.244506",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "Brawl Appreciation Post",
+    "url": "https://page.onstove.com/epicseven/global/view/10901727",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Brawl Appreciation Post",
+        "content": "Just wanted to say some words of appreciation. Have always been a fan of the Brawl mode, and I'm happy to see it back. I'm also happy to see that it's",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10901727",
+        "timestamp": "2025-07-23T23:05:58.971938"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.244866",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T23:09:49.949543"
+  },
+  {
+    "timestamp": "2025-07-23T23:09:49.949543",
+    "title": "Potential to have these sheets distributed?",
+    "url": "https://page.onstove.com/epicseven/global/view/10893742",
+    "source": "stove_global_general",
+    "classification": {
+      "category": "positive",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "positive",
+        "confidence": 0.5,
+        "reason": "긍정 키워드: love"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "Potential to have these sheets distributed?",
+        "content": "I love the character sheets that SG show of the characters in the introduction videos, but only some of them get posted when the character is released",
+        "source": "stove_global_general",
+        "url": "https://page.onstove.com/epicseven/global/view/10893742",
+        "timestamp": "2025-07-23T23:09:39.749380"
+      },
+      "classification_timestamp": "2025-07-23T23:09:47.245417",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "positive",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T23:09:49.949543"
   }
 ]
