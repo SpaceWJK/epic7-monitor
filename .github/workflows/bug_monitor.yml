@@ -1,4 +1,4 @@
-name: 🎮 Epic Seven Bug Monitor (Schedule Separated v3.2)
+name: 🎮 Epic Seven Bug Monitor (Schedule Separated v4.0)
 
 on:
   schedule:
@@ -103,19 +103,19 @@ jobs:
           echo "🔄 Force Crawl: $FORCE_CRAWL"
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           
-          # 조건별 실행 (bug_only 모드)
+          # 조건별 실행 (15분 스케줄)
           if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
             echo "🔍 Running bug monitoring in debug mode with force crawl..."
-            python monitor_bugs.py --mode bug_only --debug --force-crawl
+            python monitor_bugs.py --schedule 15min --debug --force-crawl
           elif [ "$DEBUG_MODE" = "true" ]; then
             echo "🔍 Running bug monitoring in debug mode..."
-            python monitor_bugs.py --mode bug_only --debug
+            python monitor_bugs.py --schedule 15min --debug
           elif [ "$FORCE_CRAWL" = "true" ]; then
             echo "🔄 Running bug monitoring with force crawl..."
-            python monitor_bugs.py --mode bug_only --force-crawl
+            python monitor_bugs.py --schedule 15min --force-crawl
           else
             echo "🐛 Running bug monitoring in normal mode..."
-            python monitor_bugs.py --mode bug_only
+            python monitor_bugs.py --schedule 15min
           fi
 
       - name: 📊 Bug Monitor Execution Summary
@@ -210,19 +210,19 @@ jobs:
           echo "🔄 Force Crawl: $FORCE_CRAWL"
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           
-          # 조건별 실행 (sentiment_only 모드)
+          # 조건별 실행 (30분 스케줄)
           if [ "$DEBUG_MODE" = "true" ] && [ "$FORCE_CRAWL" = "true" ]; then
             echo "🔍 Running sentiment analysis in debug mode with force crawl..."
-            python monitor_bugs.py --mode sentiment_only --debug --force-crawl
+            python monitor_bugs.py --schedule 30min --debug --force-crawl
           elif [ "$DEBUG_MODE" = "true" ]; then
             echo "🔍 Running sentiment analysis in debug mode..."
-            python monitor_bugs.py --mode sentiment_only --debug
+            python monitor_bugs.py --schedule 30min --debug
           elif [ "$FORCE_CRAWL" = "true" ]; then
             echo "🔄 Running sentiment analysis with force crawl..."
-            python monitor_bugs.py --mode sentiment_only --force-crawl
+            python monitor_bugs.py --schedule 30min --force-crawl
           else
             echo "📊 Running sentiment analysis in normal mode..."
-            python monitor_bugs.py --mode sentiment_only
+            python monitor_bugs.py --schedule 30min
           fi
 
       - name: 📊 Sentiment Analysis Summary
