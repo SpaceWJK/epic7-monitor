@@ -410,10 +410,14 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome,
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elements:
                     for element in elements:
-                        raw_text = element.text.strip()
+                        # 메타 태그는 content 속성에서, 일반 태그는 text에서 추출
+                        if selector.startswith('meta'):
+                            raw_text = element.get_attribute('content').strip()
+                        else:
+                            raw_text = element.text.strip()
                         if not raw_text or len(raw_text) < 30:
-                            continue
-                        
+                            continue           
+                                            
                         # 🔥 개선 1: 메타데이터 필터링 강화
                         skip_keywords = [
                             'install stove', '스토브를 설치', '로그인이 필요', 
