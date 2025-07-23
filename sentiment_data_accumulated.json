@@ -2745,5 +2745,46 @@
     "sentiment": "neutral",
     "confidence": 0.5,
     "save_time": "2025-07-24T04:57:44.846517"
+  },
+  {
+    "timestamp": "2025-07-24T06:16:57.994240",
+    "title": "18차 월광무료뽑기",
+    "url": "https://page.onstove.com/epicseven/kr/view/10915788",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "18차 월광무료뽑기",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10915788",
+        "timestamp": "2025-07-24T06:16:15.832842"
+      },
+      "classification_timestamp": "2025-07-24T06:16:57.993108",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-24T06:16:57.994240"
   }
 ]
