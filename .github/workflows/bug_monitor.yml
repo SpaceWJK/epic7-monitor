@@ -6,8 +6,6 @@ on:
     - cron: "*/15 * * * *"
     # 30분 주기: 누적된 감성 데이터 알림
     - cron: "*/30 * * * *"
-    # 24시간 주기: 일간 리포트 (매일 오전 9시)
-    - cron: "0 9 * * *"
 
   workflow_dispatch:
     inputs:
@@ -21,16 +19,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-      execution_mode:
-        description: '🎯 Execution mode selection'
-        required: false
-        default: 'auto'
-        type: choice
-        options:
-          - 'auto'
-          - 'force_15min'
-          - 'force_30min'
-          - 'force_daily'
 
 env:
   TZ: Asia/Seoul
@@ -66,11 +54,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
           
-          # ChromeDriver 설치 (수정된 부분 - 완전한 버전 추출)
+          # ChromeDriver 설치
           CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
           echo "Chrome version: $CHROME_VERSION"
           
-          # ChromeDriver 다운로드 확인 후 설치
           wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
           unzip -q chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
@@ -97,42 +84,25 @@ jobs:
         id: mode
         run: |
           current_minute=$(date +%M)
-          current_hour=$(date +%H)
-          execution_mode="${{ github.event.inputs.execution_mode || 'auto' }}"
           
-          if [ "$execution_mode" = "auto" ]; then
-            if [ "${{ github.event_name }}" = "schedule" ]; then
-              # 스케줄 기반 자동 판별
-              if [ "$current_hour" = "09" ] && [ "$current_minute" = "00" ]; then
-                echo "mode=daily" >> $GITHUB_OUTPUT
-                echo "🗓️ Daily report mode detected"
-              elif [ $(($current_minute % 30)) -eq 0 ] && [ "$current_minute" != "00" ]; then
-                echo "mode=30min" >> $GITHUB_OUTPUT
-                echo "📊 30min sentiment mode detected"
-              else
-                echo "mode=15min" >> $GITHUB_OUTPUT
-                echo "🐛 15min bug monitoring mode detected"
-              fi
+          # 시간 기반 자동 판별 (Master 의도)
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ $(($current_minute % 30)) -eq 0 ] && [ "$current_minute" != "00" ]; then
+              echo "mode=30min" >> $GITHUB_OUTPUT
+              echo "📊 30분 주기: 감성 알림 모드"
             else
               echo "mode=15min" >> $GITHUB_OUTPUT
-              echo "🔧 Manual execution - defaulting to 15min mode"
+              echo "🐛 15분 주기: 버그 모니터링 모드"
             fi
           else
-            # 수동 모드 설정
-            case "$execution_mode" in
-              "force_15min") echo "mode=15min" >> $GITHUB_OUTPUT ;;
-              "force_30min") echo "mode=30min" >> $GITHUB_OUTPUT ;;
-              "force_daily") echo "mode=daily" >> $GITHUB_OUTPUT ;;
-              *) echo "mode=15min" >> $GITHUB_OUTPUT ;;
-            esac
-            echo "🎯 Manual mode: $execution_mode"
+            echo "mode=15min" >> $GITHUB_OUTPUT
+            echo "🔧 수동 실행: 기본 15분 모드"
           fi
 
       - name: 🚀 Execute Epic Seven Monitor
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
           DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
-          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
           DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
           FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
         run: |
@@ -154,19 +124,15 @@ jobs:
             force_flag="--force-crawl"
           fi
           
-          # 모드별 실행
+          # 모드별 실행 (일간 리포트 제외)
           case "$execution_mode" in
             "15min")
-              echo "🐛 Running 15min cycle: Full crawling + Bug alerts + Sentiment storage"
+              echo "🐛 Running 15min: 전체 크롤링 + 버그 알림 + 감성 저장"
               python monitor_bugs.py --schedule 15min $debug_flag $force_flag
               ;;
             "30min") 
-              echo "📊 Running 30min cycle: Accumulated sentiment notification"
+              echo "📊 Running 30min: 누적 감성 데이터 알림"
               python monitor_bugs.py --schedule 30min $debug_flag $force_flag
-              ;;
-            "daily")
-              echo "📋 Running daily cycle: Daily report generation"
-              python generate_report.py --daily $debug_flag
               ;;
             *)
               echo "🔧 Unknown mode, defaulting to 15min"
@@ -182,12 +148,6 @@ jobs:
           echo "🖥️ System Info:"
           echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
           echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
-          
-          # 실행 결과 로그 확인
-          if [ -f "monitoring_stats.json" ]; then
-            echo "📈 Monitoring Stats:"
-            cat monitoring_stats.json | head -20
-          fi
 
       - name: 🔄 Commit Changes
         if: success()
@@ -204,7 +164,6 @@ jobs:
             case "$execution_mode" in
               "15min") commit_msg="🐛 Bug Monitor: $(date '+%Y-%m-%d %H:%M:%S')" ;;
               "30min") commit_msg="📊 Sentiment Analysis: $(date '+%Y-%m-%d %H:%M:%S')" ;;
-              "daily") commit_msg="📋 Daily Report: $(date '+%Y-%m-%d %H:%M:%S')" ;;
               *) commit_msg="🎮 Epic7 Monitor: $(date '+%Y-%m-%d %H:%M:%S')" ;;
             esac
             
@@ -245,11 +204,6 @@ jobs:
                        {
                          \"name\": \"🔧 Debug 모드\",
                          \"value\": \"${{ github.event.inputs.debug_mode || 'false' }}\",
-                         \"inline\": true
-                       },
-                       {
-                         \"name\": \"🎯 실행 모드\",
-                         \"value\": \"${{ github.event.inputs.execution_mode || 'auto' }}\",
                          \"inline\": true
                        },
                        {
