@@ -2786,5 +2786,87 @@
     "sentiment": "neutral",
     "confidence": 0.5,
     "save_time": "2025-07-24T06:16:57.994240"
+  },
+  {
+    "timestamp": "2025-07-24T06:45:51.689656",
+    "title": "월뽑 십팔일차",
+    "url": "https://page.onstove.com/epicseven/kr/view/10915833",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑 십팔일차",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10915833",
+        "timestamp": "2025-07-24T06:45:05.752039"
+      },
+      "classification_timestamp": "2025-07-24T06:45:51.688376",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-24T06:45:51.689656"
+  },
+  {
+    "timestamp": "2025-07-24T06:45:51.689656",
+    "title": "월뽑 18일차",
+    "url": "https://page.onstove.com/epicseven/kr/view/10915822",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.2,
+        "reason": "중립 키워드: 왜"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑 18일차",
+        "content": "하 오늘도 없어... 왜 나만 월광5성 0개임 ㅠㅠㅠㅠㅠㅠ 중복이라도 좋으니... 흑우라도 좋으니... 보랏빛 번쩍 좀 보고싶네 진짜루 ㅠㅠ",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10915822",
+        "timestamp": "2025-07-24T06:45:06.949020"
+      },
+      "classification_timestamp": "2025-07-24T06:45:51.688557",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.2,
+    "save_time": "2025-07-24T06:45:51.689656"
   }
 ]
