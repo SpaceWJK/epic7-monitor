@@ -445,21 +445,10 @@ class Epic7Monitor:
 """
         
         return report.strip()
-    
+        
     def run_15min_schedule(self) -> bool:
-        """15분 스케줄 실행 - 전체 크롤링 + 버그 알림 + 감성 저장"""
-        try:
-            logger.info("🚀 15분 스케줄 시작 - 전체 크롤링 + 분석 + 버그 알림 + 감성 저장")
-            
-            # 전체 크롤링 (버그 + 일반 게시판 모두)            
-            bug_posts = self._safe_crawl_execution(crawl_frequent_sites, "버그 게시판 크롤링")
-            regular_posts = self._safe_crawl_execution(crawl_regular_sites, "일반 게시판 크롤링") 
-            posts = bug_posts + regular_posts
-            self.stats['total_crawled'] = len(posts)
-            
-            if not posts:
-                logger.info("15분 스케줄: 새로운 게시글이 없습니다.")
-                return True
+            # crawl_frequent_sites()가 이미 전체 크롤링을 처리
+            posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 주기 전체 크롤링")
             
             # 게시글 분류
             bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(posts)
