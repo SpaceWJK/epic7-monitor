@@ -1556,5 +1556,46 @@
     "sentiment": "negative",
     "confidence": 1.0,
     "save_time": "2025-07-23T18:45:02.982081"
+  },
+  {
+    "timestamp": "2025-07-23T19:34:19.180028",
+    "title": "그만좀때려",
+    "url": "https://page.onstove.com/epicseven/kr/view/10914017",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "negative",
+      "confidence": 0.4,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "negative",
+        "confidence": 0.4,
+        "reason": "부정 키워드: 그만"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "medium"
+      },
+      "original_data": {
+        "title": "그만좀때려",
+        "content": "게시글 내용을 확인할 수 없습니다.",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10914017",
+        "timestamp": "2025-07-23T19:33:31.069518"
+      },
+      "classification_timestamp": "2025-07-23T19:34:19.179350",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "negative",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T19:34:19.180028"
   }
 ]
