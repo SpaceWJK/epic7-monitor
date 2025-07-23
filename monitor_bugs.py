@@ -2,27 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 모니터 v4.0 - 단일 운용 모드 완성본
-운용 모드 1개 + 디버그 모드 1개로 단순화
+Epic7 통합 모니터 v4.1 - 안정성 강화 완성본
+Master 요청: "Error: The operation was canceled." 문제 해결
 
-핵심 수정:
-- production 모드: 15분/30분 스케줄에 따른 통합 처리
-- debug 모드: 개발/테스트 전용
-- --schedule 파라미터로 15분/30분 구분
-- 모드 분리 제거로 시스템 단순화
-
-15분 스케줄:
-- 전체 크롤링 (버그 + 일반 게시판)
-- 감성 → 저장만 (알림 안함)
-- 버그 → 즉시 알림 (동향 분석 후 버그 분류 포함)
-
-30분 스케줄:
-- 크롤링 안함 (15분 주기 데이터 활용)
-- 누적된 감성 데이터 알림만
+핵심 수정사항:
+- 예외 처리 강화 및 재시도 로직 추가
+- 파이프라인 연속성 보장 (하나 실패해도 계속 진행)
+- "operation was canceled" 오류 특별 처리
 
 Author: Epic7 Monitoring Team
-Version: 4.0
-Date: 2025-07-22
+Version: 4.1 (안정성 강화)
+Date: 2025-07-23
 """
 
 import os
@@ -83,7 +73,7 @@ SENTIMENT_DATA_RETENTION_HOURS = 72  # 72시간 데이터 보존
 # =============================================================================
 
 class Epic7Monitor:
-    """Epic7 통합 모니터링 시스템 v4.0"""
+    """Epic7 통합 모니터링 시스템 v4.1 - 안정성 강화"""
     
     def __init__(self, mode: str = "production", schedule: str = "15min", debug: bool = False, force_crawl: bool = False):
         """
@@ -114,6 +104,7 @@ class Epic7Monitor:
             'sentiment_posts': 0,
             'accumulated_sentiment_sent': 0,
             'errors': 0,
+            'retry_attempts': 0,  # 🚀 재시도 통계 추가
             'mode': mode,
             'schedule': schedule,
             'debug': debug,
@@ -128,7 +119,7 @@ class Epic7Monitor:
         if debug:
             logging.getLogger().setLevel(logging.DEBUG)
         
-        logger.info(f"Epic7 모니터링 시스템 v4.0 초기화 완료 - 모드: {mode}, 스케줄: {schedule}, force_crawl: {force_crawl}")
+        logger.info(f"Epic7 모니터링 시스템 v4.1 초기화 완료 - 모드: {mode}, 스케줄: {schedule}, force_crawl: {force_crawl}")
     
     def _check_discord_webhooks(self) -> Dict[str, str]:
         """Discord 웹훅 환경변수 확인"""
@@ -158,19 +149,48 @@ class Epic7Monitor:
         return webhooks
     
     def _safe_crawl_execution(self, crawl_func, func_name: str, *args, **kwargs):
-        """안전한 크롤링 실행"""
-        try:
-            logger.info(f"{func_name} 실행 시작... (force_crawl={self.force_crawl})")
-            
-            # Force Crawl 파라미터 전달
-            result = crawl_func(*args, force_crawl=self.force_crawl, **kwargs)
-            
-            logger.info(f"{func_name} 완료: {len(result) if result else 0}개 결과")
-            return result if result else []
-            
-        except Exception as e:
-            logger.error(f"{func_name} 실행 중 오류: {e}")
-            return []
+        """🚀 안전한 크롤링 실행 - 예외 처리 강화 및 재시도 로직"""
+        
+        max_retries = 2  # 🚀 재시도 로직 추가
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"{func_name} 실행 시작 (시도 {attempt + 1}/{max_retries})... (force_crawl={self.force_crawl})")
+                
+                # Force Crawl 파라미터 전달
+                result = crawl_func(*args, force_crawl=self.force_crawl, **kwargs)
+                
+                logger.info(f"{func_name} 완료: {len(result) if result else 0}개 결과")
+                return result if result else []
+                
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"{func_name} 실행 중 오류 (시도 {attempt + 1}/{max_retries}): {error_msg}")
+                
+                # 🚀 "operation was canceled" 오류 특별 처리
+                if "operation was canceled" in error_msg.lower():
+                    logger.warning(f"{func_name}: 작업 취소 오류 감지 - 메모리 정리 후 재시도")
+                    
+                    # 메모리 정리
+                    import gc
+                    gc.collect()
+                    time.sleep(10)  # 10초 대기
+                    
+                    if attempt < max_retries - 1:
+                        self.stats['retry_attempts'] += 1
+                        continue
+                
+                # 🚀 최종 실패 시에도 빈 배열 반환 (파이프라인 연속성 보장)
+                if attempt == max_retries - 1:
+                    logger.error(f"{func_name} 최종 실패 - 파이프라인은 계속 진행")
+                    self.stats['errors'] += 1
+                    return []
+                
+                # 재시도 대기
+                self.stats['retry_attempts'] += 1
+                time.sleep(5 * (attempt + 1))
+        
+        return []
     
     def save_sentiment_data(self, sentiment_posts: List[Dict]) -> bool:
         """감성 분석 결과 누적 저장"""
@@ -405,7 +425,7 @@ class Epic7Monitor:
         execution_time = end_time - self.start_time
         
         report = f"""
-🎯 **Epic7 모니터링 실행 보고서 v4.0**
+🎯 **Epic7 모니터링 실행 보고서 v4.1 (안정성 강화)**
 
 **실행 정보**
 - 모드: {self.mode.upper()}
@@ -424,13 +444,18 @@ class Epic7Monitor:
 - 감성 게시글: {self.stats['sentiment_posts']}개
 - 실시간 버그 알림: {self.stats['realtime_alerts']}개
 - 감성 동향 알림: {self.stats['accumulated_sentiment_sent']}개
-- 오류 발생: {self.stats['errors']}개
 
-**아키텍처 정보 v4.0**
+**🚀 안정성 지표 (v4.1)**
+- 재시도 횟수: {self.stats['retry_attempts']}회
+- 오류 발생: {self.stats['errors']}개
+- 파이프라인 연속성: {'보장됨' if self.stats['new_posts'] > 0 or self.stats['errors'] == 0 else '일부 제한'}
+
+**아키텍처 정보 v4.1**
 - 15분 스케줄: {'전체 크롤링 + 버그 알림 + 감성 저장' if self.schedule == '15min' else 'N/A'}
 - 30분 스케줄: {'누적 감성 데이터 알림만' if self.schedule == '30min' else 'N/A'}
 - 단일 운용 모드: 활성화됨 ✅
 - 스케줄 기반 분기: 활성화됨 ✅
+- 안정성 강화: 활성화됨 🚀
 
 **성능 지표**
 - 성공률: {((self.stats['total_crawled'] - self.stats['errors']) / max(1, self.stats['total_crawled']) * 100):.1f}%
@@ -449,7 +474,7 @@ class Epic7Monitor:
     def run_15min_schedule(self) -> bool:
         """15분 스케줄 실행 - 전체 크롤링 + 버그 알림 + 감성 저장"""
         try:
-            # crawl_frequent_sites()가 이미 전체 크롤링을 처리
+            # 🚀 안전한 크롤링 실행
             posts = self._safe_crawl_execution(crawl_frequent_sites, "15분 주기 전체 크롤링")
             
             # 게시글 분류
@@ -500,7 +525,7 @@ class Epic7Monitor:
         try:
             logger.info("🔧 디버그 모드 시작")
             
-            # 테스트 크롤링
+            # 🚀 안전한 테스트 크롤링
             logger.info("테스트 크롤링 실행...")
             test_posts = self._safe_crawl_execution(crawl_by_schedule, "디버그 테스트 크롤링", "15min")
             
@@ -520,6 +545,7 @@ class Epic7Monitor:
             logger.info(f"  - 버그 게시글: {len(bug_posts)}개")
             logger.info(f"  - 감성 게시글: {len(sentiment_posts)}개")
             logger.info(f"  - 실시간 알림: {len(realtime_alerts)}개")
+            logger.info(f"  - 재시도 횟수: {self.stats['retry_attempts']}회")
             
             # 감성 데이터 저장 테스트
             if sentiment_posts:
@@ -543,7 +569,7 @@ class Epic7Monitor:
             # 디버그 모드에서도 알림 테스트 (소량)
             if realtime_alerts and self.webhooks.get('bug'):
                 logger.info("🔧 디버그 모드 버그 알림 테스트 시작...")
-                test_success = self.send_realtime_alerts(realtime_alerts[:10])  # 최대 10개만 테스트
+                test_success = self.send_realtime_alerts(realtime_alerts[:5])  # 최대 5개만 테스트
                 logger.info(f"🔧 디버그 모드 버그 알림 테스트 결과: {'성공' if test_success else '실패'}")
             
             # 감성 알림 테스트
@@ -562,7 +588,7 @@ class Epic7Monitor:
     def run(self) -> bool:
         """메인 실행 함수 - 단일 운용 모드"""
         try:
-            logger.info(f"🎯 Epic7 모니터링 시스템 v4.0 시작 - 모드: {self.mode}, 스케줄: {self.schedule}, force_crawl: {self.force_crawl}")
+            logger.info(f"🎯 Epic7 모니터링 시스템 v4.1 시작 - 모드: {self.mode}, 스케줄: {self.schedule}, force_crawl: {self.force_crawl}")
             
             # 모드별 실행
             if self.mode == "debug":
@@ -591,11 +617,11 @@ class Epic7Monitor:
             # 일간 리포트 채널은 24시간 주기 generate_report.py에서 생성하는 진짜 일간 리포트만 받아야 함
             logger.info("📋 실행 보고서 생성 완료 (Discord 전송 생략)")
             
-            logger.info("🎉 Epic7 모니터링 시스템 v4.0 실행 완료")
+            logger.info("🎉 Epic7 모니터링 시스템 v4.1 실행 완료 (안정성 보장)")
             return success
             
         except Exception as e:
-            logger.error(f"💥 Epic7 모니터링 시스템 v4.0 실행 중 치명적 오류: {e}")
+            logger.error(f"💥 Epic7 모니터링 시스템 v4.1 실행 중 치명적 오류: {e}")
             return False
 
 # =============================================================================
@@ -605,9 +631,14 @@ class Epic7Monitor:
 def parse_arguments():
     """명령행 인자 파싱"""
     parser = argparse.ArgumentParser(
-        description="Epic7 통합 모니터링 시스템 v4.0 (단일 운용 모드)",
+        description="Epic7 통합 모니터링 시스템 v4.1 (안정성 강화)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+🚀 v4.1 안정성 강화 기능:
+- "Error: The operation was canceled." 문제 해결
+- 재시도 로직 및 예외 처리 강화
+- 파이프라인 연속성 보장 (하나 실패해도 계속 진행)
+
 사용 예시:
   python monitor_bugs.py                             # 운용 모드 (기본: 15분 스케줄)
   python monitor_bugs.py --schedule 15min           # 15분 스케줄 (크롤링 + 버그 알림)
@@ -661,7 +692,7 @@ def parse_arguments():
     parser.add_argument(
         '--version',
         action='version',
-        version='Epic7 Monitor v4.0 (Single Production Mode)'
+        version='Epic7 Monitor v4.1 (안정성 강화)'
     )
         
     return parser.parse_args()
