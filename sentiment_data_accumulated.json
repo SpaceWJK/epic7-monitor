@@ -1597,5 +1597,579 @@
     "sentiment": "negative",
     "confidence": 0.4,
     "save_time": "2025-07-23T19:34:19.180028"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "그만좀때려",
+    "url": "https://page.onstove.com/epicseven/kr/view/10914017",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "그만좀때려",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10914017",
+        "timestamp": "2025-07-23T22:38:36.851356"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.327783",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "조륜카 방덱 못뚫겠어요",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913926",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "negative",
+      "confidence": 1.0,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "negative",
+        "confidence": 1.0,
+        "reason": "부정 키워드: 개빡, 사기, 빡세"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "medium"
+      },
+      "original_data": {
+        "title": "조륜카 방덱 못뚫겠어요",
+        "content": "ㅡㅡ 복귀인데 조룬카 방덱 개빡세네요... 인왕서기는 첫턴한정으로해도 사기일거같은데 매턴마다 계속생기고ㅡㅡ 딴딴하게가려니까 딜이안나오고 상대턴만 계속오고 속덱으로 가면 뒤에애들 때릴수도없고 미츄어버리겠네...",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913926",
+        "timestamp": "2025-07-23T22:38:38.164970"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.327970",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "negative",
+    "confidence": 1.0,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "망게임 갓게임차이?",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913493",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "망게임 갓게임차이?",
+        "content": "어차피 운이다 본인운이없는거 복귀유저들은 큰기대안함 또 접는다 몇억을과금하든 본인선택임 ㅎ",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913493",
+        "timestamp": "2025-07-23T22:38:40.769075"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.328100",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "7주년 바로 직전인데 게임이 너무 심심합니다(복귀유저/심히주관적)",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913275",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "negative",
+      "confidence": 0.8500000000000001,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "negative",
+        "confidence": 0.8500000000000001,
+        "reason": "부정 키워드: 똑같, 힘들어"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "medium"
+      },
+      "original_data": {
+        "title": "7주년 바로 직전인데 게임이 너무 심심합니다(복귀유저/심히주관적)",
+        "content": "뭐 장비도 15강된거주고 영웅도 주고 뽑기도줘도 너무 조용합니다 복귀해봤자 한플랑이랑 현역영웅없어서 실레나는 진입생각도못하고 아레나도 똑같고 에픽대시도 맨날 같은 행동력소모,깃발소모 외에는 특출난게 없고 pve는 더 힘들어지거나 접대캐 강제뽑기가 되고 과금도 핫타임패키",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913275",
+        "timestamp": "2025-07-23T22:38:42.485371"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.328339",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "negative",
+    "confidence": 0.8500000000000001,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "영웅 뭐받나욤",
+    "url": "https://page.onstove.com/epicseven/kr/view/10913207",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.6000000000000001,
+        "reason": "중립 키워드: 질문, 추천, 뭐"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "영웅 뭐받나욤",
+        "content": "이렇게 보유 중 인데 뉴비 추천 항목에 겹치는게 많아서 질문좀 드립니당 일반 5성 과 풀성장 뭐 받아야 하나요? pvp는 잘 안하긴 합니다. 아티도 추천도 가능하면 부탁드립니당",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10913207",
+        "timestamp": "2025-07-23T22:38:45.086821"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.328494",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.6000000000000001,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "월뽑 17일차",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912964",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑 17일차",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912964",
+        "timestamp": "2025-07-23T22:40:34.650869"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.328614",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "월뽑 무득",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912775",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "월뽑 무득",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912775",
+        "timestamp": "2025-07-23T22:42:24.514664"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.328723",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "나도이제 집 오우너",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912459",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "나도이제 집 오우너",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912459",
+        "timestamp": "2025-07-23T22:44:14.691419"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.328833",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "이번에 오토마톤 업데이트 한놈 장난하나",
+    "url": "https://page.onstove.com/epicseven/kr/view/10912227",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "negative",
+      "confidence": 0.4,
+      "language": "korean",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "negative",
+        "confidence": 0.4,
+        "reason": "부정 키워드: 열받"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "medium"
+      },
+      "original_data": {
+        "title": "이번에 오토마톤 업데이트 한놈 장난하나",
+        "content": "안그래도 켜서 귀찮게 게임하는데 ㅈㄴ 쉽게깨던 오토마톤도 열받게 만들어 놨네 더러워서 못하겟다 맨날 신캐에 pvp 밸런스 ㅄ로 만들어 놓고 pve컨텐츠 까지 열받게 만드네 걍망해라 개 ㅄ게임 접을란다",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10912227",
+        "timestamp": "2025-07-23T22:44:16.854714"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.329008",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "negative",
+    "confidence": 0.4,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "로엔나 VS 페네 직업이 다르기는 한데 뭘 가져가야 하나요?",
+    "url": "https://page.onstove.com/epicseven/kr/view/10911840",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "로엔나 VS 페네 직업이 다르기는 한데 뭘 가져가야 하나요?",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10911840",
+        "timestamp": "2025-07-23T22:46:07.014869"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.329138",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "오늘 더워서 에팍세븐 조금함",
+    "url": "https://page.onstove.com/epicseven/kr/view/10911419",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "오늘 더워서 에팍세븐 조금함",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10911419",
+        "timestamp": "2025-07-23T22:47:55.088705"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.329252",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "뉴비 영웅 소환권 질문 있어요",
+    "url": "https://page.onstove.com/epicseven/kr/view/10911036",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "뉴비 영웅 소환권 질문 있어요",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10911036",
+        "timestamp": "2025-07-23T22:49:45.662724"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.329524",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "1뽑 최소 2천원짜리 가챠 결과",
+    "url": "https://page.onstove.com/epicseven/kr/view/10910913",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "1뽑 최소 2천원짜리 가챠 결과",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10910913",
+        "timestamp": "2025-07-23T22:51:34.863818"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.329688",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
+  },
+  {
+    "timestamp": "2025-07-23T22:54:09.599471",
+    "title": "대난투  뭐 업글하나요?",
+    "url": "https://page.onstove.com/epicseven/kr/view/10910502",
+    "source": "stove_korea_general",
+    "classification": {
+      "category": "neutral",
+      "confidence": 0.5,
+      "language": "english",
+      "source_type": "global",
+      "schedule_type": "regular",
+      "bug_analysis": {
+        "is_bug": false,
+        "priority": "none",
+        "confidence": 0.0,
+        "reason": "버그 키워드 없음"
+      },
+      "sentiment_analysis": {
+        "sentiment": "neutral",
+        "confidence": 0.5,
+        "reason": "감성 키워드 부족"
+      },
+      "realtime_alert": {
+        "should_alert": false,
+        "alert_reason": "실시간 알림 임계값 미달 (0.7)",
+        "alert_priority": "low"
+      },
+      "original_data": {
+        "title": "대난투  뭐 업글하나요?",
+        "content": "Start Game\n에픽세븐\nOfficial Community\nPC/MOBILE\nTurn-Based RPG\nSmilegate Holdings",
+        "source": "stove_korea_general",
+        "url": "https://page.onstove.com/epicseven/kr/view/10910502",
+        "timestamp": "2025-07-23T22:53:23.976825"
+      },
+      "classification_timestamp": "2025-07-23T22:54:09.329822",
+      "classifier_version": "Epic7 Unified v3.1"
+    },
+    "sentiment": "neutral",
+    "confidence": 0.5,
+    "save_time": "2025-07-23T22:54:09.599471"
   }
 ]
