@@ -805,9 +805,9 @@ def crawl_regular_sites(force_crawl: bool = False) -> List[Dict]:
 def crawl_by_schedule(schedule_type: str, force_crawl: bool = False) -> List[Dict]:
     """스케줄 타입에 따른 크롤링 분기"""
     
-    if schedule_type == "frequent":
+    if schedule_type == "frequent" or schedule_type == "15min":
         return crawl_frequent_sites(force_crawl)
-    elif schedule_type == "regular": 
+    elif schedule_type == "regular" or schedule_type == "30min":
         return crawl_regular_sites(force_crawl)
     else:
         print(f"[ERROR] 알 수 없는 스케줄 타입: {schedule_type}")
