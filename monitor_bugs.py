@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 모니터 v4.3 - 게시글별 즉시 처리 시스템 완성본
+Epic7 통합 모니터 v4.3 - 게시글별 즉시 처리 시스템 완성본 (수정됨)
 Master 요청: 게시글별 즉시 처리 (크롤링→감성분석→알림→마킹→다음게시글)
 
 핵심 수정사항:
@@ -11,10 +11,12 @@ Master 요청: 게시글별 즉시 처리 (크롤링→감성분석→알림→�
 - crawler.py v4.3 즉시 처리 모드 연동
 - 실행 상태 체크 및 대기 로직
 - 기존 기능 100% 보존
+- 순환 임포트 문제 해결 ✨FIXED✨
 
 Author: Epic7 Monitoring Team
-Version: 4.3 (즉시 처리 시스템)
+Version: 4.3 (즉시 처리 시스템 + 순환 임포트 수정)
 Date: 2025-07-24
+Fixed: 순환 임포트 오류 해결
 """
 
 import os
@@ -55,10 +57,8 @@ from notifier import (
     send_health_check
 )
 
-from sentiment_data_manager import (
-    save_sentiment_data,
-    get_sentiment_summary
-)
+# ✨ FIXED: sentiment_data_manager 순환 임포트 문제 해결
+# 모듈 레벨에서 직접 임포트하지 않고, 사용할 때 지연 임포트 사용
 
 # 로깅 설정
 logging.basicConfig(
@@ -403,8 +403,16 @@ class Epic7Monitor:
             return False
     
     def _save_sentiment_for_daily_report(self, post_data: Dict, classification: Dict):
-        """일간 리포트용 감성 데이터 저장"""
+        """일간 리포트용 감성 데이터 저장 ✨FIXED✨"""
         try:
+            # ✨ FIXED: 지연 임포트로 순환 참조 문제 해결
+            try:
+                from sentiment_data_manager import save_sentiment_data
+            except ImportError as e:
+                logger.error(f"sentiment_data_manager 임포트 실패: {e}")
+                logger.warning("감성 데이터 저장 기능을 사용할 수 없습니다.")
+                return
+            
             # sentiment_data_manager를 통해 저장
             sentiment_posts = [post_data]
             save_sentiment_data(sentiment_posts)

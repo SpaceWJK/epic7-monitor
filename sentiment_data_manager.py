@@ -34,10 +34,6 @@ import logging
 import statistics
 from math import sqrt
 
-# 로컬 모듈 임포트
-from classifier import Epic7Classifier
-from crawler import load_content_cache, get_all_posts_for_report
-
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -84,7 +80,14 @@ class Epic7SentimentManager:
             config: 사용자 정의 설정 (선택사항)
         """
         self.config = config or SentimentConfig()
-        self.classifier = Epic7Classifier()
+        
+        # 순환 임포트 방지를 위한 지연 임포트
+        try:
+            from classifier import Epic7Classifier
+            self.classifier = Epic7Classifier()
+        except ImportError as e:
+            logger.warning(f"Classifier 임포트 실패: {e}")
+            self.classifier = None
         
         # 데이터 구조 초기화
         self.sentiment_data = self.load_sentiment_data()
@@ -141,7 +144,7 @@ class Epic7SentimentManager:
             self._cleanup_old_data()
             
             # 8. 파일 즉시 저장
-            success = self.save_sentiment_data()
+            success = self.save_sentiment_data_file()
             
             if success:
                 self.stats['immediate_saves'] += 1
@@ -395,7 +398,7 @@ class Epic7SentimentManager:
             logger.error(f"감성 데이터 로드 실패: {e}")
             return {'posts': [], 'statistics': {}, 'daily_reports': {}, 'keywords': {}}
     
-    def save_sentiment_data(self) -> bool:
+    def save_sentiment_data_file(self) -> bool:
         """감성 데이터 저장 (기존 방식 + 즉시 저장 지원)"""
         try:
             # 메타데이터 업데이트
@@ -485,12 +488,18 @@ class Epic7SentimentManager:
                 return cached_result
             
             # 분류기를 통한 감성 분석
-            classification_result = self.classifier.classify_post(post)
-            
-            # 감성 분석 결과 추출
-            sentiment_analysis = classification_result.get('sentiment_analysis', {})
-            sentiment = sentiment_analysis.get('sentiment', 'neutral')
-            confidence = sentiment_analysis.get('confidence', 0.0)
+            if self.classifier:
+                classification_result = self.classifier.classify_post(post)
+                
+                # 감성 분석 결과 추출
+                sentiment_analysis = classification_result.get('sentiment_analysis', {})
+                sentiment = sentiment_analysis.get('sentiment', 'neutral')
+                confidence = sentiment_analysis.get('confidence', 0.0)
+            else:
+                # 폴백: 기본 감성 분석
+                sentiment = 'neutral'
+                confidence = 0.5
+                classification_result = {}
             
             # 결과 구성
             result = {
@@ -571,7 +580,7 @@ class Epic7SentimentManager:
             
             # 데이터 정리 및 저장
             self._cleanup_old_data()
-            if self.save_sentiment_data():
+            if self.save_sentiment_data_file():
                 self.stats['batch_saves'] += 1
                 logger.info(f"일괄 저장 완료: {len(results)}개 게시글")
             else:
@@ -651,12 +660,12 @@ class Epic7SentimentManager:
         }
 
 # =============================================================================
-# 편의 함수들 (외부 호출용)
+# 편의 함수들 (외부 호출용) - 기존 유지
 # =============================================================================
 
 def save_sentiment_data_immediately(post_data: Dict) -> bool:
     """
-    ✨ 편의 함수: 개별 게시글 즉시 저장
+    편의 함수: 개별 게시글 즉시 저장
     
     Args:
         post_data: 게시글 데이터 또는 감성 분석 결과
@@ -684,7 +693,7 @@ def save_sentiment_data_immediately(post_data: Dict) -> bool:
 
 def get_today_sentiment_summary() -> Dict:
     """
-    ✨ 편의 함수: 오늘의 감성 요약 조회
+    편의 함수: 오늘의 감성 요약 조회
     
     Returns:
         Dict: 오늘의 감성 요약
@@ -695,6 +704,79 @@ def get_today_sentiment_summary() -> Dict:
     except Exception as e:
         logger.error(f"오늘 요약 조회 실패: {e}")
         return {}
+      
+if __name__ == "__main__":
+    main()
+# =============================================================================
+# 하위 호환성 보장 함수들 (monitor_bugs.py와의 인터페이스) ✨FIXED✨
+# =============================================================================
+
+def save_sentiment_data(posts: List[Dict]) -> bool:
+    """
+    하위 호환성 함수: monitor_bugs.py에서 호출하는 save_sentiment_data
+    
+    Args:
+        posts: 게시글 목록 (감성 분석 결과 포함)
+        
+    Returns:
+        bool: 저장 성공 여부
+    """
+    try:
+        if not posts:
+            return True
+        
+        manager = Epic7SentimentManager()
+        
+        # 즉시 저장 모드로 처리
+        success_count = 0
+        for post in posts:
+            # 감성 분석이 안 된 경우 먼저 처리
+            if 'sentiment' not in post:
+                result = manager.process_post_sentiment(post)
+                if result:
+                    post.update(result)
+            
+            if manager.save_sentiment_immediately(post):
+                success_count += 1
+        
+        logger.info(f"하위 호환 저장 완료: {success_count}/{len(posts)}개")
+        return success_count > 0
+        
+    except Exception as e:
+        logger.error(f"하위 호환 저장 실패: {e}")
+        return False
+
+def get_sentiment_summary() -> Dict:
+    """
+    하위 호환성 함수: monitor_bugs.py에서 호출하는 get_sentiment_summary
+    
+    Returns:
+        Dict: 감성 요약 데이터
+    """
+    try:
+        manager = Epic7SentimentManager()
+        
+        # 오늘의 일간 요약 반환
+        daily_summary = manager.get_daily_summary()
+        
+        # monitor_bugs.py가 기대하는 형식으로 변환
+        return {
+            "total_posts": daily_summary.get("total_posts", 0),
+            "sentiment_distribution": daily_summary.get("sentiment_distribution", {}),
+            "time_period": "today",
+            "timestamp": datetime.now().isoformat(),
+            "daily_data": daily_summary  # 추가 정보
+        }
+        
+    except Exception as e:
+        logger.error(f"하위 호환 요약 실패: {e}")
+        return {
+            "total_posts": 0,
+            "sentiment_distribution": {"positive": 0, "negative": 0, "neutral": 0},
+            "time_period": "today",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 # =============================================================================
 # 메인 실행 부분 (기존 유지)
@@ -709,7 +791,13 @@ def main():
         manager = Epic7SentimentManager()
         
         # 테스트용 게시글 데이터 수집 (실제 사용시에는 crawler에서 받아옴)
-        posts = get_all_posts_for_report()
+        # 순환 임포트 방지를 위한 지연 임포트
+        try:
+            from crawler import get_all_posts_for_report
+            posts = get_all_posts_for_report()
+        except ImportError as e:
+            logger.warning(f"Crawler 임포트 실패: {e} - 테스트 모드로 진행")
+            posts = []
         
         if posts:
             # 기본적으로 일괄 처리 (하위 호환성)
@@ -728,6 +816,3 @@ def main():
         
     except Exception as e:
         logger.error(f"메인 실행 중 오류: {e}")
-
-if __name__ == "__main__":
-    main()
