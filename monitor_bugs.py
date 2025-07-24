@@ -2,17 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 모니터 v4.1 - 안정성 강화 완성본
-Master 요청: "Error: The operation was canceled." 문제 해결
+Epic7 통합 모니터 v4.2 - 중복 체크 로직 개선 완성본
+Master 요청: 알림 전송 문제 해결을 위한 알림 성공 후 마킹 시스템
 
 핵심 수정사항:
-- 예외 처리 강화 및 재시도 로직 추가
-- 파이프라인 연속성 보장 (하나 실패해도 계속 진행)
-- "operation was canceled" 오류 특별 처리
+- 알림 전송 성공 후에만 "처리됨" 마킹
+- 감성 데이터 저장 성공 시에도 마킹
+- 크롤링과 알림을 완전 분리하여 파이프라인 연속성 보장
 
 Author: Epic7 Monitoring Team
-Version: 4.1 (안정성 강화)
-Date: 2025-07-23
+Version: 4.2 (중복 로직 개선)
+Date: 2025-07-24
 """
 
 import os
@@ -33,7 +33,8 @@ from crawler import (
     crawl_by_schedule,
     crawl_frequent_sites,
     crawl_regular_sites,
-    get_all_posts_for_report    
+    get_all_posts_for_report,
+    mark_as_processed  # 🚀 새로 추가된 함수 임포트
 )
 
 from classifier import (
@@ -73,7 +74,7 @@ SENTIMENT_DATA_RETENTION_HOURS = 72  # 72시간 데이터 보존
 # =============================================================================
 
 class Epic7Monitor:
-    """Epic7 통합 모니터링 시스템 v4.1 - 안정성 강화"""
+    """Epic7 통합 모니터링 시스템 v4.2 - 중복 로직 개선"""
     
     def __init__(self, mode: str = "production", schedule: str = "15min", debug: bool = False, force_crawl: bool = False):
         """
@@ -104,7 +105,9 @@ class Epic7Monitor:
             'sentiment_posts': 0,
             'accumulated_sentiment_sent': 0,
             'errors': 0,
-            'retry_attempts': 0,  # 🚀 재시도 통계 추가
+            'retry_attempts': 0,
+            'successful_notifications': 0,  # 🚀 성공한 알림 수 추가
+            'marked_as_processed': 0,      # 🚀 처리 완료 마킹 수 추가
             'mode': mode,
             'schedule': schedule,
             'debug': debug,
@@ -119,7 +122,7 @@ class Epic7Monitor:
         if debug:
             logging.getLogger().setLevel(logging.DEBUG)
         
-        logger.info(f"Epic7 모니터링 시스템 v4.1 초기화 완료 - 모드: {mode}, 스케줄: {schedule}, force_crawl: {force_crawl}")
+        logger.info(f"Epic7 모니터링 시스템 v4.2 초기화 완료 - 모드: {mode}, 스케줄: {schedule}, force_crawl: {force_crawl}")
     
     def _check_discord_webhooks(self) -> Dict[str, str]:
         """Discord 웹훅 환경변수 확인"""
@@ -193,7 +196,7 @@ class Epic7Monitor:
         return []
     
     def save_sentiment_data(self, sentiment_posts: List[Dict]) -> bool:
-        """감성 분석 결과 누적 저장"""
+        """🚀 감성 분석 결과 누적 저장 - 성공 시 링크 마킹 추가"""
         if not sentiment_posts:
             return True
             
@@ -227,7 +230,13 @@ class Epic7Monitor:
             with open(SENTIMENT_DATA_FILE, 'w', encoding='utf-8') as f:
                 json.dump(accumulated_data, f, ensure_ascii=False, indent=2)
             
+            # 🚀 핵심 수정: 감성 데이터 저장 성공 시에도 링크 마킹
+            for post in sentiment_posts:
+                mark_as_processed(post.get('url', ''), notified=False)  # 감성은 직접 알림 안 함
+                self.stats['marked_as_processed'] += 1
+            
             logger.info(f"💾 감성 데이터 저장 완료: {len(sentiment_posts)}개 추가, 총 {len(accumulated_data)}개 누적")
+            logger.info(f"📝 {len(sentiment_posts)}개 감성 링크를 처리 완료로 마킹")
             return True
             
         except Exception as e:
@@ -322,7 +331,7 @@ class Epic7Monitor:
         return bug_posts, sentiment_posts, realtime_alerts
     
     def send_realtime_alerts(self, alert_posts: List[Dict]) -> bool:
-        """실시간 알림 전송 (버그 + 동향 분석 후 버그 분류)"""
+        """🚀 실시간 알림 전송 - 성공 시 링크 마킹 추가"""
         if not alert_posts:
             logger.info("실시간 버그 알림: 전송할 게시글이 없습니다.")
             return True
@@ -338,9 +347,16 @@ class Epic7Monitor:
             success = send_bug_alert(alert_posts)
             
             if success:
+                # 🚀 핵심 수정: 알림 성공 시에만 링크들을 "처리됨"으로 마킹
+                for post in alert_posts:
+                    mark_as_processed(post.get('url', ''), notified=True)
+                    self.stats['marked_as_processed'] += 1
+                
+                self.stats['successful_notifications'] += 1
                 logger.info(f"🚨 실시간 버그 알림 전송 성공: {len(alert_posts)}개 게시글")
+                logger.info(f"📝 {len(alert_posts)}개 링크를 처리 완료로 마킹")
             else:
-                logger.error("🚨 실시간 버그 알림 전송 실패")
+                logger.error("🚨 실시간 버그 알림 전송 실패 - 링크 마킹 하지 않음")
             
             return success
             
@@ -394,6 +410,7 @@ class Epic7Monitor:
             
             if success:
                 self.stats['accumulated_sentiment_sent'] = len(recent_data)
+                self.stats['successful_notifications'] += 1
                 logger.info(f"📊 감성 동향 알림 전송 성공: {len(recent_data)}개 데이터")
             else:
                 logger.error("📊 감성 동향 알림 전송 실패")
@@ -425,7 +442,7 @@ class Epic7Monitor:
         execution_time = end_time - self.start_time
         
         report = f"""
-🎯 **Epic7 모니터링 실행 보고서 v4.1 (안정성 강화)**
+🎯 **Epic7 모니터링 실행 보고서 v4.2 (중복 로직 개선)**
 
 **실행 정보**
 - 모드: {self.mode.upper()}
@@ -445,21 +462,23 @@ class Epic7Monitor:
 - 실시간 버그 알림: {self.stats['realtime_alerts']}개
 - 감성 동향 알림: {self.stats['accumulated_sentiment_sent']}개
 
-**🚀 안정성 지표 (v4.1)**
+**🚀 중복 로직 개선 지표 (v4.2)**
+- 성공한 알림 수: {self.stats['successful_notifications']}개
+- 처리 완료 마킹: {self.stats['marked_as_processed']}개
 - 재시도 횟수: {self.stats['retry_attempts']}회
 - 오류 발생: {self.stats['errors']}개
 - 파이프라인 연속성: {'보장됨' if self.stats['new_posts'] > 0 or self.stats['errors'] == 0 else '일부 제한'}
 
-**아키텍처 정보 v4.1**
+**아키텍처 정보 v4.2**
 - 15분 스케줄: {'전체 크롤링 + 버그 알림 + 감성 저장' if self.schedule == '15min' else 'N/A'}
 - 30분 스케줄: {'누적 감성 데이터 알림만' if self.schedule == '30min' else 'N/A'}
 - 단일 운용 모드: 활성화됨 ✅
 - 스케줄 기반 분기: 활성화됨 ✅
-- 안정성 강화: 활성화됨 🚀
+- 중복 로직 개선: 활성화됨 🚀
 
 **성능 지표**
 - 성공률: {((self.stats['total_crawled'] - self.stats['errors']) / max(1, self.stats['total_crawled']) * 100):.1f}%
-- 알림 비율: {(self.stats['realtime_alerts'] / max(1, self.stats['new_posts']) * 100):.1f}%
+- 알림 성공률: {(self.stats['successful_notifications'] / max(1, self.stats['realtime_alerts'] + self.stats['accumulated_sentiment_sent']) * 100):.1f}%
 - 버그 비율: {(self.stats['bug_posts'] / max(1, self.stats['new_posts']) * 100):.1f}%
 
 **시스템 상태**
@@ -480,12 +499,12 @@ class Epic7Monitor:
             # 게시글 분류
             bug_posts, sentiment_posts, realtime_alerts = self.classify_posts(posts)
             
-            # 1. 버그 관련 알림 즉시 전송 (동향 분석 후 버그 분류 포함)
+            # 1. 버그 관련 알림 즉시 전송 (성공 시 링크 마킹)
             if realtime_alerts:
                 self.send_realtime_alerts(realtime_alerts)
                 logger.info(f"🚨 15분 스케줄: 버그 알림 전송 완료 {len(realtime_alerts)}개")
             
-            # 2. 감성 분석 결과는 저장만 (알림 안함)
+            # 2. 감성 분석 결과 저장 (성공 시 링크 마킹)
             if sentiment_posts:
                 self.save_sentiment_data(sentiment_posts)
                 logger.info(f"💾 15분 스케줄: 감성 데이터 저장 완료 {len(sentiment_posts)}개 (알림 없음)")
@@ -588,7 +607,7 @@ class Epic7Monitor:
     def run(self) -> bool:
         """메인 실행 함수 - 단일 운용 모드"""
         try:
-            logger.info(f"🎯 Epic7 모니터링 시스템 v4.1 시작 - 모드: {self.mode}, 스케줄: {self.schedule}, force_crawl: {self.force_crawl}")
+            logger.info(f"🎯 Epic7 모니터링 시스템 v4.2 시작 - 모드: {self.mode}, 스케줄: {self.schedule}, force_crawl: {self.force_crawl}")
             
             # 모드별 실행
             if self.mode == "debug":
@@ -617,11 +636,11 @@ class Epic7Monitor:
             # 일간 리포트 채널은 24시간 주기 generate_report.py에서 생성하는 진짜 일간 리포트만 받아야 함
             logger.info("📋 실행 보고서 생성 완료 (Discord 전송 생략)")
             
-            logger.info("🎉 Epic7 모니터링 시스템 v4.1 실행 완료 (안정성 보장)")
+            logger.info("🎉 Epic7 모니터링 시스템 v4.2 실행 완료 (중복 로직 개선)")
             return success
             
         except Exception as e:
-            logger.error(f"💥 Epic7 모니터링 시스템 v4.1 실행 중 치명적 오류: {e}")
+            logger.error(f"💥 Epic7 모니터링 시스템 v4.2 실행 중 치명적 오류: {e}")
             return False
 
 # =============================================================================
@@ -631,12 +650,12 @@ class Epic7Monitor:
 def parse_arguments():
     """명령행 인자 파싱"""
     parser = argparse.ArgumentParser(
-        description="Epic7 통합 모니터링 시스템 v4.1 (안정성 강화)",
+        description="Epic7 통합 모니터링 시스템 v4.2 (중복 로직 개선)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-🚀 v4.1 안정성 강화 기능:
-- "Error: The operation was canceled." 문제 해결
-- 재시도 로직 및 예외 처리 강화
+🚀 v4.2 중복 로직 개선 기능:
+- 시간 기반 중복 관리 (24시간 후 재처리 허용)
+- 알림 성공 후 마킹 시스템 (크롤링과 알림 분리)
 - 파이프라인 연속성 보장 (하나 실패해도 계속 진행)
 
 사용 예시:
@@ -692,7 +711,7 @@ def parse_arguments():
     parser.add_argument(
         '--version',
         action='version',
-        version='Epic7 Monitor v4.1 (안정성 강화)'
+        version='Epic7 Monitor v4.2 (중복 로직 개선)'
     )
         
     return parser.parse_args()

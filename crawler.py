@@ -2,17 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 다국가 크롤러 v4.1 - 안정성 강화 완성본
-Master 요청: "Error: The operation was canceled." 문제 해결
+Epic7 다국가 크롤러 v4.2 - 중복 체크 로직 개선 완성본
+Master 요청: 알림 전송 문제 해결을 위한 시간 기반 중복 관리 시스템
 
 핵심 수정사항:
-- ChromeDriver 리소스 최적화 강화
-- 사이트별 독립 실행으로 안정성 보장
-- 메모리 관리 및 예외 처리 개선
+- 24시간 기반 중복 체크 로직 구현
+- 알림 성공 후 마킹 시스템 분리
+- 크롤링 링크 파일 구조 개선 (URL + 시간 + 알림상태)
 
 Author: Epic7 Monitoring Team  
-Version: 4.1 (안정성 강화)
-Date: 2025-07-23
+Version: 4.2 (중복 로직 개선)
+Date: 2025-07-24
 """
 
 import time
@@ -84,7 +84,7 @@ class CrawlingSchedule:
             return CrawlingSchedule.REGULAR_SCROLL_COUNT
 
 # =============================================================================
-# 파일 관리 시스템
+# 파일 관리 시스템 - 🚀 시간 기반 중복 관리 개선
 # =============================================================================
 
 def get_crawled_links_file():
@@ -107,36 +107,118 @@ def get_content_cache_file():
     else:
         return "content_cache.json"
 
+# 🚀 수정된 로드 함수 - 시간 기반 구조로 변환
 def load_crawled_links():
-    """이미 크롤링된 링크들을 로드"""
+    """크롤링 링크 로드 - 시간 기반 구조 적용"""
     crawled_links_file = get_crawled_links_file()
-
+    
     if os.path.exists(crawled_links_file):
         try:
             with open(crawled_links_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    return {"links": data, "last_updated": datetime.now().isoformat()}
+                
+                # 🚀 기존 단순 리스트 형태를 새 구조로 변환
+                if isinstance(data, dict) and "links" in data:
+                    if isinstance(data["links"], list) and len(data["links"]) > 0:
+                        # 기존 단순 링크를 시간 구조로 변환
+                        if isinstance(data["links"][0], str):
+                            converted_links = []
+                            for link in data["links"]:
+                                converted_links.append({
+                                    "url": link,
+                                    "processed_at": (datetime.now() - timedelta(hours=25)).isoformat(),  # 25시간 전으로 설정 (재처리 허용)
+                                    "notified": False
+                                })
+                            data["links"] = converted_links
+                            print(f"[INFO] 기존 {len(converted_links)}개 링크를 새 구조로 변환")
+                
+                # 🚀 24시간 지난 항목 자동 제거
+                now = datetime.now()
+                valid_links = []
+                for item in data.get("links", []):
+                    try:
+                        processed_time = datetime.fromisoformat(item["processed_at"])
+                        if now - processed_time < timedelta(hours=24):
+                            valid_links.append(item)
+                    except:
+                        # 잘못된 형식은 제거
+                        continue
+                
+                data["links"] = valid_links
+                print(f"[INFO] 24시간 기준 유효한 링크: {len(valid_links)}개")
                 return data
-        except (json.JSONDecodeError, FileNotFoundError):
-            print(f"[WARNING] {crawled_links_file} 파일 읽기 실패, 새로 생성")
-
+                        
+        except Exception as e:
+            print(f"[WARNING] 크롤링 링크 파일 읽기 실패: {e}")
+    
     return {"links": [], "last_updated": datetime.now().isoformat()}
 
+# 🚀 수정된 저장 함수 - 크기 제한 강화
 def save_crawled_links(link_data):
-    """크롤링된 링크들을 저장 (최대 1000개 유지)"""
+    """크롤링 링크 저장 - 적극적 크기 관리"""
     try:
-        if len(link_data["links"]) > 1000:
-            link_data["links"] = link_data["links"][-1000:]
+        # 🚀 크기 제한을 100개로 축소 (더 적극적 관리)
+        if len(link_data["links"]) > 100:
+            # 최신 100개만 유지
+            link_data["links"] = sorted(
+                link_data["links"], 
+                key=lambda x: x.get("processed_at", ""), 
+                reverse=True
+            )[:100]
+            print(f"[INFO] 링크 목록을 최신 100개로 정리")
 
         link_data["last_updated"] = datetime.now().isoformat()
 
         crawled_links_file = get_crawled_links_file()
         with open(crawled_links_file, 'w', encoding='utf-8') as f:
             json.dump(link_data, f, ensure_ascii=False, indent=2)
+            
+        print(f"[INFO] 크롤링 링크 저장 완료: {len(link_data['links'])}개")
 
     except Exception as e:
         print(f"[ERROR] 링크 저장 실패: {e}")
+
+# 🚀 새로 추가된 핵심 함수들
+def is_recently_processed(url: str, links_data: List[Dict], hours: int = 24) -> bool:
+    """시간 기반 중복 체크 - 24시간 내 처리된 링크인지 확인"""
+    try:
+        now = datetime.now()
+        for item in links_data:
+            if item.get("url") == url:
+                processed_time = datetime.fromisoformat(item["processed_at"])
+                if now - processed_time < timedelta(hours=hours):
+                    return True
+        return False
+    except Exception as e:
+        print(f"[DEBUG] 중복 체크 오류: {e}")
+        return False
+
+def mark_as_processed(url: str, notified: bool = False):
+    """게시글을 처리됨으로 마킹 - 알림 성공 후에만 호출"""
+    try:
+        link_data = load_crawled_links()
+        
+        # 기존 항목 업데이트 또는 새 항목 추가
+        found = False
+        for item in link_data["links"]:
+            if item.get("url") == url:
+                item["processed_at"] = datetime.now().isoformat()
+                item["notified"] = notified
+                found = True
+                break
+        
+        if not found:
+            link_data["links"].append({
+                "url": url,
+                "processed_at": datetime.now().isoformat(),
+                "notified": notified
+            })
+        
+        save_crawled_links(link_data)
+        print(f"[INFO] 링크 처리 완료 마킹: {url[:50]}... (알림: {notified})")
+        
+    except Exception as e:
+        print(f"[ERROR] 링크 마킹 실패: {e}")
 
 def load_content_cache():
     """게시글 내용 캐시 로드"""
@@ -254,7 +336,7 @@ def get_chrome_driver():
 # =============================================================================
 
 def fix_url_bug(url):
-    """URL 버그 수정 함수 (998, 989, 1012, 1005 등)"""
+    """URL 버그 수정 함수"""
     if not url:
         return url
 
@@ -357,7 +439,7 @@ def extract_meaningful_content(text: str) -> str:
 def get_stove_post_content(post_url: str, driver: webdriver.Chrome, 
                           source: str = "stove_korea_bug", 
                           schedule_type: str = "frequent") -> str:
-    """Phase 2: 스토브 게시글 내용 추출 - 성능 최적화 완료 v4.1"""
+    """Phase 2: 스토브 게시글 내용 추출 - 성능 최적화 완료"""
 
     # 캐시 확인
     cache = load_content_cache()
@@ -486,19 +568,18 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome,
     return content_summary
 
 # =============================================================================
-# Phase 2: Stove 게시판 크롤링 함수 - Master 지적사항 반영
+# Phase 2: Stove 게시판 크롤링 함수 - 🚀 중복 체크 로직 개선
 # =============================================================================
 
 def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False, 
                      schedule_type: str = "frequent", region: str = "korea") -> List[Dict]:
-    """Phase 2: 스토브 게시판 크롤링 - Master 지적사항 완전 반영"""
+    """Stove 게시판 크롤링 - 🚀 중복 체크 로직 개선 적용"""
 
     posts = []
     link_data = load_crawled_links()
-    crawled_links = link_data["links"]
 
     print(f"[INFO] {source} 크롤링 시작 - URL: {board_url}")
-    print(f"[DEBUG] 기존 링크 수: {len(crawled_links)}, Force Crawl: {force_crawl}")
+    print(f"[DEBUG] 기존 링크 수: {len(link_data['links'])}, Force Crawl: {force_crawl}")
 
     driver = None
     try:
@@ -671,7 +752,7 @@ def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False,
 
         print(f"[DEBUG] Phase 2 JavaScript로 {len(user_posts)}개 게시글 발견")
 
-        # 각 게시글 처리
+        # 각 게시글 처리 - 🚀 중복 체크 로직 개선 적용
         for i, post_info in enumerate(user_posts, 1):
             try:
                 href = post_info['href']
@@ -685,9 +766,9 @@ def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False,
                 print(f"[DEBUG] 게시글 {i}/{len(user_posts)}: {title[:40]}...")
                 print(f"[DEBUG] URL: {href}")
 
-                # 중복 확인 (force_crawl이 False인 경우)
-                if not force_crawl and href in crawled_links:
-                    print(f"[SKIP] 이미 크롤링된 링크: {post_id}")
+                # 🚀 핵심 수정: 시간 기반 중복 확인 (24시간 내 처리된 경우만 SKIP)
+                if not force_crawl and is_recently_processed(href, link_data["links"]):
+                    print(f"[SKIP] 24시간 내 처리된 링크: {post_id}")
                     continue
 
                 # 제목 길이 검증
@@ -716,13 +797,13 @@ def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False,
                 }
 
                 posts.append(post_data)
-                crawled_links.append(href)
+                # 🚀 핵심 수정: 여기서는 링크를 추가하지 않음 (알림 성공 후에만 추가)
 
-                print(f"[SUCCESS] 새 게시글 추가 ({i}): {title[:30]}...")
+                print(f"[SUCCESS] 새 게시글 수집 ({i}): {title[:30]}...")
                 print(f"[CONTENT] {content[:80]}...")
 
                 # 크롤링 간 대기 (Rate Limiting)
-                time.sleep(random.uniform(1, 3))  # Phase 2: 대기시간 단축
+                time.sleep(random.uniform(1, 3))
 
             except Exception as e:
                 print(f"[ERROR] 게시글 {i} 처리 중 오류: {e}")
@@ -739,10 +820,7 @@ def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False,
             except:
                 pass
 
-    # 링크 데이터 저장
-    link_data["links"] = crawled_links
-    save_crawled_links(link_data)
-
+    # 🚀 핵심 수정: 링크 데이터는 여기서 저장하지 않음 (알림 성공 후에만 저장)
     return posts
 
 # =============================================================================
@@ -775,15 +853,14 @@ def crawl_reddit_epic7(force_crawl: bool = False, limit: int = 10) -> List[Dict]
         submissions = subreddit.new(limit=limit)
 
         link_data = load_crawled_links()
-        crawled_links = link_data["links"]
 
         for submission in submissions:
             try:
                 # Reddit URL 생성
                 reddit_url = f"https://www.reddit.com{submission.permalink}"
 
-                # 중복 확인
-                if not force_crawl and reddit_url in crawled_links:
+                # 🚀 시간 기반 중복 확인
+                if not force_crawl and is_recently_processed(reddit_url, link_data["links"]):
                     continue
 
                 # 제목 검증
@@ -827,17 +904,13 @@ def crawl_reddit_epic7(force_crawl: bool = False, limit: int = 10) -> List[Dict]
                 }
 
                 posts.append(post_data)
-                crawled_links.append(reddit_url)
+                # 🚀 여기서도 링크를 추가하지 않음 (알림 성공 후에만 추가)
 
                 print(f"[SUCCESS] Reddit 게시글 추가: {submission.title[:50]}...")
 
             except Exception as e:
                 print(f"[ERROR] Reddit 게시글 처리 실패: {e}")
                 continue
-
-        # 링크 데이터 저장
-        link_data["links"] = crawled_links
-        save_crawled_links(link_data)
 
         print(f"[INFO] Phase 3: Reddit 크롤링 완료 - {len(posts)}개 새 게시글")
 
@@ -1001,18 +1074,34 @@ def crawl_by_schedule(schedule_type: str, force_crawl: bool = False) -> List[Dic
 def get_all_posts_for_report() -> List[Dict]:
     """리포트용 - 모든 사이트 크롤링 (호환성 유지)"""
     print("[INFO] === 리포트용 전체 크롤링 시작 ===")
-    return crawl_frequent_sites(force_crawl=True)
+    
+    # 기본적으로 frequent 모드로 실행
+    return crawl_frequent_sites(force_crawl=False)
 
 # =============================================================================
-# 메인 실행부
+# 모듈 테스트 함수
 # =============================================================================
 
 if __name__ == "__main__":
-    print("Epic7 크롤러 v4.1 - 안정성 강화 완성본")
-    print("직접 실행: 15분 주기 테스트 크롤링")
+    import argparse
     
-    try:
-        test_posts = crawl_frequent_sites(force_crawl=True)
-        print(f"테스트 완료: {len(test_posts)}개 게시글")
-    except Exception as e:
-        print(f"테스트 실행 실패: {e}")
+    parser = argparse.ArgumentParser(description="Epic7 크롤러 v4.2 - 중복 로직 개선")
+    parser.add_argument('--test', choices=['frequent', 'regular', 'reddit'], help='테스트 모드')
+    parser.add_argument('--force-crawl', action='store_true', help='강제 크롤링')
+    
+    args = parser.parse_args()
+    
+    if args.test:
+        if args.test == 'frequent':
+            posts = crawl_frequent_sites(args.force_crawl)
+        elif args.test == 'regular':
+            posts = crawl_regular_sites(args.force_crawl)
+        elif args.test == 'reddit':
+            posts = crawl_reddit_epic7(args.force_crawl)
+        
+        print(f"\n=== 테스트 결과 ===")
+        print(f"크롤링된 게시글 수: {len(posts)}")
+        for i, post in enumerate(posts[:3], 1):
+            print(f"{i}. {post['title'][:50]}... (출처: {post['source']})")
+    else:
+        print("사용법: python crawler.py --test [frequent|regular|reddit] [--force-crawl]")
