@@ -1,11 +1,9 @@
-name: 🎮 Epic Seven Bug Monitor
+name: 🎮 Epic Seven Bug Monitor v5.0
 
 on:
   schedule:
-    # 15분 주기: 전체 크롤링 + 버그 즉시 알림 + 감성 저장
-    - cron: "*/15 * * * *"
-    # 30분 주기: 누적된 감성 데이터 알림
-    - cron: "*/30 * * * *"
+    # 🚀 v5.0 신규: 30분 통합 스케줄 (매시 30분)
+    - cron: "30 * * * *"  # 매시 30분에 실행 (실시간 처리 시스템)
 
   workflow_dispatch:
     inputs:
@@ -19,17 +17,27 @@ on:
         required: false
         default: 'false'
         type: boolean
+      execution_timeout:
+        description: '⏱️ Execution timeout in minutes'
+        required: false
+        default: '45'
+        type: choice
+        options:
+          - '30'
+          - '45'
+          - '60'
 
 env:
   TZ: Asia/Seoul
   PYTHONUNBUFFERED: 1
+  EXECUTION_LOCK_FILE: "epic7_monitor_running.lock"
 
 jobs:
-  # 통합 모니터링 Job
-  unified-monitor:
-    name: 🎮 Epic Seven Unified Monitor
+  # 🚀 v5.0 신규: 통합 모니터링 Job (30분 스케줄)
+  unified-monitor-v5:
+    name: 🎮 Epic Seven Unified Monitor v5.0
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: ${{ fromJSON(github.event.inputs.execution_timeout || '45') }}
 
     steps:
       - name: 📥 Checkout Repository
@@ -37,84 +45,100 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: 🔒 Check Execution Status
+        id: status_check
+        run: |
+          echo "🔍 실행 상태 체크 시작..."
+          
+          # 실행 중인지 확인
+          if [ -f "$EXECUTION_LOCK_FILE" ]; then
+            lock_time=$(cat $EXECUTION_LOCK_FILE)
+            current_time=$(date +%s)
+            time_diff=$((current_time - lock_time))
+            
+            # 2시간(7200초) 이상 지났으면 오래된 락 파일로 간주
+            if [ $time_diff -gt 7200 ]; then
+              echo "⚠️ 오래된 락 파일 발견 ($time_diff초) - 제거 후 계속 진행"
+              rm -f $EXECUTION_LOCK_FILE
+              echo "can_execute=true" >> $GITHUB_OUTPUT
+            else
+              echo "⏸️ 이전 실행이 진행 중입니다 ($time_diff초 경과) - 대기"
+              echo "can_execute=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            echo "✅ 실행 가능 상태"
+            echo "can_execute=true" >> $GITHUB_OUTPUT
+          fi
+          
+          # 실행 락 파일 생성
+          echo $(date +%s) > $EXECUTION_LOCK_FILE
+          echo "🔒 실행 락 파일 생성: $EXECUTION_LOCK_FILE"
+
       - name: 🐍 Setup Python 3.11
+        if: steps.status_check.outputs.can_execute == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: 🔧 Install Chrome & ChromeDriver
+        if: steps.status_check.outputs.can_execute == 'true'
         run: |
-          # Chrome 138+ 호환성을 위한 설치
-          echo "🌐 Installing Chrome and ChromeDriver..."
+          echo "🌐 Installing Chrome and ChromeDriver for v5.0..."
           
-          # Chrome 설치
+          # Chrome 설치 (최신 안정 버전)
           wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
           
-          # ChromeDriver 설치
+          # ChromeDriver 설치 (Chrome 버전과 매칭)
           CHROME_VERSION=$(google-chrome --version | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
-          echo "Chrome version: $CHROME_VERSION"
+          echo "🔍 Chrome version: $CHROME_VERSION"
           
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
-          unzip -q chromedriver-linux64.zip
+          # ChromeDriver 다운로드 및 설치
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip" -O chromedriver.zip
+          unzip -q chromedriver.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           sudo chmod +x /usr/local/bin/chromedriver
           
           # 임시 파일 정리
-          rm -f chromedriver-linux64.zip
-          rm -rf chromedriver-linux64
+          rm -rf chromedriver.zip chromedriver-linux64
           
           # 설치 확인
           echo "✅ Chrome: $(google-chrome --version)"
           echo "✅ ChromeDriver: $(chromedriver --version)"
 
       - name: 📦 Install Python Dependencies
+        if: steps.status_check.outputs.can_execute == 'true'
         run: |
-          echo "📦 Installing Python dependencies..."
+          echo "📦 Installing Python dependencies for v5.0..."
           python -m pip install --upgrade pip
           pip install -r requirements.txt --quiet
           
-          echo "🔍 Package versions:"
-          pip show selenium requests beautifulsoup4 deep-translator
+          echo "🔍 Key package versions:"
+          pip show selenium requests beautifulsoup4 deep-translator | grep -E "Name|Version"
 
-      - name: 🎯 Determine Execution Mode
-        id: mode
-        run: |
-          current_minute=$(date +%M)
-          
-          # 시간 기반 자동 판별 (Master 의도)
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            if [ $(($current_minute % 30)) -eq 0 ] && [ "$current_minute" != "00" ]; then
-              echo "mode=30min" >> $GITHUB_OUTPUT
-              echo "📊 30분 주기: 감성 알림 모드"
-            else
-              echo "mode=15min" >> $GITHUB_OUTPUT
-              echo "🐛 15분 주기: 버그 모니터링 모드"
-            fi
-          else
-            echo "mode=15min" >> $GITHUB_OUTPUT
-            echo "🔧 수동 실행: 기본 15분 모드"
-          fi
-
-      - name: 🚀 Execute Epic Seven Monitor
+      - name: 🚀 Execute Epic Seven Monitor v5.0
+        if: steps.status_check.outputs.can_execute == 'true'
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
           DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
-          # Reddit API 환경변수 추가
+          DISCORD_WEBHOOK_REPORT: ${{ secrets.DISCORD_WEBHOOK_REPORT }}
+          # Reddit API 환경변수
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+          # 실행 옵션
           DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
           FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
         run: |
-          execution_mode="${{ steps.mode.outputs.mode }}"
-          echo "🚀 Starting Epic Seven Monitor in $execution_mode mode..."
+          echo "🚀 Starting Epic Seven Monitor v5.0..."
           echo "⚙️ Debug Mode: $DEBUG_MODE"
-          echo "🔄 Force Crawl: $FORCE_CRAWL"
+          echo "🔄 Force Crawl: $FORCE_CRAWL" 
           echo "⏰ Execution Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🎯 Mode: 30분 통합 스케줄 (즉시 처리 시스템)"
           
           # 실행 플래그 설정
           debug_flag=""
@@ -122,82 +146,100 @@ jobs:
           
           if [ "$DEBUG_MODE" = "true" ]; then
             debug_flag="--debug"
+            echo "🔍 디버그 모드 활성화"
           fi
           
           if [ "$FORCE_CRAWL" = "true" ]; then
             force_flag="--force-crawl"
+            echo "🔄 강제 크롤링 모드 활성화"
           fi
           
-          # 모드별 실행 (일간 리포트 제외)
-          case "$execution_mode" in
-            "15min")
-              echo "🐛 Running 15min: 전체 크롤링 + 버그 알림 + 감성 저장"
-              python monitor_bugs.py --schedule 15min $debug_flag $force_flag
-              ;;
-            "30min") 
-              echo "📊 Running 30min: 누적 감성 데이터 알림"
-              python monitor_bugs.py --schedule 30min $debug_flag $force_flag
-              ;;
-            *)
-              echo "🔧 Unknown mode, defaulting to 15min"
-              python monitor_bugs.py --schedule 15min $debug_flag $force_flag
-              ;;
-          esac
+          # 🚀 v5.0 신규: 30분 통합 모드 실행
+          echo "🎮 Running v5.0: 게시글별 즉시 처리 (크롤링→감성분석→알림→저장)"
+          python monitor_bugs.py --schedule 30min $debug_flag $force_flag
+          
+          echo "✅ Epic Seven Monitor v5.0 실행 완료"
 
-      - name: 📊 Execution Summary
+      - name: 📊 Execution Summary v5.0
+        if: always() && steps.status_check.outputs.can_execute == 'true'
         run: |
-          execution_mode="${{ steps.mode.outputs.mode }}"
-          echo "📊 Epic Seven Monitor Summary ($execution_mode):"
+          echo "📊 Epic Seven Monitor v5.0 Summary:"
           echo "⏰ Completed at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "🖥️ System Info:"
+          echo "🎯 Mode: 30분 통합 스케줄 (즉시 처리)"
+          echo "🖥️ System Resources:"
           echo "   Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
           echo "   Disk: $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')"
+          echo "   CPU Load: $(uptime | awk -F'load average:' '{ print $2 }')"
 
-      - name: 🔄 Commit Changes
-        if: success()
+      - name: 🔄 Commit Changes v5.0
+        if: success() && steps.status_check.outputs.can_execute == 'true'
         run: |
-          echo "🔄 Committing changes..."
+          echo "🔄 Committing changes from v5.0 execution..."
           git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.name "GitHub Action Epic Seven v5.0"
           
+          # 변경사항 확인 및 커밋
           if [[ -n $(git status --porcelain) ]]; then
-            execution_mode="${{ steps.mode.outputs.mode }}"
             echo "📝 Changes detected, committing..."
             git add *.json *.html *.log 2>/dev/null || true
             
-            case "$execution_mode" in
-              "15min") commit_msg="🐛 Bug Monitor: $(date '+%Y-%m-%d %H:%M:%S')" ;;
-              "30min") commit_msg="📊 Sentiment Analysis: $(date '+%Y-%m-%d %H:%M:%S')" ;;
-              *) commit_msg="🎮 Epic7 Monitor: $(date '+%Y-%m-%d %H:%M:%S')" ;;
-            esac
-            
+            commit_msg="🎮 Epic7 Monitor v5.0: $(date '+%Y-%m-%d %H:%M:%S') [30분 통합]"
             git commit -m "$commit_msg" || true
             git push || echo "⚠️ Push failed - continuing..."
+            echo "✅ Changes committed successfully"
           else
             echo "✅ No changes to commit"
           fi
 
-  # 실패시 알림
-  failure-notification:
-    name: 🚨 Failure Notification
+      - name: 🔓 Release Execution Lock
+        if: always() && steps.status_check.outputs.can_execute == 'true'
+        run: |
+          echo "🔓 실행 락 해제..."
+          rm -f $EXECUTION_LOCK_FILE
+          echo "✅ 실행 락 파일 제거 완료"
+
+      - name: ⏸️ Execution Skipped
+        if: steps.status_check.outputs.can_execute == 'false'
+        run: |
+          echo "⏸️ Epic Seven Monitor v5.0 실행 건너뜀"
+          echo "📝 사유: 이전 실행이 아직 진행 중"
+          echo "⏰ 다음 스케줄: $(date -d '+30 minutes' '+%Y-%m-%d %H:%M:%S %Z')"
+
+  # 🚨 실패 시 알림 (v5.0 개선)
+  failure-notification-v5:
+    name: 🚨 Failure Notification v5.0
     runs-on: ubuntu-latest
-    needs: [unified-monitor]
+    needs: [unified-monitor-v5]
     if: failure()
 
     steps:
-      - name: 🚨 Send Failure Notification
+      - name: 🔓 Emergency Lock Release
+        run: |
+          echo "🚨 비상 락 파일 정리..."
+          rm -f $EXECUTION_LOCK_FILE || true
+          echo "✅ 비상 락 해제 완료"
+
+      - name: 🚨 Send Enhanced Failure Notification
         env:
           DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         run: |
           if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
-            echo "🚨 Sending failure notification to Discord..."
+            echo "🚨 Sending enhanced failure notification to Discord..."
+            
+            # 실패 원인 분석
+            failure_reason="알 수 없는 오류"
+            if [[ "${{ needs.unified-monitor-v5.result }}" == "cancelled" ]]; then
+              failure_reason="실행 취소됨"
+            elif [[ "${{ needs.unified-monitor-v5.result }}" == "failure" ]]; then
+              failure_reason="실행 중 오류 발생"
+            fi
             
             curl -H "Content-Type: application/json" \
                  -X POST \
                  -d "{
                    \"embeds\": [{
-                     \"title\": \"🚨 Epic7 Monitor 실행 실패\",
-                     \"description\": \"Epic7 모니터링 시스템 실행 중 오류가 발생했습니다.\",
+                     \"title\": \"🚨 Epic7 Monitor v5.0 실행 실패\",
+                     \"description\": \"Epic7 모니터링 시스템 v5.0 실행 중 오류가 발생했습니다.\",
                      \"color\": 15548997,
                      \"fields\": [
                        {
@@ -206,8 +248,28 @@ jobs:
                          \"inline\": true
                        },
                        {
+                         \"name\": \"🚨 실패 원인\",
+                         \"value\": \"$failure_reason\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🎯 버전\",
+                         \"value\": \"v5.0 (30분 통합)\",
+                         \"inline\": true
+                       },
+                       {
                          \"name\": \"🔧 Debug 모드\",
                          \"value\": \"${{ github.event.inputs.debug_mode || 'false' }}\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🔄 Force Crawl\",
+                         \"value\": \"${{ github.event.inputs.force_crawl || 'false' }}\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"⏰ 다음 실행\",
+                         \"value\": \"$(date -d '+30 minutes' '+%H:%M')\",
                          \"inline\": true
                        },
                        {
@@ -216,12 +278,35 @@ jobs:
                          \"inline\": false
                        }
                      ],
+                     \"footer\": {
+                       \"text\": \"Epic7 Monitor v5.0 | 30분 통합 스케줄\"
+                     },
                      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"
                    }]
                  }" \
                  "$DISCORD_WEBHOOK_BUG"
             
-            echo "✅ Failure notification sent"
+            echo "✅ Enhanced failure notification sent"
           else
-            echo "⚠️ Discord webhook not configured"
+            echo "⚠️ Discord webhook not configured for failure notifications"
           fi
+
+  # 📊 실행 통계 수집 (v5.0 신규)
+  execution-stats-v5:
+    name: 📊 Execution Statistics v5.0
+    runs-on: ubuntu-latest
+    needs: [unified-monitor-v5]
+    if: always()
+
+    steps:
+      - name: 📊 Collect Execution Statistics
+        run: |
+          echo "📊 Epic Seven Monitor v5.0 실행 통계:"
+          echo "⏰ 실행 일시: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🎯 스케줄: 30분 통합 (매시 30분)"
+          echo "📈 실행 결과: ${{ needs.unified-monitor-v5.result }}"
+          echo "⏱️ 타임아웃: ${{ github.event.inputs.execution_timeout || '45' }}분"
+          echo "🔧 Debug: ${{ github.event.inputs.debug_mode || 'false' }}"
+          echo "🔄 Force Crawl: ${{ github.event.inputs.force_crawl || 'false' }}"
+          echo "🚀 버전: v5.0 (게시글별 즉시 처리)"
+          echo "⏭️ 다음 실행: $(date -d '+30 minutes' '+%Y-%m-%d %H:%M:%S %Z')"
