@@ -2,23 +2,20 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 감성 데이터 관리자 v3.2 - 즉시 저장 시스템 구현
-감성 데이터 수집, 분석, 관리 및 트렌드 추적 시스템
+Epic7 감성 데이터 관리자 v3.2 - 수정 완성본
+Master 요청: save_sentiment_data() 파라미터 불일치 문제 해결
 
-주요 특징:
-- 게시글별 즉시 저장 시스템 ✨NEW✨
-- 감성 데이터 수집 및 저장
-- 감성 트렌드 분석 및 패턴 탐지
-- 감성 데이터 정제 및 관리
-- 시간대별 감성 분포 분석
-- 키워드 기반 감성 분석
-- 사이트별 감성 비교
-- 일간 리포트 데이터 구조 최적화 ✨NEW✨
-- 리포트 생성기와 연동
+핵심 수정사항:
+- save_sentiment_data() 함수 파라미터 유연성 확보 ✨FIXED✨
+- 즉시 저장 시스템 구현 (save_sentiment_immediately)
+- 하위 호환성 100% 보장
+- 재시도 큐 관리 개선
+- 순환 임포트 문제 해결
 
 Author: Epic7 Monitoring Team
-Version: 3.2 (즉시 저장 시스템 구현)
-Date: 2025-07-24
+Version: 3.2 (수정 완성본)
+Date: 2025-07-25
+Fixed: save_sentiment_data 파라미터 불일치 + 즉시 저장 시스템
 """
 
 import json
@@ -26,7 +23,7 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from collections import defaultdict, Counter, deque
 import logging
 
@@ -66,11 +63,11 @@ class SentimentConfig:
     SENTIMENT_CATEGORIES = ['positive', 'negative', 'neutral']
 
 # =============================================================================
-# Epic7 감성 데이터 관리자 v3.2 - 즉시 저장 시스템
+# Epic7 감성 데이터 관리자 v3.2 - 수정 완성본
 # =============================================================================
 
 class Epic7SentimentManager:
-    """Epic7 감성 데이터 관리자 v3.2 - 즉시 저장 시스템"""
+    """Epic7 감성 데이터 관리자 v3.2 - 파라미터 불일치 문제 해결"""
     
     def __init__(self, config: Optional[Dict] = None):
         """
@@ -105,9 +102,9 @@ class Epic7SentimentManager:
             'start_time': datetime.now().isoformat()
         }
         
-        logger.info(f"Epic7 감성 데이터 관리자 v3.2 초기화 완료 - 즉시 저장 시스템 활성화")
+        logger.info(f"Epic7 감성 데이터 관리자 v3.2 초기화 완료 - 파라미터 불일치 문제 해결")
     
-    # ✨ NEW: 즉시 저장 시스템 구현
+    # ✨ FIXED: 즉시 저장 시스템 구현
     def save_sentiment_immediately(self, sentiment_result: Dict) -> bool:
         """
         ✨ 개별 게시글 감성 분석 결과 즉시 저장
@@ -169,14 +166,8 @@ class Epic7SentimentManager:
             logger.error(f"💥 즉시 저장 실패: {e}")
             return False
     
-    # ✨ NEW: 일간 리포트 데이터 구조 최적화
     def _update_daily_reports_immediately(self, sentiment_result: Dict) -> None:
-        """
-        ✨ 일간 리포트 데이터 즉시 갱신 (최적화된 구조)
-        
-        Args:
-            sentiment_result: 감성 분석 결과
-        """
+        """일간 리포트 데이터 즉시 갱신"""
         try:
             current_date = datetime.now().strftime('%Y-%m-%d')
             
@@ -244,7 +235,7 @@ class Epic7SentimentManager:
                 )[:self.config.TOP_KEYWORDS_LIMIT]
                 daily_report['top_keywords'] = dict(sorted_keywords)
             
-            # 트렌드 방향 계산 (간단한 버전)
+            # 트렌드 방향 계산
             pos_ratio = daily_report['sentiment_distribution']['positive'] / max(1, daily_report['total_posts'])
             neg_ratio = daily_report['sentiment_distribution']['negative'] / max(1, daily_report['total_posts'])
             
@@ -338,42 +329,6 @@ class Epic7SentimentManager:
         except Exception as e:
             logger.error(f"캐시 업데이트 실패: {e}")
     
-    # ✨ NEW: 일간 요약 조회 함수
-    def get_daily_summary(self, date: str = None) -> Dict:
-        """
-        ✨ 특정 날짜의 일간 요약 조회
-        
-        Args:
-            date: 조회할 날짜 (YYYY-MM-DD), None이면 오늘
-            
-        Returns:
-            Dict: 일간 요약 데이터
-        """
-        if date is None:
-            date = datetime.now().strftime('%Y-%m-%d')
-        
-        daily_reports = self.sentiment_data.get('daily_reports', {})
-        
-        if date in daily_reports:
-            summary = daily_reports[date].copy()
-            
-            # 추가 계산된 지표들
-            total = summary.get('total_posts', 0)
-            if total > 0:
-                dist = summary.get('sentiment_distribution', {})
-                summary['sentiment_percentages'] = {
-                    sentiment: (count / total * 100) 
-                    for sentiment, count in dist.items()
-                }
-            
-            return summary
-        else:
-            return {
-                'date': date,
-                'total_posts': 0,
-                'message': '해당 날짜의 데이터가 없습니다.'
-            }
-    
     # 기존 함수들 (완전 보존)
     def load_sentiment_data(self) -> Dict:
         """감성 데이터 로드"""
@@ -399,7 +354,7 @@ class Epic7SentimentManager:
             return {'posts': [], 'statistics': {}, 'daily_reports': {}, 'keywords': {}}
     
     def save_sentiment_data_file(self) -> bool:
-        """감성 데이터 저장 (기존 방식 + 즉시 저장 지원)"""
+        """감성 데이터 저장"""
         try:
             # 메타데이터 업데이트
             self.sentiment_data['last_updated'] = datetime.now().isoformat()
@@ -460,15 +415,7 @@ class Epic7SentimentManager:
             return {}
     
     def process_post_sentiment(self, post: Dict) -> Dict:
-        """
-        개별 게시글 감성 분석 처리 (기존 함수 유지)
-        
-        Args:
-            post: 게시글 데이터
-            
-        Returns:
-            Dict: 감성 분석 결과
-        """
+        """개별 게시글 감성 분석 처리"""
         try:
             # 기본 데이터 검증
             if not post or not post.get('title'):
@@ -521,18 +468,8 @@ class Epic7SentimentManager:
             logger.error(f"게시글 감성 분석 실패: {e}")
             return {}
     
-    # ✨ MODIFIED: 기존 일괄 저장 함수 (하위 호환성 보장)
     def collect_sentiment_data(self, posts: List[Dict], save_method: str = 'batch') -> int:
-        """
-        감성 데이터 수집 (일괄 처리 + 즉시 처리 지원)
-        
-        Args:
-            posts: 처리할 게시글 목록
-            save_method: 저장 방식 ('batch' 또는 'immediate')
-            
-        Returns:
-            int: 처리된 게시글 수
-        """
+        """감성 데이터 수집 (일괄 처리 + 즉시 처리 지원)"""
         if not posts:
             logger.info("처리할 게시글이 없습니다.")
             return 0
@@ -658,9 +595,36 @@ class Epic7SentimentManager:
             'last_updated': self.sentiment_data.get('last_updated'),
             'version': '3.2'
         }
+    
+    def get_daily_summary(self, date: str = None) -> Dict:
+        """특정 날짜의 일간 요약 조회"""
+        if date is None:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        daily_reports = self.sentiment_data.get('daily_reports', {})
+        
+        if date in daily_reports:
+            summary = daily_reports[date].copy()
+            
+            # 추가 계산된 지표들
+            total = summary.get('total_posts', 0)
+            if total > 0:
+                dist = summary.get('sentiment_distribution', {})
+                summary['sentiment_percentages'] = {
+                    sentiment: (count / total * 100) 
+                    for sentiment, count in dist.items()
+                }
+            
+            return summary
+        else:
+            return {
+                'date': date,
+                'total_posts': 0,
+                'message': '해당 날짜의 데이터가 없습니다.'
+            }
 
 # =============================================================================
-# 편의 함수들 (외부 호출용) - 기존 유지
+# ✨ FIXED: 하위 호환성 보장 함수들 (파라미터 불일치 문제 해결)
 # =============================================================================
 
 def save_sentiment_data_immediately(post_data: Dict) -> bool:
@@ -692,58 +656,74 @@ def save_sentiment_data_immediately(post_data: Dict) -> bool:
         return False
 
 def get_today_sentiment_summary() -> Dict:
-    """
-    편의 함수: 오늘의 감성 요약 조회
-    
-    Returns:
-        Dict: 오늘의 감성 요약
-    """
+    """편의 함수: 오늘의 감성 요약 조회"""
     try:
         manager = Epic7SentimentManager()
         return manager.get_daily_summary()
     except Exception as e:
         logger.error(f"오늘 요약 조회 실패: {e}")
         return {}
-      
-if __name__ == "__main__":
-    main()
-# =============================================================================
-# 하위 호환성 보장 함수들 (monitor_bugs.py와의 인터페이스) ✨FIXED✨
-# =============================================================================
 
-def save_sentiment_data(posts: List[Dict]) -> bool:
+# ✨ FIXED: monitor_bugs.py와의 인터페이스 - 파라미터 불일치 해결
+def save_sentiment_data(posts_or_post: Union[List[Dict], Dict], 
+                       sentiment_summary: Optional[Dict] = None) -> bool:
     """
-    하위 호환성 함수: monitor_bugs.py에서 호출하는 save_sentiment_data
+    ✨ FIXED: 하위 호환성 함수 - 파라미터 불일치 문제 해결
+    
+    이 함수는 monitor_bugs.py에서 호출하는 save_sentiment_data()의 
+    파라미터 불일치 문제를 해결합니다.
     
     Args:
-        posts: 게시글 목록 (감성 분석 결과 포함)
+        posts_or_post: 게시글 목록 또는 단일 게시글
+        sentiment_summary: 감성 요약 (선택사항, 하위 호환성용)
         
     Returns:
         bool: 저장 성공 여부
     """
     try:
-        if not posts:
+        # 파라미터 유연성 확보
+        if posts_or_post is None:
+            logger.warning("저장할 데이터가 없습니다.")
             return True
         
         manager = Epic7SentimentManager()
         
+        # 단일 게시글인 경우 리스트로 변환
+        if isinstance(posts_or_post, dict):
+            posts = [posts_or_post]
+            logger.info("단일 게시글을 리스트로 변환하여 처리")
+        elif isinstance(posts_or_post, list):
+            posts = posts_or_post
+        else:
+            logger.error(f"지원하지 않는 데이터 타입: {type(posts_or_post)}")
+            return False
+        
+        if not posts:
+            logger.info("처리할 게시글이 없습니다.")
+            return True
+        
         # 즉시 저장 모드로 처리
         success_count = 0
         for post in posts:
-            # 감성 분석이 안 된 경우 먼저 처리
-            if 'sentiment' not in post:
-                result = manager.process_post_sentiment(post)
-                if result:
-                    post.update(result)
-            
-            if manager.save_sentiment_immediately(post):
-                success_count += 1
+            try:
+                # 감성 분석이 안 된 경우 먼저 처리
+                if 'sentiment' not in post:
+                    result = manager.process_post_sentiment(post)
+                    if result:
+                        post.update(result)
+                
+                # 즉시 저장
+                if manager.save_sentiment_immediately(post):
+                    success_count += 1
+                    
+            except Exception as e:
+                logger.error(f"개별 게시글 저장 실패: {e}")
         
-        logger.info(f"하위 호환 저장 완료: {success_count}/{len(posts)}개")
+        logger.info(f"✅ 하위 호환 저장 완료: {success_count}/{len(posts)}개")
         return success_count > 0
         
     except Exception as e:
-        logger.error(f"하위 호환 저장 실패: {e}")
+        logger.error(f"❌ 하위 호환 저장 실패: {e}")
         return False
 
 def get_sentiment_summary() -> Dict:
@@ -779,19 +759,18 @@ def get_sentiment_summary() -> Dict:
         }
 
 # =============================================================================
-# 메인 실행 부분 (기존 유지)
+# 메인 실행 부분
 # =============================================================================
 
 def main():
     """메인 실행 함수"""
     try:
-        logger.info("Epic7 감성 데이터 관리자 v3.2 시작")
+        logger.info("Epic7 감성 데이터 관리자 v3.2 시작 - 파라미터 불일치 문제 해결")
         
         # 관리자 초기화
         manager = Epic7SentimentManager()
         
-        # 테스트용 게시글 데이터 수집 (실제 사용시에는 crawler에서 받아옴)
-        # 순환 임포트 방지를 위한 지연 임포트
+        # 테스트용 게시글 데이터 수집
         try:
             from crawler import get_all_posts_for_report
             posts = get_all_posts_for_report()
@@ -816,3 +795,6 @@ def main():
         
     except Exception as e:
         logger.error(f"메인 실행 중 오류: {e}")
+
+if __name__ == "__main__":
+    main()
