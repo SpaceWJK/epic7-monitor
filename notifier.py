@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 알림 시스템 v3.4 - 즉시 처리 완성판
+Epic7 통합 알림 시스템 v3.4 - 즉시 처리 완성판 (JSON 오류 수정)
 Discord 알림 메시지 전송 및 포맷팅 시스템
 
 주요 특징:
@@ -13,15 +13,18 @@ Discord 알림 메시지 전송 및 포맷팅 시스템
 - 영어→한국어 자동 번역 기능
 - 🚀 게시글별 즉시 감성 알림 추가 (v3.4)
 - 🚀 일간 리포트용 데이터 저장 기능 추가 (v3.4)
+- 🔧 Discord JSON 오류 수정 (payload 안전화 처리)
 
 Master 요구사항 완벽 구현:
 - 게시글 1개당 즉시 감성 분석 → 즉시 알림
 - 일간 리포트용 감성 데이터 저장
 - 기존 30분 주기 일괄 알림 기능 완전 보존
+- Discord 웹훅 JSON 오류 해결
 
 Author: Epic7 Monitoring Team
-Version: 3.4 (즉시 처리 완성판)
+Version: 3.4 (즉시 처리 완성판 + JSON 오류 수정)
 Date: 2025-07-24
+Fixed: Discord JSON 직렬화 오류 해결
 """
 
 import json
@@ -29,6 +32,7 @@ import os
 import sys
 import time
 import requests
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union
 from config import config
@@ -357,14 +361,103 @@ class Epic7Notifier:
         if not self.webhooks:
             logger.error("유효한 Discord 웹훅이 없습니다!")
     
+    def _sanitize_payload(self, payload: Dict) -> Dict:
+        """
+        🔧 JSON 오류 수정: payload 데이터 안전화 처리
+        Discord API가 처리할 수 없는 문자나 구조를 정제
+        """
+        def clean_string(text):
+            """문자열 안전화 처리"""
+            if not isinstance(text, str):
+                return text
+            
+            # null 문자 제거
+            text = text.replace('\x00', '')
+            
+            # 제어 문자 제거 (탭, 개행 제외)
+            text = re.sub(r'[\x01-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+            
+            # Discord 마크다운에 문제가 될 수 있는 문자 이스케이프
+            text = text.replace('```', '\\`\\`\\`')
+            
+            # 과도한 연속 공백 정리
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            return text
+        
+        def clean_object(obj):
+            """객체 재귀적 안전화 처리"""
+            if isinstance(obj, dict):
+                cleaned = {}
+                for key, value in obj.items():
+                    # null 키 처리
+                    if key is None:
+                        continue
+                    cleaned_key = clean_string(str(key))
+                    cleaned[cleaned_key] = clean_object(value)
+                return cleaned
+            elif isinstance(obj, list):
+                return [clean_object(item) for item in obj if item is not None]
+            elif isinstance(obj, str):
+                return clean_string(obj)
+            elif obj is None:
+                return ""
+            else:
+                return obj
+        
+        try:
+            # payload 전체 안전화
+            sanitized = clean_object(payload)
+            
+            # Discord 임베드 길이 제한 확인
+            if 'embeds' in sanitized:
+                for embed in sanitized['embeds']:
+                    if 'title' in embed and len(embed['title']) > NotificationConfig.MAX_EMBED_TITLE:
+                        embed['title'] = embed['title'][:NotificationConfig.MAX_EMBED_TITLE-3] + "..."
+                    
+                    if 'description' in embed and len(embed['description']) > NotificationConfig.MAX_EMBED_DESCRIPTION:
+                        embed['description'] = embed['description'][:NotificationConfig.MAX_EMBED_DESCRIPTION-3] + "..."
+                    
+                    if 'fields' in embed:
+                        for field in embed['fields']:
+                            if 'name' in field and len(field['name']) > NotificationConfig.MAX_EMBED_FIELD_NAME:
+                                field['name'] = field['name'][:NotificationConfig.MAX_EMBED_FIELD_NAME-3] + "..."
+                            
+                            if 'value' in field and len(field['value']) > NotificationConfig.MAX_EMBED_FIELD_VALUE:
+                                field['value'] = field['value'][:NotificationConfig.MAX_EMBED_FIELD_VALUE-3] + "..."
+            
+            # 전체 메시지 크기 확인 (Discord 한계: 6000자)
+            payload_str = json.dumps(sanitized, ensure_ascii=False)
+            if len(payload_str) > 5500:  # 여유분 둠
+                logger.warning("페이로드 크기가 너무 큼, 간소화 처리")
+                # embeds가 있다면 첫 번째만 유지
+                if 'embeds' in sanitized and len(sanitized['embeds']) > 1:
+                    sanitized['embeds'] = sanitized['embeds'][:1]
+            
+            return sanitized
+            
+        except Exception as e:
+            logger.error(f"payload 안전화 처리 실패: {e}")
+            # 최소한의 안전한 payload 반환
+            return {
+                "content": "Epic7 알림 - 메시지 처리 오류 발생",
+                "embeds": []
+            }
+    
     def _send_discord_message(self, webhook_url: str, payload: Dict) -> bool:
-        """Discord 메시지 전송"""
+        """
+        Discord 메시지 전송 (JSON 오류 수정)
+        🔧 수정: payload 안전화 처리 추가
+        """
         try:
             headers = {'Content-Type': 'application/json'}
             
+            # 🔧 핵심 수정: JSON 직렬화 전 payload 안전화
+            sanitized_payload = self._sanitize_payload(payload)
+            
             response = requests.post(
                 webhook_url,
-                data=json.dumps(payload, ensure_ascii=False),
+                data=json.dumps(sanitized_payload, ensure_ascii=False),
                 headers=headers,
                 timeout=30
             )
@@ -995,17 +1088,17 @@ def reset_notification_stats():
 
 if __name__ == "__main__":
     # 테스트 실행
-    logger.info("Epic7 알림 시스템 v3.4 테스트 시작")
+    logger.info("Epic7 알림 시스템 v3.4 테스트 시작 (JSON 오류 수정)")
     
-    # 테스트 데이터
+    # 테스트 데이터 (문제가 될 수 있는 문자 포함)
     test_post = {
-        'title': 'Test Sentiment Post',
-        'content': 'This is a test post for immediate sentiment notification',
+        'title': '피시 클라이언트 접속이 안 돼요... (특수문자: ★♥♦♣)',
+        'content': 'still no sexflan nerf meanwhile... 테스트\x00내용\n\n\t특수문자```포함',
         'url': 'https://example.com/test',
         'source': 'test_source',
         'classification': {
             'sentiment_analysis': {
-                'sentiment': 'positive',
+                'sentiment': 'negative',
                 'confidence': 0.85
             },
             'category': 'general'
@@ -1014,7 +1107,7 @@ if __name__ == "__main__":
     }
     
     # 즉시 감성 알림 테스트
-    logger.info("🚀 즉시 감성 알림 테스트 시작")
+    logger.info("🚀 즉시 감성 알림 테스트 시작 (JSON 안전화 적용)")
     success = send_sentiment_post_notification(test_post)
     logger.info(f"즉시 감성 알림 테스트 결과: {'성공' if success else '실패'}")
     
@@ -1028,4 +1121,4 @@ if __name__ == "__main__":
     stats = get_notification_stats()
     logger.info(f"📊 현재 알림 통계: {stats}")
     
-    logger.info("Epic7 알림 시스템 v3.4 테스트 완료")
+    logger.info("🔧 Epic7 알림 시스템 v3.4 테스트 완료 (JSON 오류 수정)")
