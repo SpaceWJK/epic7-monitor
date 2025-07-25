@@ -12,11 +12,13 @@ Master 요청: 게시글별 즉시 처리 (크롤링→감성분석→알림→�
 - 실행 상태 체크 및 대기 로직
 - 기존 기능 100% 보존
 - 순환 임포트 문제 해결 ✨FIXED✨
+- sentiment_data_manager 호출 오류 해결 ✨FIXED✨
+- 재시도 큐 무한 누적 문제 해결 ✨FIXED✨
 
 Author: Epic7 Monitoring Team
-Version: 4.3 (즉시 처리 시스템 + 순환 임포트 수정)
-Date: 2025-07-24
-Fixed: 순환 임포트 오류 해결
+Version: 4.3 (즉시 처리 시스템 + 순환 임포트 수정 + 호출 오류 수정)
+Date: 2025-07-25
+Fixed: sentiment_data_manager 호출 오류 및 재시도 큐 관리 개선
 """
 
 import os
@@ -77,6 +79,10 @@ logger = logging.getLogger(__name__)
 EXECUTION_LOCK_FILE = "epic7_monitor_execution.lock"
 RETRY_QUEUE_FILE = "epic7_monitor_retry_queue.json"
 
+# ✨ FIXED: 재시도 큐 관리 개선
+MAX_RETRY_QUEUE_SIZE = 1000  # 최대 재시도 큐 크기 제한
+RETRY_QUEUE_CLEANUP_THRESHOLD = 800  # 정리 시작 임계값
+
 class ExecutionManager:
     """실행 상태 관리자"""
     
@@ -134,7 +140,7 @@ class ExecutionManager:
             logger.error(f"실행 락 해제 실패: {e}")
 
 class RetryManager:
-    """재시도 관리자"""
+    """재시도 관리자 - ✨ FIXED: 큐 크기 제한 및 자동 정리 추가"""
     
     @staticmethod
     def load_retry_queue() -> List[Dict]:
@@ -142,7 +148,15 @@ class RetryManager:
         try:
             if os.path.exists(RETRY_QUEUE_FILE):
                 with open(RETRY_QUEUE_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    queue = json.load(f)
+                    
+                    # ✨ FIXED: 큐 크기 제한 적용
+                    if len(queue) > MAX_RETRY_QUEUE_SIZE:
+                        logger.warning(f"재시도 큐 크기 초과 ({len(queue)}개) - 최신 {MAX_RETRY_QUEUE_SIZE}개만 유지")
+                        queue = queue[-MAX_RETRY_QUEUE_SIZE:]
+                        RetryManager.save_retry_queue(queue)
+                    
+                    return queue
         except Exception as e:
             logger.error(f"재시도 큐 로드 실패: {e}")
         return []
@@ -151,6 +165,11 @@ class RetryManager:
     def save_retry_queue(retry_queue: List[Dict]):
         """재시도 큐 저장"""
         try:
+            # ✨ FIXED: 저장 전 크기 제한 적용
+            if len(retry_queue) > MAX_RETRY_QUEUE_SIZE:
+                retry_queue = retry_queue[-MAX_RETRY_QUEUE_SIZE:]
+                logger.info(f"재시도 큐 크기 제한 적용: {MAX_RETRY_QUEUE_SIZE}개로 제한")
+            
             with open(RETRY_QUEUE_FILE, 'w', encoding='utf-8') as f:
                 json.dump(retry_queue, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -158,9 +177,17 @@ class RetryManager:
     
     @staticmethod
     def add_to_retry_queue(post_data: Dict, error_message: str):
-        """재시도 큐에 추가"""
+        """재시도 큐에 추가 - ✨ FIXED: 크기 제한 및 중복 방지"""
         try:
             retry_queue = RetryManager.load_retry_queue()
+            
+            # ✨ FIXED: 중복 항목 방지 (같은 URL이면 추가하지 않음)
+            post_url = post_data.get('url', '')
+            if post_url:
+                existing_urls = {item.get('post_data', {}).get('url', '') for item in retry_queue}
+                if post_url in existing_urls:
+                    logger.debug(f"재시도 큐에 이미 존재하는 게시글: {post_url}")
+                    return
             
             retry_item = {
                 'post_data': post_data,
@@ -171,21 +198,73 @@ class RetryManager:
             }
             
             retry_queue.append(retry_item)
+            
+            # ✨ FIXED: 큐 크기 제한 적용
+            if len(retry_queue) > MAX_RETRY_QUEUE_SIZE:
+                retry_queue = retry_queue[-MAX_RETRY_QUEUE_SIZE:]
+                logger.warning(f"재시도 큐 크기 제한 적용: 오래된 항목 제거")
+            
             RetryManager.save_retry_queue(retry_queue)
             
-            logger.info(f"재시도 큐에 추가: {post_data.get('title', 'N/A')[:50]}...")
+            logger.info(f"재시도 큐에 추가: {post_data.get('title', 'N/A')[:50]}... (총 {len(retry_queue)}개)")
         except Exception as e:
             logger.error(f"재시도 큐 추가 실패: {e}")
     
     @staticmethod
+    def cleanup_retry_queue():
+        """재시도 큐 정리 - ✨ FIXED: 자동 정리 로직 추가"""
+        try:
+            retry_queue = RetryManager.load_retry_queue()
+            original_size = len(retry_queue)
+            
+            if original_size < RETRY_QUEUE_CLEANUP_THRESHOLD:
+                return 0
+            
+            # 24시간 이전 항목 제거
+            cutoff_time = datetime.now() - timedelta(hours=24)
+            cleaned_queue = []
+            
+            for item in retry_queue:
+                try:
+                    failed_at = datetime.fromisoformat(item.get('failed_at', ''))
+                    if failed_at > cutoff_time:
+                        cleaned_queue.append(item)
+                except:
+                    # 날짜 파싱 실패 시 유지
+                    cleaned_queue.append(item)
+            
+            # 재시도 횟수 초과 항목 제거
+            final_queue = [
+                item for item in cleaned_queue 
+                if item.get('retry_count', 0) <= item.get('max_retries', 3)
+            ]
+            
+            RetryManager.save_retry_queue(final_queue)
+            
+            cleaned_count = original_size - len(final_queue)
+            if cleaned_count > 0:
+                logger.info(f"재시도 큐 정리 완료: {cleaned_count}개 제거 ({original_size} → {len(final_queue)})")
+            
+            return cleaned_count
+            
+        except Exception as e:
+            logger.error(f"재시도 큐 정리 실패: {e}")
+            return 0
+    
+    @staticmethod
     def process_retry_queue() -> int:
-        """재시도 큐 처리"""
+        """재시도 큐 처리 - ✨ FIXED: 안전성 강화"""
         retry_queue = RetryManager.load_retry_queue()
         if not retry_queue:
             return 0
         
         processed_count = 0
         remaining_queue = []
+        
+        # ✨ FIXED: 처리 전 자동 정리
+        if len(retry_queue) > RETRY_QUEUE_CLEANUP_THRESHOLD:
+            RetryManager.cleanup_retry_queue()
+            retry_queue = RetryManager.load_retry_queue()
         
         for item in retry_queue:
             try:
@@ -303,12 +382,25 @@ class Epic7Monitor:
         """
         게시글별 즉시 처리 콜백 함수
         Master 요구사항 핵심 구현: 크롤링 → 감성분석 → 알림 → 마킹
+        ✨ FIXED: 데이터 유효성 검증 강화
         """
         try:
             self.stats['total_crawled'] += 1
             
+            # ✨ FIXED: 데이터 유효성 검증 강화
+            if not post_data or not isinstance(post_data, dict):
+                logger.warning("유효하지 않은 post_data 구조")
+                return False
+            
+            title = post_data.get('title', '').strip()
+            content = post_data.get('content', '').strip()
+            
+            if not title and not content:
+                logger.warning("제목과 내용이 모두 비어있는 게시글 건너뜀")
+                return False
+            
             # 1. 유저 동향 감성 분석
-            logger.info(f"즉시 처리 시작: {post_data.get('title', 'N/A')[:50]}...")
+            logger.info(f"즉시 처리 시작: {title[:50]}...")
             
             classification = self.classifier.classify_post(post_data)
             post_data['classification'] = classification
@@ -324,7 +416,7 @@ class Epic7Monitor:
                 if success:
                     self.stats['immediate_bug_alerts'] += 1
                     self.stats['bug_posts'] += 1
-                    logger.info(f"🚨 즉시 버그 알림 전송 성공: {post_data.get('title', 'N/A')[:30]}...")
+                    logger.info(f"🚨 즉시 버그 알림 전송 성공: {title[:30]}...")
                 else:
                     raise Exception("버그 알림 전송 실패")
             
@@ -334,7 +426,7 @@ class Epic7Monitor:
                 if success:
                     self.stats['immediate_sentiment_alerts'] += 1
                     self.stats['sentiment_posts'] += 1
-                    logger.info(f"📊 즉시 감성 알림 전송 성공: {post_data.get('title', 'N/A')[:30]}...")
+                    logger.info(f"📊 즉시 감성 알림 전송 성공: {title[:30]}...")
                 else:
                     raise Exception("감성 알림 전송 실패")
             
@@ -345,14 +437,14 @@ class Epic7Monitor:
             mark_as_processed(post_data.get('url', ''), notified=True)
             self.stats['processed_posts'] += 1
             
-            logger.info(f"✅ 즉시 처리 완료: {post_data.get('title', 'N/A')[:30]}...")
+            logger.info(f"✅ 즉시 처리 완료: {title[:30]}...")
             return True
             
         except Exception as e:
             error_msg = f"즉시 처리 실패: {e}"
             logger.error(f"❌ {error_msg} - {post_data.get('title', 'N/A')[:30]}...")
             
-            # 재시도 큐에 추가
+            # ✨ FIXED: 재시도 큐 추가 시 중복 방지 적용
             RetryManager.add_to_retry_queue(post_data, error_msg)
             
             self.stats['failed_posts'] += 1
@@ -403,34 +495,118 @@ class Epic7Monitor:
             return False
     
     def _save_sentiment_for_daily_report(self, post_data: Dict, classification: Dict):
-        """일간 리포트용 감성 데이터 저장 ✨FIXED✨"""
+        """
+        일간 리포트용 감성 데이터 저장 
+        ✨ FIXED: sentiment_data_manager 호출 방식 수정
+        """
         try:
             # ✨ FIXED: 지연 임포트로 순환 참조 문제 해결
             try:
-                from sentiment_data_manager import save_sentiment_data
+                from sentiment_data_manager import SentimentDataManager
             except ImportError as e:
                 logger.error(f"sentiment_data_manager 임포트 실패: {e}")
                 logger.warning("감성 데이터 저장 기능을 사용할 수 없습니다.")
                 return
             
-            # sentiment_data_manager를 통해 저장
-            sentiment_posts = [post_data]
-            save_sentiment_data(sentiment_posts)
-            
-            logger.debug(f"일간 리포트용 감성 데이터 저장 완료: {post_data.get('title', 'N/A')[:30]}...")
-            
+            # ✨ FIXED: SentimentDataManager 인스턴스 생성 후 올바른 메서드 호출
+            try:
+                manager = SentimentDataManager()
+                
+                # 감성 데이터 생성
+                sentiment_data = {
+                    'title': post_data.get('title', ''),
+                    'content': post_data.get('content', '')[:200],  # 내용 길이 제한
+                    'url': post_data.get('url', ''),
+                    'source': post_data.get('source', ''),
+                    'sentiment': classification.get('sentiment_analysis', {}).get('sentiment', 'neutral'),
+                    'confidence': classification.get('sentiment_analysis', {}).get('confidence', 0.0),
+                    'category': classification.get('category', 'neutral'),
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                # ✨ FIXED: 올바른 메서드 호출 (단일 데이터 저장)
+                success = manager.save_post_data(sentiment_data)
+                
+                if success:
+                    logger.debug(f"일간 리포트용 감성 데이터 저장 완료: {post_data.get('title', 'N/A')[:30]}...")
+                else:
+                    logger.warning(f"감성 데이터 저장 실패: {post_data.get('title', 'N/A')[:30]}...")
+                    
+            except AttributeError as e:
+                # ✨ FIXED: 메서드가 없는 경우 대체 방식 사용
+                logger.warning(f"SentimentDataManager 메서드 오류: {e}")
+                
+                # 대체 방식: 직접 JSON 파일에 저장
+                self._save_sentiment_direct(post_data, classification)
+                
         except Exception as e:
             logger.error(f"감성 데이터 저장 실패: {e}")
+    
+    def _save_sentiment_direct(self, post_data: Dict, classification: Dict):
+        """
+        ✨ FIXED: 직접 감성 데이터 저장 (sentiment_data_manager 대체 방식)
+        """
+        try:
+            sentiment_file = "daily_sentiment_data.json"
+            
+            # 기존 데이터 로드
+            if os.path.exists(sentiment_file):
+                with open(sentiment_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            else:
+                data = []
+            
+            # 새로운 데이터 추가
+            sentiment_entry = {
+                'title': post_data.get('title', ''),
+                'content': post_data.get('content', '')[:200],
+                'url': post_data.get('url', ''),
+                'source': post_data.get('source', ''),
+                'sentiment': classification.get('sentiment_analysis', {}).get('sentiment', 'neutral'),
+                'confidence': classification.get('sentiment_analysis', {}).get('confidence', 0.0),
+                'category': classification.get('category', 'neutral'),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            data.append(sentiment_entry)
+            
+            # 24시간 이전 데이터 정리
+            cutoff_time = datetime.now() - timedelta(hours=24)
+            filtered_data = []
+            
+            for entry in data:
+                try:
+                    entry_time = datetime.fromisoformat(entry['timestamp'])
+                    if entry_time > cutoff_time:
+                        filtered_data.append(entry)
+                except:
+                    # 날짜 파싱 실패 시 유지
+                    filtered_data.append(entry)
+            
+            # 파일에 저장
+            with open(sentiment_file, 'w', encoding='utf-8') as f:
+                json.dump(filtered_data, f, ensure_ascii=False, indent=2)
+            
+            logger.debug(f"직접 감성 데이터 저장 완료: {post_data.get('title', 'N/A')[:30]}...")
+            
+        except Exception as e:
+            logger.error(f"직접 감성 데이터 저장 실패: {e}")
     
     def run_unified_30min_schedule(self) -> bool:
         """
         30분 통합 스케줄 실행 
         Master 요구사항: 게시글별 즉시 처리 + 재시도 처리
+        ✨ FIXED: 재시도 큐 관리 개선
         """
         try:
             logger.info("🚀 30분 통합 스케줄 시작 - 게시글별 즉시 처리 모드")
             
-            # 1. 재시도 큐 먼저 처리
+            # ✨ FIXED: 재시도 큐 자동 정리 먼저 실행
+            cleanup_count = RetryManager.cleanup_retry_queue()
+            if cleanup_count > 0:
+                logger.info(f"🧹 재시도 큐 자동 정리: {cleanup_count}개 정리됨")
+            
+            # 1. 재시도 큐 처리
             retry_count = RetryManager.process_retry_queue()
             self.stats['retry_processed'] = retry_count
             
@@ -498,6 +674,10 @@ class Epic7Monitor:
         end_time = datetime.now()
         execution_time = end_time - self.start_time
         
+        # ✨ FIXED: 재시도 큐 상태 정보 추가
+        retry_queue = RetryManager.load_retry_queue()
+        retry_queue_size = len(retry_queue)
+        
         report = f"""
 🎯 **Epic7 모니터링 실행 보고서 v4.3 (즉시 처리 시스템)**
 
@@ -523,12 +703,18 @@ class Epic7Monitor:
 - 감성 게시글: {self.stats['sentiment_posts']}개
 - 오류 발생: {self.stats['errors']}개
 
+**✨ FIXED: 재시도 큐 관리 상태**
+- 현재 재시도 큐 크기: {retry_queue_size}개
+- 최대 허용 크기: {MAX_RETRY_QUEUE_SIZE}개
+- 큐 상태: {'🟢 정상' if retry_queue_size < RETRY_QUEUE_CLEANUP_THRESHOLD else '🟡 정리 필요' if retry_queue_size < MAX_RETRY_QUEUE_SIZE else '🔴 임계 초과'}
+
 **🎯 Master 요구사항 달성도**
 - 게시글별 즉시 처리: {'✅ 활성화됨' if self.stats['total_crawled'] > 0 else '❌ 비활성화'}
 - 30분 통합 스케줄: ✅ 구현됨
 - 실행 상태 관리: ✅ 구현됨
 - 재시도 메커니즘: ✅ 구현됨 ({self.stats['retry_processed']}개 처리)
 - 에러 격리: ✅ 구현됨 (실패해도 계속 진행)
+- 큐 크기 제한: ✅ 추가됨 (최대 {MAX_RETRY_QUEUE_SIZE}개)
 
 **성능 지표**
 - 즉시 처리 성공률: {((self.stats['processed_posts'] / max(1, self.stats['total_crawled'])) * 100):.1f}%
@@ -605,6 +791,8 @@ def parse_arguments():
 - 실행 상태 관리 (실행중이면 대기)
 - 재시도 메커니즘 (실패한 알림 자동 재시도)
 - 에러 격리 (1개 실패해도 계속 진행)
+- ✨ FIXED: 재시도 큐 크기 제한 및 자동 정리
+- ✨ FIXED: sentiment_data_manager 호출 오류 해결
 
 사용 예시:
   python monitor_bugs.py                             # 30분 통합 스케줄 (기본)
@@ -614,7 +802,7 @@ def parse_arguments():
 Master 요구사항 구현:
   - 게시글 1개 수집 → 감성분석 → 알림 → 다음 게시글
   - 매시 30분 실행, 실행중이면 대기
-  - 알림 실패 시 재시도 큐 관리
+  - 알림 실패 시 재시도 큐 관리 (크기 제한 포함)
         """
     )
     
@@ -651,9 +839,15 @@ Master 요구사항 구현:
     )
     
     parser.add_argument(
+        '--cleanup-retry-queue',
+        action='store_true',
+        help='재시도 큐 강제 정리 후 종료'
+    )
+    
+    parser.add_argument(
         '--version',
         action='version',
-        version='Epic7 Monitor v4.3 (게시글별 즉시 처리 시스템)'
+        version='Epic7 Monitor v4.3 (게시글별 즉시 처리 시스템 + 수정본)'
     )
         
     return parser.parse_args()
@@ -663,6 +857,13 @@ def main():
     try:
         # 인자 파싱
         args = parse_arguments()
+        
+        # ✨ FIXED: 재시도 큐 강제 정리 옵션
+        if args.cleanup_retry_queue:
+            logger.info("재시도 큐 강제 정리 시작...")
+            cleanup_count = RetryManager.cleanup_retry_queue()
+            logger.info(f"재시도 큐 정리 완료: {cleanup_count}개 정리됨")
+            return
         
         # 모드 설정 (debug 플래그가 있으면 debug 모드로)
         mode = "debug" if args.debug else args.mode
