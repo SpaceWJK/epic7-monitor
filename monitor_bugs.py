@@ -525,7 +525,7 @@ class Epic7Monitor:
                 }
                 
                 # ✨ FIXED: 올바른 메서드 호출 (단일 데이터 저장)
-                success = manager.save_post_data(sentiment_data)
+                success = save_sentiment_data([sentiment_data])
                 
                 if success:
                     logger.debug(f"일간 리포트용 감성 데이터 저장 완료: {post_data.get('title', 'N/A')[:30]}...")
