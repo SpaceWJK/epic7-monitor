@@ -502,7 +502,7 @@ class Epic7Monitor:
         try:
             # ✨ FIXED: 지연 임포트로 순환 참조 문제 해결
             try:
-                from sentiment_data_manager import SentimentDataManager
+                from sentiment_data_manager import Epic7SentimentManager
             except ImportError as e:
                 logger.error(f"sentiment_data_manager 임포트 실패: {e}")
                 logger.warning("감성 데이터 저장 기능을 사용할 수 없습니다.")
@@ -510,7 +510,7 @@ class Epic7Monitor:
             
             # ✨ FIXED: SentimentDataManager 인스턴스 생성 후 올바른 메서드 호출
             try:
-                manager = SentimentDataManager()
+                manager = Epic7SentimentManager()
                 
                 # 감성 데이터 생성
                 sentiment_data = {
