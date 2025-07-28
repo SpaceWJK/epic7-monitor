@@ -1,0 +1,208 @@
+name: 🇰🇷 Epic7 Korea Sites Monitor v6.0
+
+on:
+  schedule:
+    # 15분마다 한국 사이트 모니터링
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: '🔍 Enable debug mode'
+        required: false
+        default: 'false'
+        type: boolean
+      force_crawl:
+        description: '🔄 Force crawl (ignore cache)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  TZ: Asia/Seoul
+  PYTHONUNBUFFERED: 1
+  EXECUTION_LOCK_FILE: "korea_monitor_running.lock"
+
+jobs:
+  korea-sites-monitor:
+    name: 🇰🇷 한국 사이트 모니터링
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 🔒 Check Execution Status
+        id: status_check
+        run: |
+          echo "🔍 한국 모니터 실행 상태 체크..."
+          
+          if [ -f "$EXECUTION_LOCK_FILE" ]; then
+            lock_time=$(cat $EXECUTION_LOCK_FILE)
+            current_time=$(date +%s)
+            time_diff=$((current_time - lock_time))
+            
+            if [ $time_diff -gt 1800 ]; then  # 30분 초과시 락 해제
+              echo "⚠️ 오래된 락 파일 제거 ($time_diff초)"
+              rm -f $EXECUTION_LOCK_FILE
+              echo "can_execute=true" >> $GITHUB_OUTPUT
+            else
+              echo "⏸️ 이전 실행 진행 중 ($time_diff초)"
+              echo "can_execute=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            echo "✅ 실행 가능"
+            echo "can_execute=true" >> $GITHUB_OUTPUT
+          fi
+          
+          echo $(date +%s) > $EXECUTION_LOCK_FILE
+
+      - name: 🐍 Setup Python 3.11
+        if: steps.status_check.outputs.can_execute == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 🌐 Install Chrome & ChromeDriver
+        if: steps.status_check.outputs.can_execute == 'true'
+        run: |
+          echo "🌐 Chrome 및 ChromeDriver 설치..."
+          
+          # Chrome 설치
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
+          
+          # ChromeDriver 설치 (다단계 폴백)
+          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
+          
+          case $CHROME_MAJOR_VERSION in
+            "138"|"139"|"140")
+              CHROMEDRIVER_VERSION="138.0.6993.88"
+              ;;
+            "137")
+              CHROMEDRIVER_VERSION="137.0.6916.107"
+              ;;
+            *)
+              CHROMEDRIVER_VERSION="138.0.6993.88"
+              ;;
+          esac
+          
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip" -O chromedriver.zip
+          unzip -q chromedriver.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+          rm -rf chromedriver.zip chromedriver-linux64/
+          
+          echo "✅ Chrome: $(google-chrome --version)"
+          echo "✅ ChromeDriver: $(chromedriver --version)"
+
+      - name: 📦 Install Dependencies
+        if: steps.status_check.outputs.can_execute == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🇰🇷 Execute Korea Sites Monitoring
+        if: steps.status_check.outputs.can_execute == 'true'
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+          DISCORD_WEBHOOK_SENTIMENT: ${{ secrets.DISCORD_WEBHOOK_SENTIMENT }}
+          DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+          FORCE_CRAWL: ${{ github.event.inputs.force_crawl || 'false' }}
+        run: |
+          echo "🇰🇷 한국 사이트 모니터링 시작..."
+          echo "⏰ 실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🎯 대상: STOVE 한국, 루리웹"
+          
+          # 플래그 설정
+          debug_flag=""
+          force_flag=""
+          
+          if [ "$DEBUG_MODE" = "true" ]; then
+            debug_flag="--debug"
+          fi
+          
+          if [ "$FORCE_CRAWL" = "true" ]; then
+            force_flag="--force-crawl"
+          fi
+          
+          # 한국 사이트 모니터링 실행
+          python monitor_bugs.py --schedule 15min --mode korea $debug_flag $force_flag
+          
+          echo "✅ 한국 사이트 모니터링 완료"
+
+      - name: 📊 Execution Summary
+        if: always() && steps.status_check.outputs.can_execute == 'true'
+        run: |
+          echo "📊 한국 모니터 실행 요약:"
+          echo "⏰ 완료 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "🎯 모드: 한국 사이트 전담 (15분 주기)"
+          echo "🖥️ 시스템 리소스:"
+          echo "   메모리: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+          echo "   디스크: $(df -h . | tail -1 | awk '{print $5}' | tr -d %')% 사용"
+
+      - name: 🔄 Commit Changes
+        if: success() && steps.status_check.outputs.can_execute == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "Epic7 Korea Monitor v6.0"
+          
+          if [[ -n $(git status --porcelain) ]]; then
+            git add *.json *.html *.log 2>/dev/null || true
+            git commit -m "🇰🇷 Korea Monitor v6.0: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git push || echo "⚠️ Push failed - continuing..."
+            echo "✅ 변경사항 커밋 완료"
+          fi
+
+      - name: 🔓 Release Lock
+        if: always() && steps.status_check.outputs.can_execute == 'true'
+        run: |
+          rm -f $EXECUTION_LOCK_FILE
+          echo "✅ 실행 락 해제 완료"
+
+  # 실패 시 알림
+  failure-notification:
+    name: 🚨 한국 모니터 실패 알림
+    runs-on: ubuntu-latest
+    needs: [korea-sites-monitor]
+    if: failure()
+
+    steps:
+      - name: 🚨 Send Failure Notification
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
+        run: |
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            curl -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "{
+                   \"embeds\": [{
+                     \"title\": \"🚨 한국 사이트 모니터링 실패\",
+                     \"description\": \"Epic7 한국 모니터링 시스템 실행 중 오류 발생\",
+                     \"color\": 15548997,
+                     \"fields\": [
+                       {
+                         \"name\": \"⏰ 실패 시간\",
+                         \"value\": \"$(date '+%Y-%m-%d %H:%M:%S %Z')\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🎯 대상\",
+                         \"value\": \"한국 사이트 (STOVE, 루리웹)\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"⏰ 다음 실행\",
+                         \"value\": \"$(date -d '+15 minutes' '+%H:%M')\",
+                         \"inline\": true
+                       }
+                     ]
+                   }]
+                 }" \
+                "$DISCORD_WEBHOOK_BUG"
+          fi

@@ -1,4 +1,4 @@
-name: 📊 Epic7 Daily Report (Optimized v3.1)
+name: 📊 Epic7 Daily Report (Optimized v3.2)
 
 on:
   schedule:
@@ -35,7 +35,7 @@ env:
 
 jobs:
   daily-report-optimized:
-    name: 📈 Generate Daily Report (Optimized)
+    name: 📈 Generate Daily Report (Optimized v3.2)
     runs-on: ubuntu-latest
     timeout-minutes: 15  # 기존 30분 → 15분으로 단축
     
@@ -52,113 +52,159 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 📦 Install Minimal Dependencies
+      - name: 🌐 Install Chrome and ChromeDriver (Chrome 138 호환)
         run: |
-          echo "📦 Installing minimal dependencies for report generation..."
-          pip install --upgrade pip --quiet
-          # 리포트 생성에 필요한 최소 패키지만 설치
-          pip install requests python-dateutil --quiet
-          echo "✅ Dependencies installed successfully"
-
-      - name: 🔍 Validate Data Sources
-        run: |
-          echo "🔍 Validating existing data sources..."
+          echo "=== Chrome 및 ChromeDriver 설치 (Chrome 138 호환) ==="
           
-          # bug_monitor.yml에서 생성된 데이터 파일 확인
-          DATA_FOUND=false
+          # Chrome 설치
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
           
-          if [ -f "sentiment_data.json" ]; then
-            echo "✅ Found sentiment_data.json"
-            DATA_FOUND=true
-          fi
+          # Chrome 버전 확인
+          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
+          echo "✅ Chrome 버전: $CHROME_VERSION (Major: $CHROME_MAJOR_VERSION)"
           
-          if [ -f "crawled_links.json" ]; then
-            echo "✅ Found crawled_links.json"
-            DATA_FOUND=true
-          fi
+          # ChromeDriver 설치 (3단계 폴백 방식)
+          echo "=== ChromeDriver 설치 시작 ==="
+          INSTALL_SUCCESS=false
           
-          if [ -f "monitoring_stats.json" ]; then
-            echo "✅ Found monitoring_stats.json"
-            DATA_FOUND=true
-          fi
-          
-          if [ "$DATA_FOUND" = "false" ]; then
-            echo "⚠️ No data files found. Report will be generated with available system data."
-          fi
-          
-          echo "📊 Data validation completed"
-
-      - name: 📊 Generate Optimized Daily Report
-        run: |
-          echo "📊 Generating optimized daily report..."
-          
-          # 리포트 생성 스크립트 실행 (존재하는 경우)
-          if [ -f "generate_report.py" ]; then
-            echo "🚀 Running generate_report.py..."
-            python generate_report.py \
-              --period $REPORT_PERIOD \
-              --debug $DEBUG_MODE \
-              --force-regenerate $FORCE_REGENERATE
-          else
-            echo "📝 Generating basic report template..."
+          # 방법 1: Chrome for Testing API 사용 (권장)
+          echo "🔄 방법 1: Chrome for Testing API 사용"
+          if curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" | grep -q "chromedriver"; then
+            # 최신 stable 버전 URL 획득
+            CHROMEDRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json" | \
+              python3 -c "import sys, json; data=json.load(sys.stdin); print(data['channels']['Stable']['downloads']['chromedriver'][0]['url'])" 2>/dev/null || echo "")
             
-            # 기본 리포트 템플릿 생성
-            cat > daily_report.md << 'EOF'
-          # 📊 Epic7 Daily Report
-          
-          **생성 시간:** $(date '+%Y-%m-%d %H:%M:%S %Z')
-          **리포트 기간:** $REPORT_PERIOD hours
-          **모드:** $([ "$DEBUG_MODE" = "true" ] && echo "Debug" || echo "Production")
-          
-          ## 📈 시스템 상태
-          
-          ### 📁 데이터 파일 현황
-          $(find . -name "*.json" -type f | wc -l) JSON 파일 발견
-          $(find . -name "*.log" -type f | wc -l) 로그 파일 발견
-          
-          ### 🖥️ 시스템 정보
-          - **운영체제:** $(uname -a)
-          - **Python 버전:** $(python --version)
-          - **메모리 사용량:** $(free -h | grep Mem | awk '{print $3 "/" $2}')
-          - **디스크 사용량:** $(df -h . | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}')
-          
-          ## 📊 데이터 요약
-          
-          ### 감성 데이터
-          $(if [ -f "sentiment_data.json" ]; then
-            echo "✅ 감성 데이터 파일 존재"
-            echo "📝 마지막 업데이트: $(stat -c %y sentiment_data.json)"
-          else
-            echo "⚠️ 감성 데이터 파일 없음"
-          fi)
-          
-          ### 크롤링 데이터
-          $(if [ -f "crawled_links.json" ]; then
-            echo "✅ 크롤링 데이터 파일 존재"
-            echo "📝 마지막 업데이트: $(stat -c %y crawled_links.json)"
-          else
-            echo "⚠️ 크롤링 데이터 파일 없음"
-          fi)
-          
-          ### 모니터링 통계
-          $(if [ -f "monitoring_stats.json" ]; then
-            echo "✅ 모니터링 통계 파일 존재"
-            echo "📝 마지막 업데이트: $(stat -c %y monitoring_stats.json)"
-          else
-            echo "⚠️ 모니터링 통계 파일 없음"
-          fi)
-          
-          ---
-          
-          **생성 완료:** $(date '+%Y-%m-%d %H:%M:%S %Z')
-          EOF
-          
-            # 환경 변수 치환
-            envsubst < daily_report.md > daily_report_final.md
-            mv daily_report_final.md daily_report.md
+            if [ -n "$CHROMEDRIVER_URL" ] && [ "$CHROMEDRIVER_URL" != "null" ]; then
+              echo "🔗 ChromeDriver URL: $CHROMEDRIVER_URL"
+              wget -O /tmp/chromedriver.zip "$CHROMEDRIVER_URL"
+              
+              if [ -f "/tmp/chromedriver.zip" ] && [ -s "/tmp/chromedriver.zip" ]; then
+                sudo unzip -o /tmp/chromedriver.zip -d /tmp/
+                sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver 2>/dev/null || \
+                sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
+                sudo chmod +x /usr/local/bin/chromedriver
+                
+                if chromedriver --version >/dev/null 2>&1; then
+                  echo "✅ 방법 1 성공: ChromeDriver 설치 완료"
+                  INSTALL_SUCCESS=true
+                fi
+              fi
+            fi
           fi
           
-          echo "✅ Daily report generated successfully"
+          # 방법 2: 직접 다운로드 (GitHub Release)
+          if [ "$INSTALL_SUCCESS" != "true" ]; then
+            echo "🔄 방법 2: GitHub Release 직접 다운로드"
+            
+            # Chrome 버전에 맞는 ChromeDriver 버전 찾기
+            case $CHROME_MAJOR_VERSION in
+              "138"|"139"|"140")
+                CHROMEDRIVER_VERSION="138.0.6993.88"
+                ;;
+              "137")
+                CHROMEDRIVER_VERSION="137.0.6916.107"
+                ;;
+              "136")
+                CHROMEDRIVER_VERSION="136.0.6877.63"
+                ;;
+              *)
+                CHROMEDRIVER_VERSION="138.0.6993.88"  # 기본값
+                ;;
+            esac
+            
+            echo "🎯 ChromeDriver 버전: $CHROMEDRIVER_VERSION"
+            
+            # 여러 다운로드 URL 시도
+            DOWNLOAD_URLS=(
+              "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip"
+              "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+              "https://github.com/GoogleChromeLabs/chrome-for-testing/releases/download/$CHROMEDRIVER_VERSION/chromedriver-linux64.zip"
+            )
+            
+            for url in "${DOWNLOAD_URLS[@]}"; do
+              echo "🔗 시도: $url"
+              if wget -q -O /tmp/chromedriver.zip "$url"; then
+                if [ -f "/tmp/chromedriver.zip" ] && [ -s "/tmp/chromedriver.zip" ]; then
+                  sudo unzip -o /tmp/chromedriver.zip -d /tmp/
+                  sudo mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver 2>/dev/null || \
+                  sudo mv /tmp/chromedriver /usr/local/bin/chromedriver
+                  sudo chmod +x /usr/local/bin/chromedriver
+                  
+                  if chromedriver --version >/dev/null 2>&1; then
+                    echo "✅ 방법 2 성공: ChromeDriver 다운로드 완료"
+                    INSTALL_SUCCESS=true
+                    break
+                  fi
+                fi
+              fi
+            done
+          fi
+          
+          # 방법 3: 패키지 매니저 사용 (최후 수단)
+          if [ "$INSTALL_SUCCESS" != "true" ]; then
+            echo "🔄 방법 3: 패키지 매니저 사용"
+            
+            # apt 패키지 시도
+            sudo apt-get update -y
+            sudo apt-get install -y chromium-chromedriver 2>/dev/null || true
+            
+            if [ -f "/usr/bin/chromedriver" ]; then
+              sudo ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
+              sudo chmod +x /usr/local/bin/chromedriver
+              
+              if chromedriver --version >/dev/null 2>&1; then
+                echo "✅ 방법 3 성공: APT ChromeDriver 설치"
+                INSTALL_SUCCESS=true
+              fi
+            fi
+          fi
+          
+          # 설치 결과 확인
+          if [ "$INSTALL_SUCCESS" = "true" ]; then
+            echo "🎉 ChromeDriver 설치 완료!"
+            echo "📋 Chrome 버전: $(google-chrome --version)"
+            echo "📋 ChromeDriver 버전: $(chromedriver --version)"
+            echo "📋 ChromeDriver 경로: $(which chromedriver)"
+          else
+            echo "❌ ChromeDriver 설치 실패"
+            echo "🔍 시스템 정보:"
+            echo "   - Chrome: $(google-chrome --version)"
+            echo "   - 시스템: $(uname -a)"
+            echo "   - 아키텍처: $(dpkg --print-architecture)"
+            exit 1
+          fi
+          
+          # 임시 파일 정리
+          rm -f /tmp/chromedriver.zip
+          rm -rf /tmp/chromedriver-linux64/
+          
+          echo "✅ Chrome 및 ChromeDriver 설치 완료"
+
+      - name: 📦 Install Python Dependencies
+        run: |
+          echo "=== Python 의존성 설치 시작 ==="
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found, installing basic dependencies"
+            pip install requests beautifulsoup4 selenium lxml deep-translator python-dateutil
+          fi
+          echo "✅ Python dependencies installed"
+
+      - name: 📊 Generate Daily Report via Integrated System
+        run: |
+          echo "=== 통합 시스템을 통한 일간 리포트 생성 ==="
+          echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "실행 명령어: python monitor_bugs.py --schedule 24h"
+          
+          # ✨ 핵심 변경: 통합 시스템 활용
+          echo "시작" && python monitor_bugs.py --schedule 24h
+          echo "완료"
+          
+          echo "✅ 통합 시스템을 통한 일간 리포트 생성 완료"
 
       - name: 📤 Upload Report Artifacts
         uses: actions/upload-artifact@v4
@@ -167,6 +213,7 @@ jobs:
           path: |
             daily_report.md
             *.json
+            *.html
             *.log
           retention-days: 7
           compression-level: 6
@@ -189,8 +236,8 @@ jobs:
                  -X POST \
                  -d "{
                    \"embeds\": [{
-                     \"title\": \"$STATUS_EMOJI Epic7 Daily Report\",
-                     \"description\": \"일일 리포트 생성 $([ "${{ job.status }}" = "success" ] && echo "완료" || echo "실패")\",
+                     \"title\": \"$STATUS_EMOJI Epic7 Daily Report v3.2\",
+                     \"description\": \"통합 시스템을 통한 일간 리포트 생성 $([ "${{ job.status }}" = "success" ] && echo "완료" || echo "실패")\",
                      \"color\": $STATUS_COLOR,
                      \"fields\": [
                        {
@@ -199,12 +246,12 @@ jobs:
                          \"inline\": true
                        },
                        {
-                         \"name\": \"🔍 디버그 모드\",
+                         \"name\": \"🔧 디버그 모드\",
                          \"value\": \"$DEBUG_MODE\",
                          \"inline\": true
                        },
                        {
-                         \"name\": \"📁 리포트 크기\",
+                         \"name\": \"📄 리포트 크기\",
                          \"value\": \"$REPORT_SIZE\",
                          \"inline\": true
                        },
@@ -214,13 +261,18 @@ jobs:
                          \"inline\": false
                        },
                        {
-                         \"name\": \"⏱️ 실행 시간\",
+                         \"name\": \"⏰ 실행 시간\",
                          \"value\": \"$(date '+%Y-%m-%d %H:%M:%S %Z')\",
+                         \"inline\": false
+                       },
+                       {
+                         \"name\": \"🎯 실행 방식\",
+                         \"value\": \"통합 시스템 (monitor_bugs.py --schedule 24h)\",
                          \"inline\": false
                        }
                      ],
                      \"footer\": {
-                       \"text\": \"Epic7 Daily Report v3.1 (Optimized)\"
+                       \"text\": \"Epic7 Daily Report v3.2 (Integrated System)\"
                      }
                    }]
                  }" \
@@ -231,19 +283,19 @@ jobs:
             echo "⚠️ Discord webhook not configured"
           fi
 
-      - name: 🔄 Commit Report Changes
+      - name: 📄 Commit Report Changes
         if: success()
         run: |
-          echo "🔄 Committing report changes..."
+          echo "📄 Committing report changes..."
           
           git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.name "GitHub Action Daily Report v3.2"
           
           # 변경사항 확인
           if [[ -n $(git status --porcelain) ]]; then
             echo "📝 Changes detected, committing..."
-            git add daily_report.md *.json *.log 2>/dev/null || true
-            git commit -m "📊 Daily Report: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git add daily_report.md *.json *.html *.log 2>/dev/null || true
+            git commit -m "📊 Daily Report v3.2: $(date '+%Y-%m-%d %H:%M:%S') [통합 시스템]" || true
             git push || echo "⚠️ Push failed - continuing..."
             echo "✅ Report committed successfully"
           else
@@ -258,5 +310,7 @@ jobs:
           # 임시 파일 정리
           rm -f /tmp/daily_report_* 2>/dev/null || true
           rm -f /tmp/report_data_* 2>/dev/null || true
+          rm -f /tmp/chromedriver.zip 2>/dev/null || true
+          rm -rf /tmp/chromedriver-linux64/ 2>/dev/null || true
           
           echo "✅ Cleanup completed"
