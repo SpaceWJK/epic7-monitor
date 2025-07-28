@@ -2,311 +2,51 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 감성 데이터 관리자 v3.3 - 성능 최적화 완성본
-Master 요청: 메모리, 파일 I/O, 데이터 정리 성능 최적화
+Epic7 감성 데이터 관리자 v3.2 - 즉시 저장 시스템 구현
+감성 데이터 수집, 분석, 관리 및 트렌드 추적 시스템
 
-핵심 개선사항:
-- 메모리 사용량 70% 감소 (키워드 개수 제한) ✨OPTIMIZED✨
-- 파일 I/O 80% 성능 향상 (버퍼링 시스템) ✨OPTIMIZED✨
-- 데이터 정리 90% 처리 시간 단축 (스마트 정리) ✨OPTIMIZED✨
-- 성능 모니터링 시스템 추가 ✨NEW✨
-- 기존 기능 100% 호환성 보장
+주요 특징:
+- 게시글별 즉시 저장 시스템 ✨NEW✨
+- 감성 데이터 수집 및 저장
+- 감성 트렌드 분석 및 패턴 탐지
+- 감성 데이터 정제 및 관리
+- 시간대별 감성 분포 분석
+- 키워드 기반 감성 분석
+- 사이트별 감성 비교
+- 일간 리포트 데이터 구조 최적화 ✨NEW✨
+- 리포트 생성기와 연동
 
 Author: Epic7 Monitoring Team
-Version: 3.3 (성능 최적화 완성본)
-Date: 2025-07-28
-Optimized: 메모리, I/O, 정리 성능 대폭 향상
+Version: 3.2 (즉시 저장 시스템 구현)
+Date: 2025-07-24
 """
 
 import json
 import os
 import sys
 import time
-import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict, Counter, deque
 import logging
-from functools import wraps
-import psutil
-import gc
+
+# 통계 및 수학 연산
+import statistics
+from math import sqrt
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 성능 측정 데코레이터 (v3.3 추가)
-# =============================================================================
-
-def measure_performance(func):
-    """성능 측정 데코레이터"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        start_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
-        
-        try:
-            result = func(*args, **kwargs)
-            end_time = time.time()
-            end_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
-            
-            execution_time = end_time - start_time
-            memory_delta = end_memory - start_memory
-            
-            if execution_time > 0.1:  # 0.1초 이상인 경우만 로그
-                logger.info(f"⏱️ {func.__name__}: {execution_time:.3f}s, 메모리: {memory_delta:+.1f}MB")
-            
-            # 성능 메트릭 기록
-            if hasattr(args[0], 'performance_monitor'):
-                args[0].performance_monitor.record_execution(func.__name__, execution_time, memory_delta)
-            
-            return result
-        except Exception as e:
-            end_time = time.time()
-            execution_time = end_time - start_time
-            logger.error(f"❌ {func.__name__} 실행 실패 (소요시간: {execution_time:.3f}s): {e}")
-            raise
-    return wrapper
-
-# =============================================================================
-# 성능 모니터링 시스템 (v3.3 신규)
-# =============================================================================
-
-class PerformanceMonitor:
-    """성능 모니터링 시스템"""
-    
-    def __init__(self, max_records: int = 100):
-        self.max_records = max_records
-        self.metrics = {
-            'execution_times': defaultdict(list),
-            'memory_usage': defaultdict(list),
-            'buffer_hits': 0,
-            'buffer_misses': 0,
-            'cleanup_count': 0,
-            'save_count': 0,
-            'error_count': 0,
-            'start_time': time.time()
-        }
-        self.lock = threading.Lock()
-    
-    def record_execution(self, function_name: str, execution_time: float, memory_delta: float):
-        """실행 시간 및 메모리 사용량 기록"""
-        with self.lock:
-            self.metrics['execution_times'][function_name].append(execution_time)
-            self.metrics['memory_usage'][function_name].append(memory_delta)
-            
-            # 기록 수 제한
-            if len(self.metrics['execution_times'][function_name]) > self.max_records:
-                self.metrics['execution_times'][function_name] = \
-                    self.metrics['execution_times'][function_name][-self.max_records // 2:]
-            
-            if len(self.metrics['memory_usage'][function_name]) > self.max_records:
-                self.metrics['memory_usage'][function_name] = \
-                    self.metrics['memory_usage'][function_name][-self.max_records // 2:]
-    
-    def record_buffer_hit(self):
-        """버퍼 히트 기록"""
-        with self.lock:
-            self.metrics['buffer_hits'] += 1
-    
-    def record_buffer_miss(self):
-        """버퍼 미스 기록"""
-        with self.lock:
-            self.metrics['buffer_misses'] += 1
-    
-    def record_cleanup(self):
-        """정리 작업 기록"""
-        with self.lock:
-            self.metrics['cleanup_count'] += 1
-    
-    def record_save(self):
-        """저장 작업 기록"""
-        with self.lock:
-            self.metrics['save_count'] += 1
-    
-    def record_error(self):
-        """오류 기록"""
-        with self.lock:
-            self.metrics['error_count'] += 1
-    
-    def get_summary(self) -> Dict:
-        """성능 요약 반환"""
-        with self.lock:
-            runtime = time.time() - self.metrics['start_time']
-            total_buffer_requests = self.metrics['buffer_hits'] + self.metrics['buffer_misses']
-            buffer_hit_rate = (self.metrics['buffer_hits'] / max(1, total_buffer_requests)) * 100
-            
-            avg_times = {}
-            for func_name, times in self.metrics['execution_times'].items():
-                if times:
-                    avg_times[func_name] = sum(times) / len(times)
-            
-            return {
-                'runtime_seconds': runtime,
-                'buffer_hit_rate': buffer_hit_rate,
-                'total_saves': self.metrics['save_count'],
-                'total_cleanups': self.metrics['cleanup_count'],
-                'total_errors': self.metrics['error_count'],
-                'average_execution_times': avg_times,
-                'current_memory_mb': psutil.Process().memory_info().rss / 1024 / 1024
-            }
-
-# =============================================================================
-# 버퍼링 저장 시스템 (v3.3 신규)
-# =============================================================================
-
-class BufferedSaveManager:
-    """버퍼링 저장 관리자"""
-    
-    def __init__(self, buffer_size: int = 10, flush_interval: int = 30):
-        self.buffer = []
-        self.buffer_size = buffer_size
-        self.flush_interval = flush_interval
-        self.last_flush_time = time.time()
-        self.lock = threading.Lock()
-        self.performance_monitor = None
-    
-    def set_performance_monitor(self, monitor: PerformanceMonitor):
-        """성능 모니터 설정"""
-        self.performance_monitor = monitor
-    
-    def add_to_buffer(self, data: Dict) -> bool:
-        """버퍼에 데이터 추가"""
-        with self.lock:
-            self.buffer.append(data)
-            
-            # 버퍼가 찼거나 일정 시간 경과 시 플러시
-            should_flush = (
-                len(self.buffer) >= self.buffer_size or 
-                time.time() - self.last_flush_time > self.flush_interval
-            )
-            
-            if should_flush:
-                return self.flush_buffer()
-            
-            if self.performance_monitor:
-                self.performance_monitor.record_buffer_hit()
-            
-            return True
-    
-    def flush_buffer(self, force: bool = False) -> bool:
-        """버퍼 내용을 파일에 저장"""
-        if not self.buffer and not force:
-            return True
-        
-        try:
-            # 버퍼 내용을 파일에 추가 (append 모드)
-            buffer_copy = self.buffer.copy()
-            self.buffer.clear()
-            self.last_flush_time = time.time()
-            
-            if buffer_copy:
-                self._write_buffer_to_file(buffer_copy)
-                
-                if self.performance_monitor:
-                    self.performance_monitor.record_save()
-                
-                logger.debug(f"💾 버퍼 플러시 완료: {len(buffer_copy)}개 항목")
-            
-            return True
-            
-        except Exception as e:
-            # 실패 시 버퍼에 다시 추가
-            with self.lock:
-                self.buffer.extend(buffer_copy)
-            
-            if self.performance_monitor:
-                self.performance_monitor.record_error()
-            
-            logger.error(f"버퍼 플러시 실패: {e}")
-            return False
-    
-    def _write_buffer_to_file(self, buffer_data: List[Dict]):
-        """버퍼 데이터를 파일에 쓰기 (실제 구현은 상속 클래스에서)"""
-        pass
-    
-    def get_buffer_status(self) -> Dict:
-        """버퍼 상태 반환"""
-        with self.lock:
-            return {
-                'buffer_size': len(self.buffer),
-                'max_buffer_size': self.buffer_size,
-                'last_flush_time': self.last_flush_time,
-                'time_since_last_flush': time.time() - self.last_flush_time
-            }
-
-# =============================================================================
-# 스마트 정리 시스템 (v3.3 신규)
-# =============================================================================
-
-class SmartCleanupManager:
-    """스마트 정리 관리자"""
-    
-    def __init__(self, cleanup_interval: int = 300, force_cleanup_count: int = 50):
-        self.cleanup_interval = cleanup_interval  # 5분 간격
-        self.force_cleanup_count = force_cleanup_count  # 50번마다 강제 정리
-        self.last_cleanup_time = time.time()
-        self.operation_counter = 0
-        self.performance_monitor = None
-    
-    def set_performance_monitor(self, monitor: PerformanceMonitor):
-        """성능 모니터 설정"""
-        self.performance_monitor = monitor
-    
-    def should_cleanup(self) -> bool:
-        """정리 작업이 필요한지 판단"""
-        self.operation_counter += 1
-        current_time = time.time()
-        
-        # 시간 기준 또는 횟수 기준 정리
-        time_based = current_time - self.last_cleanup_time > self.cleanup_interval
-        count_based = self.operation_counter % self.force_cleanup_count == 0
-        
-        return time_based or count_based
-    
-    def execute_cleanup(self, cleanup_function: callable, *args, **kwargs) -> bool:
-        """정리 작업 실행"""
-        try:
-            start_time = time.time()
-            result = cleanup_function(*args, **kwargs)
-            
-            self.last_cleanup_time = time.time()
-            
-            if self.performance_monitor:
-                self.performance_monitor.record_cleanup()
-            
-            execution_time = time.time() - start_time
-            logger.debug(f"🧹 스마트 정리 완료: {execution_time:.3f}초 소요")
-            
-            return result
-            
-        except Exception as e:
-            if self.performance_monitor:
-                self.performance_monitor.record_error()
-            
-            logger.error(f"스마트 정리 실패: {e}")
-            return False
-    
-    def get_status(self) -> Dict:
-        """정리 관리자 상태 반환"""
-        return {
-            'last_cleanup_time': self.last_cleanup_time,
-            'time_since_last_cleanup': time.time() - self.last_cleanup_time,
-            'operation_counter': self.operation_counter,
-            'next_forced_cleanup_in': self.force_cleanup_count - (self.operation_counter % self.force_cleanup_count)
-        }
-
-# =============================================================================
-# 감성 데이터 관리 설정 (v3.3 최적화)
+# 감성 데이터 관리 설정
 # =============================================================================
 
 class SentimentConfig:
-    """감성 데이터 관리 설정 - v3.3 성능 최적화"""
+    """감성 데이터 관리 설정"""
     
     # 파일 경로
     SENTIMENT_DATA_FILE = "sentiment_data.json"
-    SENTIMENT_BUFFER_FILE = "sentiment_buffer.jsonl"  # 버퍼용 JSONL 파일
     SENTIMENT_CACHE_FILE = "sentiment_cache.json"
     SENTIMENT_TRENDS_FILE = "sentiment_trends.json"
     SENTIMENT_KEYWORDS_FILE = "sentiment_keywords.json"
@@ -316,14 +56,6 @@ class SentimentConfig:
     CACHE_RETENTION_HOURS = 72
     TRENDS_RETENTION_DAYS = 30
     
-    # v3.3 성능 최적화 설정
-    MAX_KEYWORDS_COUNT = 1000  # 키워드 개수 제한
-    KEYWORD_CLEANUP_THRESHOLD = 800  # 키워드 정리 시작 임계값
-    BUFFER_SIZE = 15  # 버퍼 크기 (기존 10 → 15)
-    BUFFER_FLUSH_INTERVAL = 30  # 버퍼 플러시 간격 (초)
-    CLEANUP_INTERVAL = 300  # 정리 간격 (5분)
-    FORCE_CLEANUP_COUNT = 50  # 강제 정리 카운터
-    
     # 분석 설정
     MIN_CONFIDENCE_THRESHOLD = 0.6
     KEYWORD_MIN_FREQUENCY = 3
@@ -332,17 +64,13 @@ class SentimentConfig:
     # 통계 설정
     TOP_KEYWORDS_LIMIT = 20
     SENTIMENT_CATEGORIES = ['positive', 'negative', 'neutral']
-    
-    # 성능 모니터링 설정
-    PERFORMANCE_MONITORING_ENABLED = True
-    MAX_PERFORMANCE_RECORDS = 100
 
 # =============================================================================
-# Epic7 감성 데이터 관리자 v3.3 - 성능 최적화 완성본
+# Epic7 감성 데이터 관리자 v3.2 - 즉시 저장 시스템
 # =============================================================================
 
 class Epic7SentimentManager:
-    """Epic7 감성 데이터 관리자 v3.3 - 성능 최적화 완성본"""
+    """Epic7 감성 데이터 관리자 v3.2 - 즉시 저장 시스템"""
     
     def __init__(self, config: Optional[Dict] = None):
         """
@@ -352,28 +80,6 @@ class Epic7SentimentManager:
             config: 사용자 정의 설정 (선택사항)
         """
         self.config = config or SentimentConfig()
-        
-        # v3.3 성능 모니터링 시스템 초기화
-        if self.config.PERFORMANCE_MONITORING_ENABLED:
-            self.performance_monitor = PerformanceMonitor(self.config.MAX_PERFORMANCE_RECORDS)
-        else:
-            self.performance_monitor = None
-        
-        # v3.3 버퍼링 시스템 초기화
-        self.buffer_manager = SentimentBufferManager(
-            self.config.BUFFER_SIZE, 
-            self.config.BUFFER_FLUSH_INTERVAL
-        )
-        if self.performance_monitor:
-            self.buffer_manager.set_performance_monitor(self.performance_monitor)
-        
-        # v3.3 스마트 정리 시스템 초기화
-        self.cleanup_manager = SmartCleanupManager(
-            self.config.CLEANUP_INTERVAL,
-            self.config.FORCE_CLEANUP_COUNT
-        )
-        if self.performance_monitor:
-            self.cleanup_manager.set_performance_monitor(self.performance_monitor)
         
         # 순환 임포트 방지를 위한 지연 임포트
         try:
@@ -389,110 +95,22 @@ class Epic7SentimentManager:
         self.sentiment_trends = self.load_sentiment_trends()
         self.sentiment_keywords = self.load_sentiment_keywords()
         
-        # 키워드 개수 제한 체크 및 정리
-        self._check_and_cleanup_keywords()
-        
         # 통계 초기화
         self.stats = {
             'total_posts': 0,
             'processed_posts': 0,
-            'immediate_saves': 0,
-            'batch_saves': 0,
-            'buffer_saves': 0,  # v3.3 추가
-            'smart_cleanups': 0,  # v3.3 추가
+            'immediate_saves': 0,  # ✨ 즉시 저장 통계
+            'batch_saves': 0,      # ✨ 일괄 저장 통계
             'errors': 0,
             'start_time': datetime.now().isoformat()
         }
         
-        logger.info(f"Epic7 감성 데이터 관리자 v3.3 초기화 완료 - 성능 최적화 적용")
+        logger.info(f"Epic7 감성 데이터 관리자 v3.2 초기화 완료 - 즉시 저장 시스템 활성화")
     
-    # =============================================================================
-    # ✨ v3.3 핵심 최적화: 키워드 메모리 관리
-    # =============================================================================
-    
-    def _check_and_cleanup_keywords(self):
-        """키워드 개수 제한 체크 및 정리"""
-        try:
-            keywords = self.sentiment_data.get('keywords', {})
-            if len(keywords) > self.config.MAX_KEYWORDS_COUNT:
-                logger.info(f"키워드 개수 초과 ({len(keywords)}개) - 정리 시작")
-                self._cleanup_keywords()
-        except Exception as e:
-            logger.error(f"키워드 정리 체크 실패: {e}")
-    
-    @measure_performance
-    def _cleanup_keywords(self):
-        """오래된/사용빈도 낮은 키워드 정리"""
-        try:
-            keywords = self.sentiment_data.get('keywords', {})
-            if len(keywords) <= self.config.KEYWORD_CLEANUP_THRESHOLD:
-                return
-            
-            # 사용 빈도 기준으로 정렬
-            sorted_keywords = sorted(
-                keywords.items(),
-                key=lambda x: x[1].get('total_count', 0),
-                reverse=True
-            )
-            
-            # 상위 키워드만 유지
-            keep_count = self.config.KEYWORD_CLEANUP_THRESHOLD
-            self.sentiment_data['keywords'] = dict(sorted_keywords[:keep_count])
-            
-            removed_count = len(keywords) - keep_count
-            logger.info(f"🧹 키워드 정리 완료: {removed_count}개 제거 ({len(keywords)} → {keep_count})")
-            
-            # 메모리 정리
-            gc.collect()
-            
-        except Exception as e:
-            logger.error(f"키워드 정리 실패: {e}")
-    
-    @measure_performance
-    def _update_keywords_with_limit(self, sentiment_result: Dict) -> None:
-        """키워드 업데이트 (개수 제한 적용)"""
-        try:
-            title = sentiment_result.get('title', '')
-            content = sentiment_result.get('content', '')
-            
-            keywords = self._extract_keywords_from_text(title + ' ' + content)
-            
-            if 'keywords' not in self.sentiment_data:
-                self.sentiment_data['keywords'] = {}
-            
-            # 키워드 개수 제한 체크
-            if len(self.sentiment_data['keywords']) > self.config.MAX_KEYWORDS_COUNT:
-                if self.cleanup_manager.should_cleanup():
-                    self.cleanup_manager.execute_cleanup(self._cleanup_keywords)
-            
-            sentiment = sentiment_result.get('sentiment', 'neutral')
-            
-            for keyword in keywords:
-                if keyword not in self.sentiment_data['keywords']:
-                    # 새 키워드 추가 시 공간 확인
-                    if len(self.sentiment_data['keywords']) >= self.config.MAX_KEYWORDS_COUNT:
-                        logger.warning(f"키워드 최대 개수 도달 ({self.config.MAX_KEYWORDS_COUNT}개) - 새 키워드 무시")
-                        break
-                    
-                    self.sentiment_data['keywords'][keyword] = {
-                        'total_count': 0,
-                        'sentiments': {'positive': 0, 'negative': 0, 'neutral': 0}
-                    }
-                
-                self.sentiment_data['keywords'][keyword]['total_count'] += 1
-                self.sentiment_data['keywords'][keyword]['sentiments'][sentiment] += 1
-            
-        except Exception as e:
-            logger.error(f"키워드 업데이트 실패: {e}")
-    
-    # =============================================================================
-    # ✨ v3.3 핵심 최적화: 버퍼링 저장 시스템
-    # =============================================================================
-    
-    @measure_performance
-    def save_sentiment_immediately_optimized(self, sentiment_result: Dict) -> bool:
+    # ✨ NEW: 즉시 저장 시스템 구현
+    def save_sentiment_immediately(self, sentiment_result: Dict) -> bool:
         """
-        ✨ v3.3 최적화: 개별 게시글 감성 분석 결과 즉시 저장 (버퍼링 적용)
+        ✨ 개별 게시글 감성 분석 결과 즉시 저장
         
         Args:
             sentiment_result: 감성 분석 결과 딕셔너리
@@ -508,148 +126,61 @@ class Epic7SentimentManager:
             
             # 2. 타임스탬프 추가
             sentiment_result['processed_at'] = datetime.now().isoformat()
-            sentiment_result['save_method'] = 'immediate_optimized'
+            sentiment_result['save_method'] = 'immediate'  # 즉시 저장 표시
             
-            # 3. 버퍼에 추가 (파일 I/O 최적화)
-            buffer_success = self.buffer_manager.add_to_buffer(sentiment_result)
-            
-            # 4. 메모리 내 데이터 즉시 업데이트 (검색 성능을 위해)
+            # 3. 메인 데이터에 추가
             self.sentiment_data['posts'].append(sentiment_result)
             
-            # 5. 통계 즉시 업데이트
+            # 4. 통계 즉시 업데이트
             self._update_statistics_immediately(sentiment_result)
             
-            # 6. 키워드 즉시 업데이트 (메모리 제한 적용)
-            self._update_keywords_with_limit(sentiment_result)
+            # 5. 키워드 즉시 업데이트
+            self._update_keywords_immediately(sentiment_result)
             
-            # 7. 일간 리포트 데이터 즉시 갱신
+            # 6. 일간 리포트 데이터 즉시 갱신 ✨
             self._update_daily_reports_immediately(sentiment_result)
             
-            # 8. 스마트 정리 (필요 시에만)
-            if self.cleanup_manager.should_cleanup():
-                self.cleanup_manager.execute_cleanup(self._cleanup_old_data_smart)
+            # 7. 데이터 정리 (용량 관리)
+            self._cleanup_old_data()
             
-            if buffer_success:
-                self.stats['buffer_saves'] += 1
+            # 8. 파일 즉시 저장
+            success = self.save_sentiment_data_file()
+            
+            if success:
+                self.stats['immediate_saves'] += 1
                 self.stats['processed_posts'] += 1
                 
                 post_title = sentiment_result.get('title', 'Unknown')[:50]
                 sentiment = sentiment_result.get('sentiment', 'neutral')
                 confidence = sentiment_result.get('confidence', 0.0)
                 
-                logger.debug(f"💾 최적화 저장 성공: {post_title}... (감성: {sentiment}, 신뢰도: {confidence:.2f})")
+                logger.info(f"💾 즉시 저장 성공: {post_title}... (감성: {sentiment}, 신뢰도: {confidence:.2f})")
                 
-                # 9. 캐시 즉시 업데이트
+                # 9. 캐시도 즉시 업데이트
                 self._update_cache_immediately(sentiment_result)
                 
                 return True
             else:
-                logger.error("💥 버퍼 저장 실패")
+                logger.error("💥 즉시 저장 파일 쓰기 실패")
                 return False
                 
         except Exception as e:
             self.stats['errors'] += 1
-            if self.performance_monitor:
-                self.performance_monitor.record_error()
-            logger.error(f"💥 최적화 저장 실패: {e}")
+            logger.error(f"💥 즉시 저장 실패: {e}")
             return False
     
-    @measure_performance
-    def _cleanup_old_data_smart(self) -> int:
-        """스마트 데이터 정리 (필요할 때만 실행)"""
-        try:
-            cutoff_date = datetime.now() - timedelta(days=self.config.DATA_RETENTION_DAYS)
-            cutoff_iso = cutoff_date.isoformat()
-            
-            # 메모리 내 게시글 정리
-            original_count = len(self.sentiment_data.get('posts', []))
-            if original_count == 0:
-                return 0
-            
-            self.sentiment_data['posts'] = [
-                post for post in self.sentiment_data.get('posts', [])
-                if post.get('processed_at', '') > cutoff_iso
-            ]
-            
-            cleaned_count = original_count - len(self.sentiment_data['posts'])
-            
-            # 일간 리포트 정리
-            if 'daily_reports' in self.sentiment_data:
-                cutoff_date_str = cutoff_date.strftime('%Y-%m-%d')
-                old_dates = [
-                    date for date in self.sentiment_data['daily_reports'].keys()
-                    if date < cutoff_date_str
-                ]
-                
-                for date in old_dates:
-                    del self.sentiment_data['daily_reports'][date]
-                
-                cleaned_count += len(old_dates)
-            
-            if cleaned_count > 0:
-                logger.info(f"🧹 스마트 정리 완료: {cleaned_count}개 항목 제거")
-                self.stats['smart_cleanups'] += 1
-                
-                # 메모리 정리
-                gc.collect()
-            
-            return cleaned_count
-            
-        except Exception as e:
-            logger.error(f"스마트 데이터 정리 실패: {e}")
-            return 0
-    
-    # =============================================================================
-    # ✨ v3.3 버퍼 관리자 구현
-    # =============================================================================
-    
-    class SentimentBufferManager(BufferedSaveManager):
-        """감성 데이터 전용 버퍼 관리자"""
-        
-        def __init__(self, buffer_size: int, flush_interval: int):
-            super().__init__(buffer_size, flush_interval)
-            self.sentiment_manager = None
-        
-        def set_sentiment_manager(self, manager):
-            """감성 관리자 참조 설정"""
-            self.sentiment_manager = manager
-        
-        def _write_buffer_to_file(self, buffer_data: List[Dict]):
-            """버퍼 데이터를 JSONL 파일에 추가"""
-            try:
-                # JSONL 형식으로 추가 저장 (성능 최적화)
-                buffer_file = getattr(self.sentiment_manager.config, 'SENTIMENT_BUFFER_FILE', 'sentiment_buffer.jsonl')
-                
-                with open(buffer_file, 'a', encoding='utf-8') as f:
-                    for item in buffer_data:
-                        f.write(json.dumps(item, ensure_ascii=False) + '\n')
-                
-                logger.debug(f"📝 버퍼 파일 저장 완료: {len(buffer_data)}개 항목")
-                
-            except Exception as e:
-                logger.error(f"버퍼 파일 저장 실패: {e}")
-                raise
-    
-    # 버퍼 관리자 참조 설정
-    def _setup_buffer_manager(self):
-        """버퍼 관리자 설정"""
-        if hasattr(self, 'buffer_manager'):
-            self.buffer_manager.set_sentiment_manager(self)
-    
-    # =============================================================================
-    # 기존 함수들 (완전 보존 + 성능 최적화)
-    # =============================================================================
-    
-    # save_sentiment_immediately는 하위 호환성을 위해 유지
-    def save_sentiment_immediately(self, sentiment_result: Dict) -> bool:
-        """하위 호환성을 위한 래퍼 함수"""
-        return self.save_sentiment_immediately_optimized(sentiment_result)
-    
+    # ✨ NEW: 일간 리포트 데이터 구조 최적화
     def _update_daily_reports_immediately(self, sentiment_result: Dict) -> None:
-        """일간 리포트 데이터 즉시 갱신 (기존 코드 유지)"""
+        """
+        ✨ 일간 리포트 데이터 즉시 갱신 (최적화된 구조)
+        
+        Args:
+            sentiment_result: 감성 분석 결과
+        """
         try:
             current_date = datetime.now().strftime('%Y-%m-%d')
             
+            # daily_reports 구조 초기화
             if 'daily_reports' not in self.sentiment_data:
                 self.sentiment_data['daily_reports'] = {}
             
@@ -662,33 +193,40 @@ class Epic7SentimentManager:
                     'site_distribution': {},
                     'hourly_distribution': {},
                     'trend_direction': 'neutral',
-                    'confidence_sum': 0.0,
+                    'confidence_sum': 0.0,  # 평균 계산용
                     'last_updated': datetime.now().isoformat()
                 }
             
             daily_report = self.sentiment_data['daily_reports'][current_date]
+            
+            # 기본 통계 업데이트
             daily_report['total_posts'] += 1
             
+            # 감성 분포 업데이트
             sentiment = sentiment_result.get('sentiment', 'neutral')
             if sentiment in daily_report['sentiment_distribution']:
                 daily_report['sentiment_distribution'][sentiment] += 1
             
+            # 평균 신뢰도 업데이트
             confidence = sentiment_result.get('confidence', 0.0)
             daily_report['confidence_sum'] += confidence
             daily_report['average_confidence'] = daily_report['confidence_sum'] / daily_report['total_posts']
             
+            # 사이트별 분포 업데이트
             source = sentiment_result.get('source', 'unknown')
             if source in daily_report['site_distribution']:
                 daily_report['site_distribution'][source] += 1
             else:
                 daily_report['site_distribution'][source] = 1
             
+            # 시간대별 분포 업데이트
             current_hour = datetime.now().strftime('%H')
             if current_hour in daily_report['hourly_distribution']:
                 daily_report['hourly_distribution'][current_hour] += 1
             else:
                 daily_report['hourly_distribution'][current_hour] = 1
             
+            # 키워드 업데이트 (제목에서 추출)
             title = sentiment_result.get('title', '')
             keywords = self._extract_keywords_from_text(title)
             for keyword in keywords:
@@ -697,6 +235,7 @@ class Epic7SentimentManager:
                 else:
                     daily_report['top_keywords'][keyword] = 1
             
+            # 상위 키워드만 유지 (성능 최적화)
             if len(daily_report['top_keywords']) > self.config.TOP_KEYWORDS_LIMIT:
                 sorted_keywords = sorted(
                     daily_report['top_keywords'].items(), 
@@ -705,6 +244,7 @@ class Epic7SentimentManager:
                 )[:self.config.TOP_KEYWORDS_LIMIT]
                 daily_report['top_keywords'] = dict(sorted_keywords)
             
+            # 트렌드 방향 계산 (간단한 버전)
             pos_ratio = daily_report['sentiment_distribution']['positive'] / max(1, daily_report['total_posts'])
             neg_ratio = daily_report['sentiment_distribution']['negative'] / max(1, daily_report['total_posts'])
             
@@ -715,14 +255,16 @@ class Epic7SentimentManager:
             else:
                 daily_report['trend_direction'] = 'neutral'
             
+            # 업데이트 시간 갱신
             daily_report['last_updated'] = datetime.now().isoformat()
             
         except Exception as e:
             logger.error(f"일간 리포트 업데이트 실패: {e}")
     
     def _update_statistics_immediately(self, sentiment_result: Dict) -> None:
-        """통계 즉시 업데이트 (기존 코드 유지)"""
+        """통계 즉시 업데이트"""
         try:
+            # 기존 통계 구조 유지하면서 업데이트
             if 'statistics' not in self.sentiment_data:
                 self.sentiment_data['statistics'] = {
                     'total_posts': 0,
@@ -739,6 +281,7 @@ class Epic7SentimentManager:
             if sentiment in stats['sentiment_counts']:
                 stats['sentiment_counts'][sentiment] += 1
             
+            # 사이트별 통계
             source = sentiment_result.get('source', 'unknown')
             if source not in stats['site_stats']:
                 stats['site_stats'][source] = {'count': 0, 'sentiments': {'positive': 0, 'negative': 0, 'neutral': 0}}
@@ -751,8 +294,34 @@ class Epic7SentimentManager:
         except Exception as e:
             logger.error(f"통계 업데이트 실패: {e}")
     
+    def _update_keywords_immediately(self, sentiment_result: Dict) -> None:
+        """키워드 즉시 업데이트"""
+        try:
+            title = sentiment_result.get('title', '')
+            content = sentiment_result.get('content', '')
+            
+            keywords = self._extract_keywords_from_text(title + ' ' + content)
+            
+            if 'keywords' not in self.sentiment_data:
+                self.sentiment_data['keywords'] = {}
+            
+            sentiment = sentiment_result.get('sentiment', 'neutral')
+            
+            for keyword in keywords:
+                if keyword not in self.sentiment_data['keywords']:
+                    self.sentiment_data['keywords'][keyword] = {
+                        'total_count': 0,
+                        'sentiments': {'positive': 0, 'negative': 0, 'neutral': 0}
+                    }
+                
+                self.sentiment_data['keywords'][keyword]['total_count'] += 1
+                self.sentiment_data['keywords'][keyword]['sentiments'][sentiment] += 1
+            
+        except Exception as e:
+            logger.error(f"키워드 업데이트 실패: {e}")
+    
     def _update_cache_immediately(self, sentiment_result: Dict) -> None:
-        """캐시 즉시 업데이트 (기존 코드 유지)"""
+        """캐시 즉시 업데이트"""
         try:
             url = sentiment_result.get('url', '')
             if url:
@@ -760,63 +329,54 @@ class Epic7SentimentManager:
                     'sentiment': sentiment_result.get('sentiment'),
                     'confidence': sentiment_result.get('confidence'),
                     'cached_at': datetime.now().isoformat(),
-                    'save_method': 'immediate_optimized'
+                    'save_method': 'immediate'
                 }
                 
-                # 캐시 크기 제한 (v3.3 추가)
-                if len(self.sentiment_cache) > 1000:
-                    # 오래된 캐시 50% 제거
-                    cache_items = list(self.sentiment_cache.items())
-                    self.sentiment_cache = dict(cache_items[-500:])
-                    logger.debug("🗑️ 캐시 크기 제한 적용: 500개로 축소")
+                # 캐시 파일 저장
+                self.save_sentiment_cache()
                 
         except Exception as e:
             logger.error(f"캐시 업데이트 실패: {e}")
     
-    # =============================================================================
-    # v3.3 성능 상태 및 모니터링
-    # =============================================================================
+    # ✨ NEW: 일간 요약 조회 함수
+    def get_daily_summary(self, date: str = None) -> Dict:
+        """
+        ✨ 특정 날짜의 일간 요약 조회
+        
+        Args:
+            date: 조회할 날짜 (YYYY-MM-DD), None이면 오늘
+            
+        Returns:
+            Dict: 일간 요약 데이터
+        """
+        if date is None:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        daily_reports = self.sentiment_data.get('daily_reports', {})
+        
+        if date in daily_reports:
+            summary = daily_reports[date].copy()
+            
+            # 추가 계산된 지표들
+            total = summary.get('total_posts', 0)
+            if total > 0:
+                dist = summary.get('sentiment_distribution', {})
+                summary['sentiment_percentages'] = {
+                    sentiment: (count / total * 100) 
+                    for sentiment, count in dist.items()
+                }
+            
+            return summary
+        else:
+            return {
+                'date': date,
+                'total_posts': 0,
+                'message': '해당 날짜의 데이터가 없습니다.'
+            }
     
-    def get_performance_summary(self) -> Dict:
-        """성능 요약 반환"""
-        summary = {
-            'version': '3.3',
-            'optimization_features': [
-                'Memory optimization (keyword limit)',
-                'Buffered I/O system',
-                'Smart cleanup manager',
-                'Performance monitoring'
-            ],
-            'runtime_stats': self.stats
-        }
-        
-        if self.performance_monitor:
-            summary['performance_metrics'] = self.performance_monitor.get_summary()
-        
-        if hasattr(self, 'buffer_manager'):
-            summary['buffer_status'] = self.buffer_manager.get_buffer_status()
-        
-        if hasattr(self, 'cleanup_manager'):
-            summary['cleanup_status'] = self.cleanup_manager.get_status()
-        
-        return summary
-    
-    def force_flush_all(self) -> bool:
-        """모든 버퍼 강제 플러시"""
-        try:
-            if hasattr(self, 'buffer_manager'):
-                success = self.buffer_manager.flush_buffer(force=True)
-                if success:
-                    logger.info("🚀 모든 버퍼 강제 플러시 완료")
-                return success
-            return True
-        except Exception as e:
-            logger.error(f"버퍼 강제 플러시 실패: {e}")
-            return False
-    
-    # 기존 함수들은 모두 유지 (하위 호환성)
+    # 기존 함수들 (완전 보존)
     def load_sentiment_data(self) -> Dict:
-        """감성 데이터 로드 (기존 코드 유지)"""
+        """감성 데이터 로드"""
         try:
             if os.path.exists(self.config.SENTIMENT_DATA_FILE):
                 with open(self.config.SENTIMENT_DATA_FILE, 'r', encoding='utf-8') as f:
@@ -828,28 +388,295 @@ class Epic7SentimentManager:
                 return {
                     'posts': [],
                     'statistics': {},
-                    'daily_reports': {},
+                    'daily_reports': {},  # ✨ 새로운 구조
                     'keywords': {},
                     'created_at': datetime.now().isoformat(),
                     'last_updated': datetime.now().isoformat(),
-                    'version': '3.3'
+                    'version': '3.2'  # ✨ 버전 표시
                 }
         except Exception as e:
             logger.error(f"감성 데이터 로드 실패: {e}")
             return {'posts': [], 'statistics': {}, 'daily_reports': {}, 'keywords': {}}
     
-    # 나머지 기존 함수들도 모두 동일하게 유지...
-    # (save_sentiment_data_file, load_sentiment_cache, process_post_sentiment 등)
+    def save_sentiment_data_file(self) -> bool:
+        """감성 데이터 저장 (기존 방식 + 즉시 저장 지원)"""
+        try:
+            # 메타데이터 업데이트
+            self.sentiment_data['last_updated'] = datetime.now().isoformat()
+            self.sentiment_data['total_posts'] = len(self.sentiment_data.get('posts', []))
+            self.sentiment_data['version'] = '3.2'
+            
+            # 파일 저장
+            with open(self.config.SENTIMENT_DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.sentiment_data, f, ensure_ascii=False, indent=2)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"감성 데이터 저장 실패: {e}")
+            return False
+    
+    def load_sentiment_cache(self) -> Dict:
+        """감성 캐시 로드"""
+        try:
+            if os.path.exists(self.config.SENTIMENT_CACHE_FILE):
+                with open(self.config.SENTIMENT_CACHE_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            logger.error(f"감성 캐시 로드 실패: {e}")
+            return {}
+    
+    def save_sentiment_cache(self) -> bool:
+        """감성 캐시 저장"""
+        try:
+            with open(self.config.SENTIMENT_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.sentiment_cache, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"감성 캐시 저장 실패: {e}")
+            return False
+    
+    def load_sentiment_trends(self) -> Dict:
+        """감성 트렌드 로드"""
+        try:
+            if os.path.exists(self.config.SENTIMENT_TRENDS_FILE):
+                with open(self.config.SENTIMENT_TRENDS_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            logger.error(f"감성 트렌드 로드 실패: {e}")
+            return {}
+    
+    def load_sentiment_keywords(self) -> Dict:
+        """감성 키워드 로드"""
+        try:
+            if os.path.exists(self.config.SENTIMENT_KEYWORDS_FILE):
+                with open(self.config.SENTIMENT_KEYWORDS_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            return {}
+        except Exception as e:
+            logger.error(f"감성 키워드 로드 실패: {e}")
+            return {}
+    
+    def process_post_sentiment(self, post: Dict) -> Dict:
+        """
+        개별 게시글 감성 분석 처리 (기존 함수 유지)
+        
+        Args:
+            post: 게시글 데이터
+            
+        Returns:
+            Dict: 감성 분석 결과
+        """
+        try:
+            # 기본 데이터 검증
+            if not post or not post.get('title'):
+                return {}
+            
+            # 캐시 확인
+            url = post.get('url', '')
+            if url in self.sentiment_cache:
+                cached_result = self.sentiment_cache[url]
+                # 캐시된 결과에 최신 메타데이터 추가
+                cached_result.update({
+                    'title': post.get('title'),
+                    'url': url,
+                    'source': post.get('source'),
+                    'from_cache': True
+                })
+                return cached_result
+            
+            # 분류기를 통한 감성 분석
+            if self.classifier:
+                classification_result = self.classifier.classify_post(post)
+                
+                # 감성 분석 결과 추출
+                sentiment_analysis = classification_result.get('sentiment_analysis', {})
+                sentiment = sentiment_analysis.get('sentiment', 'neutral')
+                confidence = sentiment_analysis.get('confidence', 0.0)
+            else:
+                # 폴백: 기본 감성 분석
+                sentiment = 'neutral'
+                confidence = 0.5
+                classification_result = {}
+            
+            # 결과 구성
+            result = {
+                'title': post.get('title'),
+                'url': url,
+                'content': post.get('content', '')[:500],  # 500자 제한
+                'source': post.get('source'),
+                'timestamp': post.get('timestamp', datetime.now().isoformat()),
+                'sentiment': sentiment,
+                'confidence': confidence,
+                'classification': classification_result,
+                'processed_at': datetime.now().isoformat(),
+                'from_cache': False
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"게시글 감성 분석 실패: {e}")
+            return {}
+    
+    # ✨ MODIFIED: 기존 일괄 저장 함수 (하위 호환성 보장)
+    def collect_sentiment_data(self, posts: List[Dict], save_method: str = 'batch') -> int:
+        """
+        감성 데이터 수집 (일괄 처리 + 즉시 처리 지원)
+        
+        Args:
+            posts: 처리할 게시글 목록
+            save_method: 저장 방식 ('batch' 또는 'immediate')
+            
+        Returns:
+            int: 처리된 게시글 수
+        """
+        if not posts:
+            logger.info("처리할 게시글이 없습니다.")
+            return 0
+        
+        processed_count = 0
+        results = []
+        
+        logger.info(f"감성 데이터 수집 시작: {len(posts)}개 게시글 ({save_method} 모드)")
+        
+        for i, post in enumerate(posts, 1):
+            try:
+                # 개별 게시글 감성 분석
+                result = self.process_post_sentiment(post)
+                
+                if result:
+                    if save_method == 'immediate':
+                        # ✨ 즉시 저장 모드
+                        if self.save_sentiment_immediately(result):
+                            processed_count += 1
+                            logger.info(f"즉시 처리 완료 ({i}/{len(posts)}): {result.get('title', '')[:50]}...")
+                        else:
+                            logger.error(f"즉시 저장 실패 ({i}/{len(posts)})")
+                    else:
+                        # 기존 일괄 처리 모드
+                        results.append(result)
+                        processed_count += 1
+                        logger.info(f"일괄 처리 대기 ({i}/{len(posts)}): {result.get('title', '')[:50]}...")
+                
+                self.stats['total_posts'] += 1
+                
+            except Exception as e:
+                logger.error(f"게시글 {i} 처리 실패: {e}")
+                self.stats['errors'] += 1
+        
+        # 일괄 처리 모드에서 최종 저장
+        if save_method == 'batch' and results:
+            # 기존 방식으로 일괄 저장
+            self.sentiment_data['posts'].extend(results)
+            
+            # 통계 및 키워드 업데이트
+            for result in results:
+                self._update_statistics_immediately(result)
+                self._update_keywords_immediately(result)
+                self._update_daily_reports_immediately(result)
+            
+            # 데이터 정리 및 저장
+            self._cleanup_old_data()
+            if self.save_sentiment_data_file():
+                self.stats['batch_saves'] += 1
+                logger.info(f"일괄 저장 완료: {len(results)}개 게시글")
+            else:
+                logger.error("일괄 저장 실패")
+        
+        logger.info(f"감성 데이터 수집 완료: {processed_count}개 처리됨 ({save_method} 모드)")
+        return processed_count
+    
+    def _extract_keywords_from_text(self, text: str) -> List[str]:
+        """텍스트에서 키워드 추출"""
+        if not text:
+            return []
+        
+        # Epic7 관련 키워드 필터링
+        epic7_keywords = [
+            '버그', '오류', '문제', '에러', '안됨', '작동', '실행',
+            '캐릭터', '스킬', '아티팩트', '장비', '던전', '아레나',
+            '길드', '이벤트', '업데이트', '패치', '밸런스', '너프',
+            '게임', '플레이', '유저', '운영', '공지', '확률',
+            '뽑기', '소환', '6성', '각성', '초월', '룬', '젬'
+        ]
+        
+        found_keywords = []
+        text_lower = text.lower()
+        
+        for keyword in epic7_keywords:
+            if keyword in text_lower or keyword.lower() in text_lower:
+                found_keywords.append(keyword)
+        
+        return found_keywords[:10]  # 최대 10개
+    
+    def _cleanup_old_data(self) -> None:
+        """오래된 데이터 정리"""
+        try:
+            cutoff_date = datetime.now() - timedelta(days=self.config.DATA_RETENTION_DAYS)
+            cutoff_iso = cutoff_date.isoformat()
+            
+            # 오래된 게시글 제거
+            original_count = len(self.sentiment_data.get('posts', []))
+            self.sentiment_data['posts'] = [
+                post for post in self.sentiment_data.get('posts', [])
+                if post.get('processed_at', '') > cutoff_iso
+            ]
+            
+            cleaned_count = original_count - len(self.sentiment_data['posts'])
+            if cleaned_count > 0:
+                logger.info(f"오래된 데이터 정리: {cleaned_count}개 게시글 제거")
+            
+            # 오래된 일간 리포트 정리
+            if 'daily_reports' in self.sentiment_data:
+                cutoff_date_str = cutoff_date.strftime('%Y-%m-%d')
+                old_dates = [
+                    date for date in self.sentiment_data['daily_reports'].keys()
+                    if date < cutoff_date_str
+                ]
+                
+                for date in old_dates:
+                    del self.sentiment_data['daily_reports'][date]
+                
+                if old_dates:
+                    logger.info(f"오래된 일간 리포트 정리: {len(old_dates)}개 날짜")
+            
+        except Exception as e:
+            logger.error(f"데이터 정리 실패: {e}")
+    
+    def get_statistics_summary(self) -> Dict:
+        """통계 요약 반환"""
+        return {
+            'runtime_stats': self.stats,
+            'data_stats': self.sentiment_data.get('statistics', {}),
+            'total_posts': len(self.sentiment_data.get('posts', [])),
+            'daily_reports_count': len(self.sentiment_data.get('daily_reports', {})),
+            'keywords_count': len(self.sentiment_data.get('keywords', {})),
+            'cache_size': len(self.sentiment_cache),
+            'last_updated': self.sentiment_data.get('last_updated'),
+            'version': '3.2'
+        }
 
 # =============================================================================
-# ✨ FIXED: 하위 호환성 보장 함수들 (완전 보존)
+# 편의 함수들 (외부 호출용) - 기존 유지
 # =============================================================================
 
 def save_sentiment_data_immediately(post_data: Dict) -> bool:
-    """편의 함수: 개별 게시글 즉시 저장 (v3.3 최적화 적용)"""
+    """
+    편의 함수: 개별 게시글 즉시 저장
+    
+    Args:
+        post_data: 게시글 데이터 또는 감성 분석 결과
+        
+    Returns:
+        bool: 저장 성공 여부
+    """
     try:
         manager = Epic7SentimentManager()
         
+        # 게시글 데이터인 경우 감성 분석 먼저 수행
         if 'sentiment' not in post_data:
             sentiment_result = manager.process_post_sentiment(post_data)
             if not sentiment_result:
@@ -857,104 +684,135 @@ def save_sentiment_data_immediately(post_data: Dict) -> bool:
         else:
             sentiment_result = post_data
         
-        # v3.3 최적화된 저장 사용
-        return manager.save_sentiment_immediately_optimized(sentiment_result)
+        # 즉시 저장
+        return manager.save_sentiment_immediately(sentiment_result)
         
     except Exception as e:
         logger.error(f"편의 함수 즉시 저장 실패: {e}")
         return False
 
-def save_sentiment_data(posts_or_post: Union[List[Dict], Dict], 
-                       sentiment_summary: Optional[Dict] = None) -> bool:
-    """하위 호환성 함수 - v3.3 최적화 적용"""
+def get_today_sentiment_summary() -> Dict:
+    """
+    편의 함수: 오늘의 감성 요약 조회
+    
+    Returns:
+        Dict: 오늘의 감성 요약
+    """
     try:
-        if posts_or_post is None:
-            logger.warning("저장할 데이터가 없습니다.")
+        manager = Epic7SentimentManager()
+        return manager.get_daily_summary()
+    except Exception as e:
+        logger.error(f"오늘 요약 조회 실패: {e}")
+        return {}
+      
+if __name__ == "__main__":
+    main()
+# =============================================================================
+# 하위 호환성 보장 함수들 (monitor_bugs.py와의 인터페이스) ✨FIXED✨
+# =============================================================================
+
+def save_sentiment_data(posts: List[Dict]) -> bool:
+    """
+    하위 호환성 함수: monitor_bugs.py에서 호출하는 save_sentiment_data
+    
+    Args:
+        posts: 게시글 목록 (감성 분석 결과 포함)
+        
+    Returns:
+        bool: 저장 성공 여부
+    """
+    try:
+        if not posts:
             return True
         
         manager = Epic7SentimentManager()
         
-        if isinstance(posts_or_post, dict):
-            posts = [posts_or_post]
-        elif isinstance(posts_or_post, list):
-            posts = posts_or_post
-        else:
-            logger.error(f"지원하지 않는 데이터 타입: {type(posts_or_post)}")
-            return False
-        
-        if not posts:
-            return True
-        
+        # 즉시 저장 모드로 처리
         success_count = 0
         for post in posts:
-            try:
-                if 'sentiment' not in post:
-                    result = manager.process_post_sentiment(post)
-                    if result:
-                        post.update(result)
-                
-                # v3.3 최적화된 저장 사용
-                if manager.save_sentiment_immediately_optimized(post):
-                    success_count += 1
-                    
-            except Exception as e:
-                logger.error(f"개별 게시글 저장 실패: {e}")
+            # 감성 분석이 안 된 경우 먼저 처리
+            if 'sentiment' not in post:
+                result = manager.process_post_sentiment(post)
+                if result:
+                    post.update(result)
+            
+            if manager.save_sentiment_immediately(post):
+                success_count += 1
         
-        # 마지막에 버퍼 플러시
-        manager.force_flush_all()
-        
-        logger.info(f"✅ v3.3 최적화 저장 완료: {success_count}/{len(posts)}개")
+        logger.info(f"하위 호환 저장 완료: {success_count}/{len(posts)}개")
         return success_count > 0
         
     except Exception as e:
-        logger.error(f"❌ v3.3 최적화 저장 실패: {e}")
+        logger.error(f"하위 호환 저장 실패: {e}")
         return False
 
-# 기타 하위 호환성 함수들 (get_today_sentiment_summary, get_sentiment_summary) 유지
+def get_sentiment_summary() -> Dict:
+    """
+    하위 호환성 함수: monitor_bugs.py에서 호출하는 get_sentiment_summary
+    
+    Returns:
+        Dict: 감성 요약 데이터
+    """
+    try:
+        manager = Epic7SentimentManager()
+        
+        # 오늘의 일간 요약 반환
+        daily_summary = manager.get_daily_summary()
+        
+        # monitor_bugs.py가 기대하는 형식으로 변환
+        return {
+            "total_posts": daily_summary.get("total_posts", 0),
+            "sentiment_distribution": daily_summary.get("sentiment_distribution", {}),
+            "time_period": "today",
+            "timestamp": datetime.now().isoformat(),
+            "daily_data": daily_summary  # 추가 정보
+        }
+        
+    except Exception as e:
+        logger.error(f"하위 호환 요약 실패: {e}")
+        return {
+            "total_posts": 0,
+            "sentiment_distribution": {"positive": 0, "negative": 0, "neutral": 0},
+            "time_period": "today",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 # =============================================================================
-# 메인 실행 부분
+# 메인 실행 부분 (기존 유지)
 # =============================================================================
 
 def main():
-    """메인 실행 함수 - v3.3 성능 테스트 포함"""
+    """메인 실행 함수"""
     try:
-        logger.info("Epic7 감성 데이터 관리자 v3.3 시작 - 성능 최적화 적용")
+        logger.info("Epic7 감성 데이터 관리자 v3.2 시작")
         
         # 관리자 초기화
         manager = Epic7SentimentManager()
         
-        # 성능 테스트
-        start_time = time.time()
-        test_data = [
-            {
-                'title': f'테스트 게시글 {i}',
-                'content': f'테스트 내용 {i}',
-                'url': f'https://test.com/{i}',
-                'source': 'test',
-                'sentiment': 'positive' if i % 3 == 0 else 'negative' if i % 3 == 1 else 'neutral',
-                'confidence': 0.8
-            }
-            for i in range(100)
-        ]
+        # 테스트용 게시글 데이터 수집 (실제 사용시에는 crawler에서 받아옴)
+        # 순환 임포트 방지를 위한 지연 임포트
+        try:
+            from crawler import get_all_posts_for_report
+            posts = get_all_posts_for_report()
+        except ImportError as e:
+            logger.warning(f"Crawler 임포트 실패: {e} - 테스트 모드로 진행")
+            posts = []
         
-        # 성능 테스트 실행
-        for data in test_data:
-            manager.save_sentiment_immediately_optimized(data)
-        
-        # 최종 플러시
-        manager.force_flush_all()
-        
-        end_time = time.time()
-        total_time = end_time - start_time
-        
-        # 성능 요약 출력
-        perf_summary = manager.get_performance_summary()
-        logger.info(f"📊 성능 테스트 완료: {total_time:.3f}초 (100개 항목)")
-        logger.info(f"📈 성능 요약: {perf_summary}")
+        if posts:
+            # 기본적으로 일괄 처리 (하위 호환성)
+            processed_count = manager.collect_sentiment_data(posts, save_method='batch')
+            logger.info(f"감성 데이터 처리 완료: {processed_count}개")
+            
+            # 통계 출력
+            stats = manager.get_statistics_summary()
+            logger.info(f"처리 통계: {stats}")
+            
+            # 오늘의 요약
+            today_summary = manager.get_daily_summary()
+            logger.info(f"오늘의 감성 요약: {today_summary}")
+        else:
+            logger.info("처리할 게시글이 없습니다.")
         
     except Exception as e:
         logger.error(f"메인 실행 중 오류: {e}")
-
-if __name__ == "__main__":
-    main()
