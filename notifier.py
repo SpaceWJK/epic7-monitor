@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Epic7 통합 알림 시스템 v3.4 - 즉시 처리 완성판 (JSON 오류 수정)
+Epic7 통합 알림 시스템 v3.4 - 즉시 처리 완성판 (번역 안전화 수정)
 Discord 알림 메시지 전송 및 포맷팅 시스템
 
 주요 특징:
@@ -10,21 +10,23 @@ Discord 알림 메시지 전송 및 포맷팅 시스템
 - 감성 동향 알림 (감성별 색상 구분) - 일괄 + 즉시 처리 지원
 - 일간 리포트 (카드형 디자인)
 - 헬스체크 (회색)
-- 영어→한국어 자동 번역 기능
+- 영어→한국어 자동 번역 기능 (안전화 처리)
 - 🚀 게시글별 즉시 감성 알림 추가 (v3.4)
 - 🚀 일간 리포트용 데이터 저장 기능 추가 (v3.4)
 - 🔧 Discord JSON 오류 수정 (payload 안전화 처리)
+- 🛡️ 번역 시스템 안전화 (예외 처리 강화)
 
 Master 요구사항 완벽 구현:
 - 게시글 1개당 즉시 감성 분석 → 즉시 알림
 - 일간 리포트용 감성 데이터 저장
 - 기존 30분 주기 일괄 알림 기능 완전 보존
 - Discord 웹훅 JSON 오류 해결
+- 번역 실패 시에도 안정적 작동
 
 Author: Epic7 Monitoring Team
-Version: 3.4 (즉시 처리 완성판 + JSON 오류 수정)
-Date: 2025-07-24
-Fixed: Discord JSON 직렬화 오류 해결
+Version: 3.4 (번역 안전화 수정 완성본)
+Date: 2025-07-28
+Fixed: 번역 시스템 안전화 및 Discord JSON 오류 해결
 """
 
 import json
@@ -40,8 +42,13 @@ import logging
 import psutil
 import subprocess
 
-# ✨ 번역 기능 추가 ✨
-from deep_translator import GoogleTranslator
+# ✨ 번역 기능 추가 (안전화 처리) ✨
+try:
+    from deep_translator import GoogleTranslator
+    TRANSLATION_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"번역 라이브러리 로드 실패: {e}")
+    TRANSLATION_AVAILABLE = False
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -97,6 +104,120 @@ class NotificationConfig:
         'report': os.environ.get('DISCORD_WEBHOOK_REPORT'),
         'health': os.environ.get('DISCORD_WEBHOOK_HEALTH')
     }
+
+# =============================================================================
+# 🛡️ 안전화된 번역 시스템 (v3.4 수정)
+# =============================================================================
+
+class SafeTranslationSystem:
+    """안전화된 번역 시스템 - 예외 처리 강화"""
+    
+    def __init__(self):
+        self.translation_cache = {}
+        self.debug_log = []
+        self.error_count = 0
+        self.success_count = 0
+        
+        if TRANSLATION_AVAILABLE:
+            try:
+                self.translator = GoogleTranslator(source='auto', target='ko')
+                self.available = True
+                logger.info("번역 시스템 초기화 완료")
+            except Exception as e:
+                logger.error(f"번역 시스템 초기화 실패: {e}")
+                self.available = False
+        else:
+            self.available = False
+            logger.warning("번역 라이브러리 사용 불가 - 원본 텍스트 사용")
+    
+    def translate_text_safe(self, text: str, max_length: int = 500) -> str:
+        """🛡️ 안전화된 텍스트 번역 - 예외 처리 강화"""
+        # 기본 검증
+        if not text or len(text.strip()) == 0:
+            return text
+        
+        # 번역 시스템 사용 불가 시 원본 반환
+        if not self.available:
+            return text
+            
+        # 한국어 텍스트인지 체크
+        if self._is_korean_text(text):
+            return text
+        
+        # 캐시 확인
+        cache_key = text[:100]
+        if cache_key in self.translation_cache:
+            return self.translation_cache[cache_key]
+        
+        # 🛡️ 안전화된 번역 수행
+        try:
+            # 텍스트 길이 제한
+            if len(text) > max_length:
+                text = text[:max_length] + "..."
+            
+            # 번역 실행
+            translated = self.translator.translate(text)
+            
+            # 번역 결과 검증
+            if not translated or translated == text:
+                logger.warning("번역 결과가 원본과 동일하거나 빈 값")
+                return text
+            
+            # 캐시 저장
+            self.translation_cache[cache_key] = translated
+            self.success_count += 1
+            
+            # 디버그 로그 (최대 100개 유지)
+            if len(self.debug_log) >= 100:
+                self.debug_log = self.debug_log[-50:]
+                
+            self.debug_log.append({
+                'original': text[:50] + "..." if len(text) > 50 else text,
+                'translated': translated[:50] + "..." if len(translated) > 50 else translated,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            logger.debug(f"번역 성공: {text[:30]}... → {translated[:30]}...")
+            return translated
+            
+        except requests.exceptions.RequestException as e:
+            # 네트워크 관련 예외
+            self.error_count += 1
+            logger.warning(f"번역 네트워크 오류 (원본 사용): {e}")
+            return text
+            
+        except Exception as e:
+            # 기타 모든 예외
+            self.error_count += 1
+            logger.warning(f"번역 실패 (원본 사용): {e}")
+            return text
+    
+    def _is_korean_text(self, text: str) -> bool:
+        """한국어 텍스트 여부 확인"""
+        if not text:
+            return False
+            
+        try:
+            korean_chars = sum(1 for char in text if ord(char) >= 0xAC00 and ord(char) <= 0xD7A3)
+            return korean_chars / len(text) > 0.3
+        except Exception:
+            return False
+    
+    def get_translation_stats(self) -> Dict:
+        """번역 통계 반환"""
+        total_attempts = self.success_count + self.error_count
+        success_rate = (self.success_count / max(1, total_attempts)) * 100
+        
+        return {
+            'available': self.available,
+            'success_count': self.success_count,
+            'error_count': self.error_count,
+            'success_rate': f"{success_rate:.1f}%",
+            'cache_size': len(self.translation_cache)
+        }
+
+# 전역 안전화된 번역 시스템 인스턴스
+safe_translation_system = SafeTranslationSystem()
 
 # =============================================================================
 # 🚀 v3.4 추가: 일간 리포트용 감성 데이터 관리
@@ -206,6 +327,8 @@ class NotificationStats:
             'health_checks': 0,
             'total_notifications': 0,
             'failed_notifications': 0,
+            'translation_success': 0,  # 번역 성공 통계 추가
+            'translation_errors': 0,   # 번역 실패 통계 추가
             'last_reset': datetime.now().isoformat(),
             'hourly_limits': {
                 'bug_count': 0,
@@ -274,67 +397,11 @@ class NotificationStats:
             return True
 
 # =============================================================================
-# 번역 시스템
-# =============================================================================
-
-class TranslationSystem:
-    """번역 시스템"""
-    
-    def __init__(self):
-        self.translator = GoogleTranslator(source='auto', target='ko')
-        self.translation_cache = {}
-        self.debug_log = []
-    
-    def translate_text(self, text: str, max_length: int = 500) -> str:
-        """텍스트 번역"""
-        if not text or len(text.strip()) == 0:
-            return text
-        
-        # 한국어 텍스트인지 체크
-        if self._is_korean_text(text):
-            return text
-        
-        # 캐시 확인
-        cache_key = text[:100]  # 캐시 키 길이 제한
-        if cache_key in self.translation_cache:
-            return self.translation_cache[cache_key]
-        
-        try:
-            # 번역 실행
-            if len(text) > max_length:
-                text = text[:max_length] + "..."
-            
-            translated = self.translator.translate(text)
-            
-            # 캐시 저장
-            self.translation_cache[cache_key] = translated
-            
-            self.debug_log.append({
-                'original': text[:50] + "..." if len(text) > 50 else text,
-                'translated': translated[:50] + "..." if len(translated) > 50 else translated,
-                'timestamp': datetime.now().isoformat()
-            })
-            
-            return translated
-            
-        except Exception as e:
-            logger.error(f"번역 실패: {e}")
-            return text  # 원본 텍스트 반환
-    
-    def _is_korean_text(self, text: str) -> bool:
-        """한국어 텍스트 여부 확인"""
-        korean_chars = sum(1 for char in text if ord(char) >= 0xAC00 and ord(char) <= 0xD7A3)
-        return korean_chars / len(text) > 0.3 if text else False
-
-# 전역 번역 시스템 인스턴스
-translation_system = TranslationSystem()
-
-# =============================================================================
 # Epic7 통합 알림 시스템
 # =============================================================================
 
 class Epic7Notifier:
-    """Epic7 Discord 알림 시스템 v3.4"""
+    """Epic7 Discord 알림 시스템 v3.4 - 번역 안전화"""
     
     def __init__(self):
         """알림 시스템 초기화"""
@@ -345,7 +412,7 @@ class Epic7Notifier:
         # 웹훅 유효성 검사
         self._validate_webhooks()
         
-        logger.info("Epic7 알림 시스템 v3.4 초기화 완료")
+        logger.info("Epic7 알림 시스템 v3.4 초기화 완료 (번역 안전화 적용)")
     
     def _validate_webhooks(self):
         """웹훅 유효성 검사"""
@@ -503,11 +570,11 @@ class Epic7Notifier:
             return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # =============================================================================
-    # 🚀 v3.4 핵심 추가: 게시글별 즉시 감성 알림
+    # 🚀 v3.4 핵심 추가: 게시글별 즉시 감성 알림 (번역 안전화)
     # =============================================================================
     
     def send_sentiment_post_notification(self, post_data: Dict) -> bool:
-        """🚀 v3.4: 개별 게시글 즉시 감성 알림 전송"""
+        """🚀 v3.4: 개별 게시글 즉시 감성 알림 전송 (번역 안전화)"""
         if not self.webhooks.get('sentiment'):
             logger.warning("감성 알림 웹훅이 설정되지 않았습니다.")
             return False
@@ -529,19 +596,35 @@ class Epic7Notifier:
             source = post_data.get('source', 'unknown')
             url = post_data.get('url', '')
             
-            # 번역 처리 (영어 게시글인 경우)
-            if not translation_system._is_korean_text(title):
-                title = translation_system.translate_text(title, 100)
+            # 🛡️ 안전화된 번역 처리 (v3.4 수정)
+            try:
+                if not safe_translation_system._is_korean_text(title):
+                    title = safe_translation_system.translate_text_safe(title, 100)
+                    NotificationStats.increment_stat('translation_success')
+            except Exception as e:
+                logger.warning(f"제목 번역 안전 처리 실패 (원본 사용): {e}")
+                NotificationStats.increment_stat('translation_errors')
+                # title은 원본 그대로 사용
             
-            if not translation_system._is_korean_text(content):
-                content = translation_system.translate_text(content, 200)
+            try:
+                if not safe_translation_system._is_korean_text(content):
+                    content = safe_translation_system.translate_text_safe(content, 200)
+                    NotificationStats.increment_stat('translation_success')
+            except Exception as e:
+                logger.warning(f"내용 번역 안전 처리 실패 (원본 사용): {e}")
+                NotificationStats.increment_stat('translation_errors')
+                # content는 원본 그대로 사용
             
             # 감성별 색상 및 이모지
             embed_color = NotificationConfig.SENTIMENT_COLORS.get(sentiment, NotificationConfig.COLORS['neutral'])
             sentiment_emoji = NotificationConfig.SENTIMENT_EMOJIS.get(sentiment, '😐')
             
             # 신뢰도 표시
-            confidence_bar = "■" * int(confidence * 10) + "□" * (10 - int(confidence * 10))
+            try:
+                confidence_bar = "■" * int(confidence * 10) + "□" * (10 - int(confidence * 10))
+            except:
+                confidence_bar = "□□□□□□□□□□"
+                confidence = 0.0
             
             # 임베드 생성
             embed = {
@@ -615,11 +698,11 @@ class Epic7Notifier:
         return source_mapping.get(source, source)
     
     # =============================================================================
-    # 기존 알림 기능들 (완전 보존)
+    # 기존 알림 기능들 (완전 보존 + 번역 안전화)
     # =============================================================================
     
     def send_bug_alert(self, bug_posts: List[Dict]) -> bool:
-        """버그 알림 전송 (기존 기능 완전 보존)"""
+        """버그 알림 전송 (기존 기능 완전 보존 + 번역 안전화)"""
         if not bug_posts:
             logger.info("전송할 버그 알림이 없습니다.")
             return True
@@ -645,12 +728,22 @@ class Epic7Notifier:
                 title = post.get('title', '제목 없음')
                 content = post.get('content', '내용 없음')
                 
-                # 번역 처리
-                if not translation_system._is_korean_text(title):
-                    title = translation_system.translate_text(title)
+                # 🛡️ 안전화된 번역 처리 (v3.4 수정)
+                try:
+                    if not safe_translation_system._is_korean_text(title):
+                        title = safe_translation_system.translate_text_safe(title)
+                        NotificationStats.increment_stat('translation_success')
+                except Exception as e:
+                    logger.warning(f"버그 알림 제목 번역 실패 (원본 사용): {e}")
+                    NotificationStats.increment_stat('translation_errors')
                 
-                if not translation_system._is_korean_text(content):
-                    content = translation_system.translate_text(content)
+                try:
+                    if not safe_translation_system._is_korean_text(content):
+                        content = safe_translation_system.translate_text_safe(content)
+                        NotificationStats.increment_stat('translation_success')
+                except Exception as e:
+                    logger.warning(f"버그 알림 내용 번역 실패 (원본 사용): {e}")
+                    NotificationStats.increment_stat('translation_errors')
                 
                 # 우선순위별 이모지
                 priority_emoji = {
@@ -716,7 +809,7 @@ class Epic7Notifier:
             return False
     
     def send_sentiment_notification(self, sentiment_posts: List[Dict], sentiment_summary: Dict) -> bool:
-        """감성 동향 알림 전송 (기존 일괄 처리 방식 완전 보존)"""
+        """감성 동향 알림 전송 (기존 일괄 처리 방식 완전 보존 + 번역 안전화)"""
         if not sentiment_posts:
             logger.info("전송할 감성 동향 알림이 없습니다.")
             return True
@@ -788,7 +881,7 @@ class Epic7Notifier:
             
             embeds = [main_embed]
             
-            # 감성별 상세 임베드 (샘플 게시글)
+            # 감성별 상세 임베드 (샘플 게시글) - 번역 안전화
             for sentiment, posts in sentiment_groups.items():
                 if not posts:
                     continue
@@ -804,9 +897,15 @@ class Epic7Notifier:
                     title = post.get('title', '제목 없음')
                     url = post.get('url', '')
                     
-                    # 번역 처리
-                    if not translation_system._is_korean_text(title):
-                        title = translation_system.translate_text(title, 50)
+                    # 🛡️ 안전화된 번역 처리 (v3.4 수정)
+                    try:
+                        if not safe_translation_system._is_korean_text(title):
+                            title = safe_translation_system.translate_text_safe(title, 50)
+                            NotificationStats.increment_stat('translation_success')
+                    except Exception as e:
+                        logger.warning(f"감성 동향 알림 제목 번역 실패 (원본 사용): {e}")
+                        NotificationStats.increment_stat('translation_errors')
+                        # title은 원본 그대로 사용
                     
                     if url:
                         field_value += f"{i}. [{title[:50]}...]({url})\n"
@@ -936,6 +1035,9 @@ class Epic7Notifier:
             memory_usage = health_data.get('memory_usage', 0)
             cpu_usage = health_data.get('cpu_usage', 0)
             
+            # 번역 시스템 상태 추가 (v3.4)
+            translation_stats = safe_translation_system.get_translation_stats()
+            
             # 상태별 색상 및 이모지
             if system_status == 'healthy':
                 color = NotificationConfig.COLORS['positive']
@@ -964,6 +1066,12 @@ class Epic7Notifier:
                     {
                         "name": "⏱️ 가동 시간",
                         "value": f"**{uptime}**",
+                        "inline": True
+                    },
+                    {
+                        "name": "🌍 번역 시스템",
+                        "value": f"상태: **{'활성' if translation_stats['available'] else '비활성'}**\n"
+                                f"성공률: **{translation_stats['success_rate']}**",
                         "inline": True
                     },
                     {
@@ -1003,21 +1111,21 @@ class Epic7Notifier:
             return False
 
 # =============================================================================
-# 편의 함수들 (외부 모듈에서 쉽게 사용할 수 있도록)
+# 편의 함수들 (외부 모듈에서 쉽게 사용할 수 있도록) - 번역 안전화 적용
 # =============================================================================
 
 def send_bug_alert(bug_posts: List[Dict]) -> bool:
-    """버그 알림 전송 편의 함수"""
+    """버그 알림 전송 편의 함수 (번역 안전화)"""
     notifier = Epic7Notifier()
     return notifier.send_bug_alert(bug_posts)
 
 def send_sentiment_notification(sentiment_posts: List[Dict], sentiment_summary: Dict) -> bool:
-    """감성 동향 알림 전송 편의 함수 (기존 일괄 방식)"""
+    """감성 동향 알림 전송 편의 함수 (기존 일괄 방식 + 번역 안전화)"""
     notifier = Epic7Notifier()
     return notifier.send_sentiment_notification(sentiment_posts, sentiment_summary)
 
 def send_sentiment_post_notification(post_data: Dict) -> bool:
-    """🚀 v3.4: 개별 게시글 즉시 감성 알림 전송 편의 함수"""
+    """🚀 v3.4: 개별 게시글 즉시 감성 알림 전송 편의 함수 (번역 안전화)"""
     notifier = Epic7Notifier()
     return notifier.send_sentiment_post_notification(post_data)
 
@@ -1041,24 +1149,24 @@ def get_system_health() -> Dict:
         # CPU 및 메모리 사용량
         cpu_usage = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
-        memory_usage = memory.percent
         
-        # 가동 시간 계산
-        boot_time = datetime.fromtimestamp(psutil.boot_time())
-        uptime = datetime.now() - boot_time
-        uptime_str = f"{uptime.days}일 {uptime.seconds//3600}시간 {(uptime.seconds//60)%60}분"
+        # 번역 시스템 상태
+        translation_stats = safe_translation_system.get_translation_stats()
         
-        # 상태 판정
-        if memory_usage > 90 or cpu_usage > 90:
+        # 전체 상태 판정
+        if cpu_usage < 80 and memory.percent < 80 and translation_stats['available']:
+            status = 'healthy'
+        elif cpu_usage < 95 and memory.percent < 95:
             status = 'warning'
         else:
-            status = 'healthy'
+            status = 'critical'
         
         return {
             'status': status,
             'cpu_usage': cpu_usage,
-            'memory_usage': memory_usage,
-            'uptime': uptime_str,
+            'memory_usage': memory.percent,
+            'uptime': get_uptime(),
+            'translation_stats': translation_stats,
             'timestamp': datetime.now().isoformat()
         }
         
@@ -1069,56 +1177,138 @@ def get_system_health() -> Dict:
             'cpu_usage': 0,
             'memory_usage': 0,
             'uptime': '알 수 없음',
+            'translation_stats': {'available': False, 'error': str(e)},
             'timestamp': datetime.now().isoformat()
         }
 
+def get_uptime() -> str:
+    """시스템 가동 시간 조회"""
+    try:
+        uptime_seconds = time.time() - psutil.boot_time()
+        
+        days = int(uptime_seconds // 86400)
+        hours = int((uptime_seconds % 86400) // 3600)
+        minutes = int((uptime_seconds % 3600) // 60)
+        
+        if days > 0:
+            return f"{days}일 {hours}시간 {minutes}분"
+        elif hours > 0:
+            return f"{hours}시간 {minutes}분"
+        else:
+            return f"{minutes}분"
+            
+    except Exception as e:
+        logger.error(f"가동 시간 조회 실패: {e}")
+        return "알 수 없음"
+
 def get_notification_stats() -> Dict:
     """알림 통계 조회"""
-    return NotificationStats.load_stats()
-
-def reset_notification_stats():
-    """알림 통계 리셋"""
-    empty_stats = NotificationStats._get_empty_stats()
-    NotificationStats.save_stats(empty_stats)
-    logger.info("알림 통계가 리셋되었습니다.")
+    try:
+        stats = NotificationStats.load_stats()
+        translation_stats = safe_translation_system.get_translation_stats()
+        
+        # 번역 통계 통합
+        stats['translation_stats'] = translation_stats
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"알림 통계 조회 실패: {e}")
+        return {'error': str(e)}
 
 # =============================================================================
-# 메인 실행 부분 (테스트용)
+# 테스트 함수들
 # =============================================================================
+
+def test_discord_connection() -> bool:
+    """Discord 연결 테스트"""
+    try:
+        notifier = Epic7Notifier()
+        
+        # 간단한 테스트 메시지
+        test_payload = {
+            "content": "🧪 Epic7 알림 시스템 연결 테스트 (번역 안전화 적용)"
+        }
+        
+        # 사용 가능한 첫 번째 웹훅으로 테스트
+        for webhook_name, webhook_url in notifier.webhooks.items():
+            success = notifier._send_discord_message(webhook_url, test_payload)
+            if success:
+                logger.info(f"Discord 연결 테스트 성공: {webhook_name}")
+                return True
+            else:
+                logger.warning(f"Discord 연결 테스트 실패: {webhook_name}")
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"Discord 연결 테스트 중 오류: {e}")
+        return False
+
+def test_translation_system() -> Dict:
+    """번역 시스템 테스트"""
+    try:
+        test_texts = [
+            "Hello, this is a test message",
+            "Epic Seven is a great game",
+            "안녕하세요, 이것은 테스트입니다"
+        ]
+        
+        results = []
+        for text in test_texts:
+            translated = safe_translation_system.translate_text_safe(text)
+            results.append({
+                'original': text,
+                'translated': translated,
+                'is_korean_original': safe_translation_system._is_korean_text(text)
+            })
+        
+        stats = safe_translation_system.get_translation_stats()
+        
+        return {
+            'test_results': results,
+            'system_stats': stats,
+            'status': 'success'
+        }
+        
+    except Exception as e:
+        logger.error(f"번역 시스템 테스트 중 오류: {e}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+# =============================================================================
+# 메인 실행 부분
+# =============================================================================
+
+def main():
+    """메인 실행 함수 - 번역 안전화 테스트 포함"""
+    try:
+        logger.info("Epic7 알림 시스템 v3.4 시작 (번역 안전화 적용)")
+        
+        # 시스템 상태 확인
+        health = get_system_health()
+        logger.info(f"시스템 상태: {health['status']}")
+        
+        # 번역 시스템 테스트
+        translation_test = test_translation_system()
+        logger.info(f"번역 시스템 테스트: {translation_test['status']}")
+        
+        # Discord 연결 테스트
+        if test_discord_connection():
+            logger.info("Discord 연결 테스트 성공")
+        else:
+            logger.warning("Discord 연결 테스트 실패")
+        
+        # 통계 출력
+        stats = get_notification_stats()
+        logger.info(f"알림 통계: 총 {stats.get('total_notifications', 0)}개 전송")
+        
+        logger.info("Epic7 알림 시스템 v3.4 초기화 완료")
+        
+    except Exception as e:
+        logger.error(f"메인 실행 중 오류: {e}")
 
 if __name__ == "__main__":
-    # 테스트 실행
-    logger.info("Epic7 알림 시스템 v3.4 테스트 시작 (JSON 오류 수정)")
-    
-    # 테스트 데이터 (문제가 될 수 있는 문자 포함)
-    test_post = {
-        'title': '피시 클라이언트 접속이 안 돼요... (특수문자: ★♥♦♣)',
-        'content': 'still no sexflan nerf meanwhile... 테스트\x00내용\n\n\t특수문자```포함',
-        'url': 'https://example.com/test',
-        'source': 'test_source',
-        'classification': {
-            'sentiment_analysis': {
-                'sentiment': 'negative',
-                'confidence': 0.85
-            },
-            'category': 'general'
-        },
-        'timestamp': datetime.now().isoformat()
-    }
-    
-    # 즉시 감성 알림 테스트
-    logger.info("🚀 즉시 감성 알림 테스트 시작 (JSON 안전화 적용)")
-    success = send_sentiment_post_notification(test_post)
-    logger.info(f"즉시 감성 알림 테스트 결과: {'성공' if success else '실패'}")
-    
-    # 시스템 상태 테스트
-    logger.info("🏥 시스템 헬스체크 테스트 시작")
-    health_data = get_system_health()
-    success = send_health_check(health_data)
-    logger.info(f"헬스체크 테스트 결과: {'성공' if success else '실패'}")
-    
-    # 통계 조회 테스트
-    stats = get_notification_stats()
-    logger.info(f"📊 현재 알림 통계: {stats}")
-    
-    logger.info("🔧 Epic7 알림 시스템 v3.4 테스트 완료 (JSON 오류 수정)")
+    main()
