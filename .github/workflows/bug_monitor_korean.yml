@@ -1,4 +1,4 @@
-name: 🇰🇷 Epic7 Korea Sites Monitor v6.0
+name: 🌐 Epic7 Korea Sites Monitor
 
 on:
   schedule:
@@ -92,10 +92,23 @@ jobs:
               ;;
           esac
           
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip" -O chromedriver.zip
-          unzip -q chromedriver.zip
-          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
+          # 다중 URL 시도 (글로벌과 동일한 폴백 메커니즘)
+          DOWNLOAD_URLS=(
+            "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip"
+            "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+          )
+          
+          for url in "${DOWNLOAD_URLS[@]}"; do
+            echo "🔗 시도: $url"
+            if wget -q -O chromedriver.zip "$url"; then
+              unzip -q chromedriver.zip
+              sudo mv chromedriver-linux64/chromedriver /usr/local/bin/ 2>/dev/null || \
+              sudo mv chromedriver /usr/local/bin/
+              sudo chmod +x /usr/local/bin/chromedriver
+              break
+            fi
+          done
+          
           rm -rf chromedriver.zip chromedriver-linux64/
           
           echo "✅ Chrome: $(google-chrome --version)"
