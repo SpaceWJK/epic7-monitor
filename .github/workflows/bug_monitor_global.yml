@@ -160,8 +160,8 @@ jobs:
           echo "⏰ 완료 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🎯 모드: 글로벌 사이트 전담 (15분 주기, 5분 오프셋)"
           echo "🖥️ 시스템 리소스:"
-          echo "   메모리: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
-          echo "   디스크: $(df -h . | tail -1 | awk '{print $5}' | tr -d %')% 사용"
+          echo "   메모리: $(free -h | grep Mem | awk '{print $3/$2}')"
+          echo "   디스크: $(df -h . | tail -1 | awk '{print $5}') 사용"
 
       - name: 🔄 Commit Changes
         if: success() && steps.status_check.outputs.can_execute == 'true'
