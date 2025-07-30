@@ -1384,11 +1384,29 @@ def crawl_regular_sites(force_crawl: bool = False, schedule_type: str = "regular
     """30분 주기 정규 크롤링 (frequent_sites와 동일하게 6개 소스 완전 지원)"""
     return crawl_frequent_sites(force_crawl, schedule_type, region)
 
-def crawl_by_schedule(schedule: str, force_crawl: bool = False, region: str = "all") -> List[Dict]:
-    """스케줄별 크롤링 통합 함수"""
+def crawl_by_schedule(schedule_or_site: str, force_crawl: bool = False, region: str = "all") -> List[Dict]:
+    """스케줄별 크롤링 통합 함수 - 사이트명 호환성 추가"""
     
-    print(f"[INFO] 스케줄별 크롤링 시작: {schedule}, 지역: {region}")
+    print(f"[INFO] 스케줄별 크롤링 시작: {schedule_or_site}, 지역: {region}")
     
+    # 사이트명이 들어온 경우 매핑
+    site_to_schedule = {
+        'stove_korea_bug': 'frequent',
+        'stove_korea_general': 'regular',
+        'stove_global_bug': 'frequent', 
+        'stove_global_general': 'regular',
+        'ruliweb_epic7': 'regular',
+        'reddit_epicseven': 'regular'
+    }
+    
+    # 사이트명인지 스케줄명인지 판별
+    if schedule_or_site in site_to_schedule:
+        schedule = site_to_schedule[schedule_or_site]
+        print(f"[INFO] 사이트명 '{schedule_or_site}'을 스케줄 '{schedule}'로 매핑")
+    else:
+        schedule = schedule_or_site
+        
+    # 기존 스케줄 처리 로직 (그대로 유지)
     if schedule in ["15min", "frequent"]:
         return crawl_frequent_sites(force_crawl, "frequent", region)
     elif schedule in ["30min", "regular"]:
@@ -1399,7 +1417,7 @@ def crawl_by_schedule(schedule: str, force_crawl: bool = False, region: str = "a
     else:
         print(f"[ERROR] 알 수 없는 스케줄: {schedule}")
         return []
-
+      
 def get_all_posts_for_report(hours: int = 24) -> List[Dict]:
     """일간 리포트용 게시글 수집 (감성 데이터에서 추출)"""
     try:
