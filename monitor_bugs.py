@@ -687,7 +687,35 @@ class Epic7Monitor:
             self.error_manager.handle_error(e, ErrorType.IMPORT, ErrorSeverity.MEDIUM, 
                                           {'function': '_check_discord_webhooks'})
             return {}
-    
+
+    def _crawl_site(self, site: str) -> List[Dict]:
+        """✨ v4.6: 개별 사이트 크롤링 (사이트별 함수 호출)"""
+        try:
+        # 사이트별 크롤링 함수 매핑
+            site_crawlers = {
+                'stove_korea_bug': lambda: crawl_by_schedule('stove_korea_bug', False, 'korea'),
+                'stove_korea_general': lambda: crawl_by_schedule('stove_korea_general', False, 'korea'),
+                'stove_global_bug': lambda: crawl_by_schedule('stove_global_bug', False, 'global'),
+                'stove_global_general': lambda: crawl_by_schedule('stove_global_general', False, 'global'),
+                'ruliweb_epic7': lambda: crawl_by_schedule('ruliweb_epic7', False, 'korea'),
+                'reddit_epicseven': lambda: crawl_by_schedule('reddit_epicseven', False, 'global')
+            }
+        
+            if site not in site_crawlers:
+                logger.error(f"지원하지 않는 사이트: {site}")
+            return []
+        
+        # 크롤링 실행
+            crawler_func = site_crawlers[site]
+            posts = crawler_func()
+        
+            return posts if posts else []
+        
+        except Exception as e:
+            self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM, 
+                                      {'site': site})
+            return []
+
     # =============================================================================
     # ✨ NEW v4.6: 15분 주기 모드별 분리 로직
     # =============================================================================
