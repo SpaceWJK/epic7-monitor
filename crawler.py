@@ -27,6 +27,7 @@ import requests
 import concurrent.futures
 import os
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Callable
 from urllib.parse import urljoin, urlparse
@@ -1437,6 +1438,9 @@ def crawl_all():
     monitor_bugs.py에서 호출하는 통합 크롤링 함수
     기존 crawl_frequent_sites 기능을 래핑
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         logger.info("🚀 crawl_all() 시작 - 전체 사이트 크롤링")
         result = crawl_frequent_sites()
@@ -1444,7 +1448,7 @@ def crawl_all():
         return result
     except Exception as e:
         logger.error(f"❌ crawl_all() 오류: {e}")
-        return []
+        return []        
         
 # =============================================================================
 # 메인 실행 함수
