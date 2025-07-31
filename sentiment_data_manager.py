@@ -607,6 +607,363 @@ class Epic7SentimentManager:
         
         return {}
 
+    # =================================================================
+    # 표준 인터페이스 메서드 (Master 요구사항 - v3.3 추가)
+    # =================================================================
+
+    @measure_performance
+    def save_data(self, data: Dict[str, Any]) -> bool:
+        """
+        데이터 저장 표준 인터페이스
+        다른 모듈에서 호출 가능한 통합 저장 메서드
+
+        Args:
+            data: 저장할 데이터 (게시글 정보 포함)
+
+        Returns:
+            bool: 저장 성공 여부
+        """
+        try:
+            logger.info(f"save_data 호출됨 - 데이터 키: {list(data.keys())}")
+
+            # 기존 최적화된 저장 메서드 활용
+            return self.save_sentiment_immediately_optimized(data)
+
+        except Exception as e:
+            logger.error(f"save_data 실행 중 오류: {e}")
+            return False
+
+    def load_data(self, data_type: str = 'all') -> Dict[str, Any]:
+        """
+        데이터 로딩 표준 인터페이스
+
+        Args:
+            data_type: 로드할 데이터 타입 ('all', 'stats', 'reports')
+
+        Returns:
+            Dict: 로드된 데이터
+        """
+        try:
+            logger.info(f"load_data 호출됨 - 타입: {data_type}")
+
+            if data_type == 'all' or data_type == 'sentiment':
+                return self.load_sentiment_data()
+            elif data_type == 'stats':
+                return self._load_or_create_stats()
+            elif data_type == 'reports':
+                return self._load_or_create_reports()
+            else:
+                return self.load_sentiment_data()  # 기본값
+
+        except Exception as e:
+            logger.error(f"load_data 실행 중 오류: {e}")
+            return {}
+
+    def analyze_sentiment(self, text: str) -> Dict[str, Any]:
+        """
+        감성 분석 직접 호출 인터페이스
+
+        Args:
+            text: 분석할 텍스트
+
+        Returns:
+            Dict: 감성 분석 결과
+        """
+        try:
+            # 기본적인 감성 분석 (키워드 기반)
+            positive_keywords = ['좋다', '훌륭하다', '완벽하다', '최고', '감사', 'good', 'great', 'perfect', 'awesome']
+            negative_keywords = ['나쁘다', '최악', '문제', '버그', '오류', '실망', 'bad', 'worst', 'bug', 'error', 'terrible']
+
+            text_lower = text.lower()
+            positive_count = sum(1 for keyword in positive_keywords if keyword.lower() in text_lower)
+            negative_count = sum(1 for keyword in negative_keywords if keyword.lower() in text_lower)
+
+            if positive_count > negative_count:
+                sentiment = 'positive'
+                confidence = min(0.9, 0.5 + (positive_count - negative_count) * 0.1)
+            elif negative_count > positive_count:
+                sentiment = 'negative'
+                confidence = min(0.9, 0.5 + (negative_count - positive_count) * 0.1)
+            else:
+                sentiment = 'neutral'
+                confidence = 0.5
+
+            return {
+                'sentiment': sentiment,
+                'confidence': confidence,
+                'positive_keywords': positive_count,
+                'negative_keywords': negative_count,
+                'text_length': len(text)
+            }
+
+        except Exception as e:
+            logger.error(f"analyze_sentiment 실행 중 오류: {e}")
+            return {'sentiment': 'neutral', 'confidence': 0.0, 'error': str(e)}
+
+    def get_trends(self, timeframe: str = 'daily') -> Dict[str, Any]:
+        """
+        동향 분석 결과 조회 인터페이스
+
+        Args:
+            timeframe: 시간 범위 ('daily', 'weekly', 'monthly')
+
+        Returns:
+            Dict: 동향 분석 결과
+        """
+        try:
+            logger.info(f"get_trends 호출됨 - 시간범위: {timeframe}")
+
+            # 기존 리포트 데이터 활용
+            reports = self._load_or_create_reports()
+            stats = self._load_or_create_stats()
+
+            if timeframe == 'daily':
+                today = datetime.now().strftime('%Y-%m-%d')
+                daily_data = reports.get(today, {})
+
+                return {
+                    'timeframe': 'daily',
+                    'date': today,
+                    'total_posts': daily_data.get('total_posts', 0),
+                    'sentiment_distribution': daily_data.get('sentiment_summary', {}),
+                    'bug_urgency': daily_data.get('urgency_summary', {}),
+                    'top_keywords': stats.get('frequent_keywords', {})
+                }
+            else:
+                # 주간/월간은 기본 통계 반환
+                return {
+                    'timeframe': timeframe,
+                    'total_keywords': len(stats.get('frequent_keywords', {})),
+                    'total_posts_processed': stats.get('total_posts', 0),
+                    'last_updated': stats.get('last_updated', '')
+                }
+
+        except Exception as e:
+            logger.error(f"get_trends 실행 중 오류: {e}")
+            return {'timeframe': timeframe, 'error': str(e), 'trends': []}
+
+    def cleanup_data(self, force: bool = False) -> bool:
+        """
+        데이터 정리 표준 인터페이스
+
+        Args:
+            force: 강제 정리 여부
+
+        Returns:
+            bool: 정리 성공 여부
+        """
+        try:
+            logger.info(f"cleanup_data 호출됨 - 강제정리: {force}")
+
+            # 기존 스마트 정리 메서드 활용
+            result = self._cleanup_old_data_smart()
+
+            if force:
+                # 강제 정리시 추가 작업
+                self.force_flush_all()
+                # 가비지 컬렉션
+                import gc
+                gc.collect()
+
+            return result
+
+        except Exception as e:
+            logger.error(f"cleanup_data 실행 중 오류: {e}")
+            return False
+
+    @measure_performance  
+    def process_post(self, post_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        게시글 처리 핵심 메서드 - monitor_bugs.py 연동용
+        크롤링→저장→분석→알림 체인의 핵심 연결점
+
+        Args:
+            post_data: 게시글 데이터 (title, content, site, timestamp 등)
+
+        Returns:
+            Dict: 처리 결과 (sentiment, urgency, alert_needed 등)
+        """
+        try:
+            logger.info(f"process_post 호출됨 - 사이트: {post_data.get('site', 'unknown')}")
+
+            # 1. 감성 분석
+            text_content = f"{post_data.get('title', '')} {post_data.get('content', '')}"
+            sentiment_result = self.analyze_sentiment(text_content)
+
+            # 2. 버그 긴급도 판별
+            urgency_result = self.check_urgent_bugs(post_data)
+
+            # 3. 데이터 저장
+            enhanced_data = {
+                **post_data,
+                'sentiment': sentiment_result,
+                'urgency': urgency_result,
+                'processed_timestamp': datetime.now().isoformat()
+            }
+
+            save_success = self.save_data(enhanced_data)
+
+            # 4. 알림 필요 여부 판단
+            alert_needed = urgency_result.get('level') in ['critical', 'high']
+            alert_message = None
+
+            if alert_needed:
+                alert_message = self.generate_alert_message(enhanced_data)
+                # 실제 알림 전송 (옵션)
+                # notification_sent = self.send_notification(alert_message, urgency_result.get('level'))
+
+            result = {
+                'status': 'success' if save_success else 'partial_success',
+                'sentiment': sentiment_result,
+                'urgency': urgency_result,
+                'alert_needed': alert_needed,
+                'alert_message': alert_message,
+                'saved': save_success,
+                'post_id': post_data.get('id', 'unknown')
+            }
+
+            logger.info(f"process_post 완료 - 결과: {result['status']}, 알림필요: {alert_needed}")
+            return result
+
+        except Exception as e:
+            logger.error(f"process_post 실행 중 오류: {e}")
+            return {
+                'status': 'error',
+                'error': str(e),
+                'alert_needed': False,
+                'saved': False
+            }
+
+    # =================================================================
+    # 알림 처리 로직 (Master 요구사항 - v3.3 추가)
+    # =================================================================
+
+    def check_urgent_bugs(self, post_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        버그 긴급도 판별
+
+        Args:
+            post_data: 게시글 데이터
+
+        Returns:
+            Dict: 긴급도 분석 결과
+        """
+        try:
+            text_content = f"{post_data.get('title', '')} {post_data.get('content', '')}".lower()
+
+            # 긴급도별 키워드 정의
+            critical_keywords = ['서버다운', 'server down', '접속불가', '긴급점검', '데이터손실', 'rollback']
+            high_keywords = ['버그', 'bug', '오류', 'error', '문제', 'issue', '안됨', 'broken']
+            medium_keywords = ['개선', '불편', '느림', 'slow', '렉', 'lag']
+
+            # 키워드 매칭
+            critical_count = sum(1 for keyword in critical_keywords if keyword in text_content)
+            high_count = sum(1 for keyword in high_keywords if keyword in text_content)
+            medium_count = sum(1 for keyword in medium_keywords if keyword in text_content)
+
+            # 게시판 타입에 따른 가중치
+            site = post_data.get('site', '')
+            board_weight = 1.0
+            if 'bug' in site.lower():
+                board_weight = 1.5  # 버그 게시판은 가중치 증가
+
+            # 긴급도 결정
+            if critical_count > 0:
+                level = 'critical'
+                score = min(10, critical_count * 3 * board_weight)
+            elif high_count >= 2:
+                level = 'high'  
+                score = min(8, high_count * 2 * board_weight)
+            elif high_count >= 1 or medium_count >= 3:
+                level = 'medium'
+                score = min(6, (high_count + medium_count) * board_weight)
+            else:
+                level = 'low'
+                score = 1
+
+            return {
+                'level': level,
+                'score': score,
+                'critical_keywords': critical_count,
+                'high_keywords': high_count,
+                'medium_keywords': medium_count,
+                'board_weight': board_weight
+            }
+
+        except Exception as e:
+            logger.error(f"check_urgent_bugs 실행 중 오류: {e}")
+            return {'level': 'low', 'score': 0, 'error': str(e)}
+
+    def generate_alert_message(self, bug_data: Dict[str, Any]) -> str:
+        """
+        알림 메시지 생성
+
+        Args:
+            bug_data: 버그 데이터 (게시글 + 분석 결과)
+
+        Returns:
+            str: 생성된 알림 메시지
+        """
+        try:
+            urgency = bug_data.get('urgency', {})
+            level = urgency.get('level', 'low')
+
+            # 긴급도별 이모지
+            emoji_map = {
+                'critical': '🚨',
+                'high': '⚠️',
+                'medium': '📢',
+                'low': 'ℹ️'
+            }
+
+            emoji = emoji_map.get(level, 'ℹ️')
+            site = bug_data.get('site', 'Unknown')
+            title = bug_data.get('title', 'No Title')[:100]  # 제목 길이 제한
+
+            message = f"""{emoji} Epic7 {level.upper()} 알림
+
+📍 사이트: {site}
+📝 제목: {title}
+🔢 긴급도 점수: {urgency.get('score', 0)}/10
+🕐 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+🔗 상세 확인이 필요합니다."""
+
+            return message.strip()
+
+        except Exception as e:
+            logger.error(f"generate_alert_message 실행 중 오류: {e}")
+            return f"알림 메시지 생성 중 오류 발생: {e}"
+
+    def send_notification(self, message: str, urgency_level: str) -> bool:
+        """
+        알림 전송 인터페이스 (확장 가능)
+
+        Args:
+            message: 전송할 메시지
+            urgency_level: 긴급도 레벨
+
+        Returns:
+            bool: 전송 성공 여부
+        """
+        try:
+            # 현재는 로깅만 (실제 전송 로직은 추후 구현 가능)
+            logger.info(f"알림 전송 준비 - 긴급도: {urgency_level}")
+            logger.info(f"알림 내용: {message}")
+
+            # TODO: 실제 알림 전송 구현
+            # - Discord/Slack 웹훅
+            # - 이메일 전송  
+            # - SMS 전송
+            # - 데스크톱 알림 등
+
+            return True  # 현재는 항상 성공으로 처리
+
+        except Exception as e:
+            logger.error(f"send_notification 실행 중 오류: {e}")
+            return False
+
+
 # =============================================================================
 # 편의 함수들 (v3.3 하위 호환성 보장)
 # =============================================================================

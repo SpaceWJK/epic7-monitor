@@ -1110,6 +1110,30 @@ class Epic7Notifier:
             NotificationStats.increment_stat('failed_notifications')
             return False
 
+        def clean_object(self, obj):
+            """
+            재귀적으로 객체를 정제하는 유틸리티 메서드
+            _sanitize_payload에서 사용되는 누락된 메서드
+            """
+            if obj is None:
+                return None
+            elif isinstance(obj, str):
+                return clean_string(obj)  # 내부 함수 사용
+            elif isinstance(obj, dict):
+                cleaned = {}
+                for key, value in obj.items():
+                    if value is not None:
+                        cleaned_key = clean_string(str(key)) if isinstance(key, str) else key
+                        cleaned[cleaned_key] = clean_object(value)
+                return cleaned
+            elif isinstance(obj, list):
+                return [clean_object(item) for item in obj if item is not None]
+            elif isinstance(obj, (int, float, bool)):
+                return obj
+            else:
+                # 기타 객체는 문자열로 변환 후 정제
+                return clean_string(str(obj))
+
 # =============================================================================
 # 편의 함수들 (외부 모듈에서 쉽게 사용할 수 있도록) - 번역 안전화 적용
 # =============================================================================

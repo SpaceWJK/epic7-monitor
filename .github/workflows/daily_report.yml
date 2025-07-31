@@ -1,4 +1,4 @@
-name: 📊 Epic7 Daily Report (Optimized v3.2)
+name: 📊 Epic7 Daily Report (Optimized v3.3)
 
 on:
   schedule:
@@ -35,7 +35,7 @@ env:
 
 jobs:
   daily-report-optimized:
-    name: 📈 Generate Daily Report (Optimized v3.2)
+    name: 📈 Generate Daily Report (Optimized v3.3)
     runs-on: ubuntu-latest
     timeout-minutes: 15  # 기존 30분 → 15분으로 단축
     
@@ -198,10 +198,10 @@ jobs:
         run: |
           echo "=== 통합 시스템을 통한 일간 리포트 생성 ==="
           echo "실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo "실행 명령어: python monitor_bugs.py --schedule 24h"
+          echo "실행 명령어: python monitor_bugs.py --schedule ${REPORT_PERIOD}h"
           
           # ✨ 핵심 변경: 통합 시스템 활용
-          echo "시작" && python monitor_bugs.py --schedule 24h
+          echo "시작" && python monitor_bugs.py --schedule ${REPORT_PERIOD}h
           echo "완료"
           
           echo "✅ 통합 시스템을 통한 일간 리포트 생성 완료"
@@ -236,7 +236,7 @@ jobs:
                  -X POST \
                  -d "{
                    \"embeds\": [{
-                     \"title\": \"$STATUS_EMOJI Epic7 Daily Report v3.2\",
+                     \"title\": \"$STATUS_EMOJI Epic7 Daily Report v3.3\",
                      \"description\": \"통합 시스템을 통한 일간 리포트 생성 $([ "${{ job.status }}" = "success" ] && echo "완료" || echo "실패")\",
                      \"color\": $STATUS_COLOR,
                      \"fields\": [
@@ -267,12 +267,12 @@ jobs:
                        },
                        {
                          \"name\": \"🎯 실행 방식\",
-                         \"value\": \"통합 시스템 (monitor_bugs.py --schedule 24h)\",
+                         \"value\": \"통합 시스템 (monitor_bugs.py --schedule ${REPORT_PERIOD}h)\",
                          \"inline\": false
                        }
                      ],
                      \"footer\": {
-                       \"text\": \"Epic7 Daily Report v3.2 (Integrated System)\"
+                       \"text\": \"Epic7 Daily Report v3.3 (Dynamic Period)\"
                      }
                    }]
                  }" \
@@ -289,13 +289,13 @@ jobs:
           echo "📄 Committing report changes..."
           
           git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action Daily Report v3.2"
+          git config --local user.name "GitHub Action Daily Report v3.3"
           
           # 변경사항 확인
           if [[ -n $(git status --porcelain) ]]; then
             echo "📝 Changes detected, committing..."
             git add daily_report.md *.json *.html *.log 2>/dev/null || true
-            git commit -m "📊 Daily Report v3.2: $(date '+%Y-%m-%d %H:%M:%S') [통합 시스템]" || true
+            git commit -m "📊 Daily Report v3.3: $(date '+%Y-%m-%d %H:%M:%S') [${REPORT_PERIOD}h 기간]" || true
             git push || echo "⚠️ Push failed - continuing..."
             echo "✅ Report committed successfully"
           else

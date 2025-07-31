@@ -1362,6 +1362,9 @@ def main():
         logger.info(f"디버그: {args.debug}, 강제 크롤링: {args.force_crawl}")
         logger.info("=" * 80)
         
+        from crawler import crawl_all
+        crawl_all()
+        
         # 실행 락 획득
         if not ExecutionManager.acquire_lock():
             logger.warning("다른 인스턴스가 실행 중입니다. 종료합니다.")

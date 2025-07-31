@@ -728,6 +728,44 @@ class Epic7Classifier:
         }
         return emoji_map.get(priority, '❓')
 
+    def is_bug_post(self, text: str, title: str = '') -> bool:
+        """
+        게시글이 버그 관련인지 판별하는 표준 인터페이스
+        다른 모듈에서 간단한 버그 여부 확인 시 사용
+
+        Args:
+            text (str): 게시글 내용
+            title (str): 게시글 제목 (선택사항)
+
+        Returns:
+            bool: 버그 게시글 여부
+        """
+        try:
+            result = self.classify_post(text, title)
+            return result.get('category', '') == 'bug'
+        except Exception as e:
+            logger.error(f"is_bug_post 오류: {e}")
+            return False
+
+    def extract_bug_severity(self, text: str, title: str = '') -> str:
+        """
+        버그 심각도(긴급/높음/중간/낮음) 추출하는 표준 인터페이스
+        monitor_bugs.py와 notifier.py에서 우선순위 판별 시 사용
+
+        Args:
+            text (str): 게시글 내용
+            title (str): 게시글 제목 (선택사항)
+
+        Returns:
+            str: 'critical', 'high', 'medium', 'low' 중 하나
+        """
+        try:
+            result = self.classify_post(text, title)
+            return result.get('priority', 'low')
+        except Exception as e:
+            logger.error(f"extract_bug_severity 오류: {e}")
+            return 'low'
+
 # =============================================================================
 # 독립 함수들 (monitor_bugs.py 호환성)
 # =============================================================================
