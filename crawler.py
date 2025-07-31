@@ -1432,6 +1432,20 @@ def get_all_posts_for_report(hours: int = 24) -> List[Dict]:
         print(f"[ERROR] 일간 리포트 데이터 수집 실패: {e}")
         return []
 
+def crawl_all():
+    """
+    monitor_bugs.py에서 호출하는 통합 크롤링 함수
+    기존 crawl_frequent_sites 기능을 래핑
+    """
+    try:
+        logger.info("🚀 crawl_all() 시작 - 전체 사이트 크롤링")
+        result = crawl_frequent_sites()
+        logger.info("✅ crawl_all() 완료")
+        return result
+    except Exception as e:
+        logger.error(f"❌ crawl_all() 오류: {e}")
+        return []
+        
 # =============================================================================
 # 메인 실행 함수
 # =============================================================================
