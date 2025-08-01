@@ -977,7 +977,7 @@ def save_sentiment_data_immediately(post_data: Dict) -> bool:
         logger.error(f"즉시 저장 편의 함수 실패: {e}")
         return False
 
-def save_sentiment_data(posts_data: Union[Dict, List[Dict]]) -> bool:
+def save_sentiment_data(posts_data: Union[Dict, List[Dict]], sentiment_result: Dict = None) -> bool:
     """편의 함수: 복수/단일 게시글 저장 (v3.3 최적화 적용)"""
     try:
         manager = Epic7SentimentManager()

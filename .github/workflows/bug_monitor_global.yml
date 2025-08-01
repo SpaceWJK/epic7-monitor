@@ -211,6 +211,5 @@ jobs:
                     }
                   ]
                 }]
-              }' \
-             "$DISCORD_WEBHOOK_BUG"
+              }'
           fi
