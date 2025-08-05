@@ -44,8 +44,8 @@ jobs:
             current_time=$(date +%s)
             time_diff=$((current_time - lock_time))
             
-            if [ $time_diff -gt 2100 ]; then
-              echo "⚠️ 실행 락이 35분 이상 유지됨 - 비정상 종료로 간주하여 락 해제"
+            if [ $time_diff -gt 1800 ]; then  # 30분 초과시 락 해제 (Korea와 통일)
+              echo "⚠️ 실행 락이 30분 이상 유지됨 - 비정상 종료로 간주하여 락 해제"
               rm -f "$EXECUTION_LOCK_FILE"
               echo "can_execute=true" >> $GITHUB_OUTPUT
             else
@@ -60,33 +60,57 @@ jobs:
 
       - name: 🐍 Setup Python 3.11
         if: steps.status_check.outputs.can_execute == 'true'
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5  # v4에서 v5로 업데이트
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 🌐 Install Chrome and ChromeDriver
+      - name: 🌐 Install Chrome & ChromeDriver
         if: steps.status_check.outputs.can_execute == 'true'
         run: |
-          echo "🌐 Chrome과 ChromeDriver 설치 중..."
+          echo "🌐 Chrome 및 ChromeDriver 설치..."
           
-          # Chrome 설치
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get update
+          # Chrome 설치 (Korea 방식으로 통일)
+          sudo apt-get update -y
           sudo apt-get install -y google-chrome-stable
           
-          # ChromeDriver 설치
-          CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1)
-          CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}")
-          wget -q "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
-          unzip chromedriver_linux64.zip
-          sudo mv chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
+          # ChromeDriver 설치 (다단계 폴백 메커니즘)
+          CHROME_VERSION=$(google-chrome --version | sed 's/.*Chrome \([0-9\.]*\).*/\1/')
+          CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
           
-          echo "✅ Chrome과 ChromeDriver 설치 완료"
-          google-chrome --version
-          chromedriver --version
+          case $CHROME_MAJOR_VERSION in
+            "138"|"139"|"140")
+              CHROMEDRIVER_VERSION="138.0.6993.88"
+              ;;
+            "137")
+              CHROMEDRIVER_VERSION="137.0.6916.107"
+              ;;
+            *)
+              CHROMEDRIVER_VERSION="138.0.6993.88"
+              ;;
+          esac
+          
+          # 다중 URL 시도 (안정성 개선)
+          DOWNLOAD_URLS=(
+            "https://storage.googleapis.com/chrome-for-testing-public/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip"
+            "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+          )
+          
+          for url in "${DOWNLOAD_URLS[@]}"; do
+            echo "🔗 시도: $url"
+            if wget -q -O chromedriver.zip "$url"; then
+              unzip -q chromedriver.zip
+              sudo mv chromedriver-linux64/chromedriver /usr/local/bin/ 2>/dev/null || \
+              sudo mv chromedriver /usr/local/bin/
+              sudo chmod +x /usr/local/bin/chromedriver
+              break
+            fi
+          done
+          
+          rm -rf chromedriver.zip chromedriver-linux64/
+          
+          echo "✅ Chrome: $(google-chrome --version)"
+          echo "✅ ChromeDriver: $(chromedriver --version)"
 
       - name: 📦 Install Dependencies
         if: steps.status_check.outputs.can_execute == 'true'
@@ -112,6 +136,9 @@ jobs:
           echo "⏰ 실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🎯 대상: STOVE Global, Reddit"
           
+          # 실행 시작 시간 저장 (환경변수 오류 수정)
+          export START_TIME=$(date '+%Y-%m-%d %H:%M:%S %Z')
+          
           # 플래그 설정
           debug_flag=""
           force_flag=""
@@ -134,11 +161,14 @@ jobs:
         run: |
           echo "📊 글로벌 모니터링 실행 요약"
           echo "════════════════════════════════════════"
-          echo "⏰ 시작 시간: ${{ env.START_TIME }}"
+          echo "⏰ 시작 시간: $START_TIME"
           echo "⏰ 종료 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🌐 모드: Global Sites Only"
           echo "🎯 대상 사이트: STOVE Global Bug/General, Reddit"
           echo "🔄 스케줄: 15분 주기 (0,15,30,45분)"
+          echo "🖥️ 시스템 리소스:"
+          echo "   메모리: $(free -h | grep Mem | awk '{print $3/$2}')"
+          echo "   디스크: $(df -h . | tail -1 | awk '{print $5}') 사용"
           echo "════════════════════════════════════════"
           
           # 실행 결과 파일이 있다면 표시
@@ -153,16 +183,16 @@ jobs:
           echo "💾 변경사항 커밋 중..."
           
           git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.name "Epic7 Global Monitor v6.0"  # 커밋 메시지 통일
           
           # 변경된 파일이 있는지 확인
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "📝 커밋할 변경사항이 없습니다."
-          else
-            git add .
-            git commit -m "🌐 Global monitoring: $(date '+%Y-%m-%d %H:%M:%S')" || echo "커밋할 변경사항이 없습니다."
-            git push || echo "푸시할 변경사항이 없습니다."
+          if [[ -n $(git status --porcelain) ]]; then
+            git add *.json *.html *.log 2>/dev/null || true
+            git commit -m "🌐 Global Monitor v6.0: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git push || echo "⚠️ Push failed - continuing..."
             echo "✅ 변경사항 커밋 완료"
+          else
+            echo "📝 커밋할 변경사항이 없습니다."
           fi
 
       - name: 🔓 Release Lock
@@ -180,36 +210,39 @@ jobs:
     
     steps:
       - name: 📧 Send Failure Notification
+        env:
+          DISCORD_WEBHOOK_BUG: ${{ secrets.DISCORD_WEBHOOK_BUG }}
         run: |
           echo "📧 Discord 실패 알림 전송 중..."
           
-          if [ -n "${{ secrets.DISCORD_WEBHOOK_BUG }}" ]; then
-            curl -X POST "${{ secrets.DISCORD_WEBHOOK_BUG }}" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "username": "Epic7 Global Monitor Alert",
-                "avatar_url": "https://cdn.discordapp.com/emojis/🚨.png",
-                "embeds": [{
-                  "title": "🚨 글로벌 사이트 모니터링 실패",
-                  "description": "Epic7 글로벌 사이트 모니터링 워크플로우가 실패했습니다.",
-                  "color": 16711680,
-                  "fields": [
-                    {
-                      "name": "⏰ 실패 시간",
-                      "value": "'"$(date '+%Y-%m-%d %H:%M:%S %Z')"'",
-                      "inline": true
-                    },
-                    {
-                      "name": "🔗 워크플로우",
-                      "value": "[실행 로그 확인](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})",
-                      "inline": true
-                    },
-                    {
-                      "name": "⏰ 다음 실행",
-                      "value": "'"$(date -d '+15 minutes' '+%H:%M')"'",
-                      "inline": true
-                    }
-                  ]
-                }]
-              }'
+          if [[ -n "$DISCORD_WEBHOOK_BUG" ]]; then
+            curl -H "Content-Type: application/json" \
+                 -X POST \
+                 -d "{
+                   \"username\": \"Epic7 Global Monitor Alert\",
+                   \"avatar_url\": \"https://cdn.discordapp.com/emojis/🚨.png\",
+                   \"embeds\": [{
+                     \"title\": \"🚨 글로벌 사이트 모니터링 실패\",
+                     \"description\": \"Epic7 글로벌 사이트 모니터링 워크플로우가 실패했습니다.\",
+                     \"color\": 16711680,
+                     \"fields\": [
+                       {
+                         \"name\": \"⏰ 실패 시간\",
+                         \"value\": \"$(date '+%Y-%m-%d %H:%M:%S %Z')\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"🔗 워크플로우\",
+                         \"value\": \"[실행 로그 확인](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\",
+                         \"inline\": true
+                       },
+                       {
+                         \"name\": \"⏰ 다음 실행\",
+                         \"value\": \"$(date -d '+15 minutes' '+%H:%M')\",
+                         \"inline\": true
+                       }
+                     ]
+                   }]
+                 }" \
+                "$DISCORD_WEBHOOK_BUG"
           fi

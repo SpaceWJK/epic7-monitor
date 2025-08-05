@@ -186,7 +186,7 @@ class ImmediateProcessor:
         """감성 알림 전송 및 데이터 저장"""
         try:
             # Master 요구사항: 일간 리포트용 데이터 저장
-            save_success = save_sentiment_data(post_data, sentiment_result)
+            save_success = save_sentiment_data(post_data)
             
             # 즉시 감성 알림 전송
             alert_success = send_sentiment_notification(post_data, sentiment_result)

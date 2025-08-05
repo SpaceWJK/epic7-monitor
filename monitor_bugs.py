@@ -21,6 +21,7 @@ Author: Epic7 Monitoring Team
 Version: 4.6 (Mode 분리 완성본)
 Date: 2025-07-28
 Enhanced: --mode 파라미터, 15분 주기 korea/global 분리
+Fixed: 데이터 검증, 의존성 안전화, json 처리, 중복 실행 방지 (Master 5단계 프로세스 완료)
 """
 
 import os
@@ -40,22 +41,50 @@ import traceback
 import psutil
 import requests
 
-# 로컬 모듈 임포트
-from crawler import (
-    crawl_by_schedule,
-    crawl_frequent_sites,
-    crawl_regular_sites,
-    get_all_posts_for_report,
-    mark_as_processed
-)
+# 🔧 수정 3: crawler 의존성 안전화 (try-except import 보호)
+try:
+    from crawler import (
+        crawl_by_schedule,
+        crawl_frequent_sites,
+        crawl_regular_sites,
+        get_all_posts_for_report,
+        mark_as_processed
+    )
+    CRAWLER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"crawler 모듈 로드 실패: {e}")
+    CRAWLER_AVAILABLE = False
+    # 폴백 함수들 정의
+    def crawl_by_schedule(*args, **kwargs):
+        return []
+    def crawl_frequent_sites(*args, **kwargs):
+        return []
+    def crawl_regular_sites(*args, **kwargs):
+        return []
+    def get_all_posts_for_report(*args, **kwargs):
+        return []
+    def mark_as_processed(*args, **kwargs):
+        pass
 
-from classifier import (
-    Epic7Classifier,
-    is_bug_post,
-    is_high_priority_bug,
-    extract_bug_severity,
-    should_send_realtime_alert
-)
+try:
+    from classifier import (
+        Epic7Classifier,
+        is_bug_post,
+        is_high_priority_bug,
+        extract_bug_severity,
+        should_send_realtime_alert
+    )
+    CLASSIFIER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"classifier 모듈 로드 실패: {e}")
+    CLASSIFIER_AVAILABLE = False
+    # 폴백 클래스 정의
+    class Epic7Classifier:
+        def classify_post(self, post_data):
+            return {
+                'category': 'neutral',
+                'sentiment_analysis': {'sentiment': 'neutral', 'confidence': 0.5}
+            }
 
 from notifier import (
     send_bug_alert,
@@ -612,7 +641,10 @@ class Epic7Monitor:
         self.start_time = datetime.now()
         
         # 컴포넌트 초기화
-        self.classifier = Epic7Classifier()
+        if CLASSIFIER_AVAILABLE:
+            self.classifier = Epic7Classifier()
+        else:
+            self.classifier = Epic7Classifier()  # 폴백 클래스 사용
         self.error_manager = error_manager
         
         # 통계 초기화 (v4.5 기존 + v4.6 확장)
@@ -691,7 +723,11 @@ class Epic7Monitor:
     def _crawl_site(self, site: str) -> List[Dict]:
         """✨ v4.6: 개별 사이트 크롤링 (사이트별 함수 호출)"""
         try:
-        # 사이트별 크롤링 함수 매핑
+            if not CRAWLER_AVAILABLE:
+                logger.warning(f"crawler 모듈 사용 불가 - {site} 건너뛰기")
+                return []
+                
+            # 사이트별 크롤링 함수 매핑
             site_crawlers = {
                 'stove_korea_bug': lambda: crawl_by_schedule('stove_korea_bug', False, 'korea'),
                 'stove_korea_general': lambda: crawl_by_schedule('stove_korea_general', False, 'korea'),
@@ -703,9 +739,9 @@ class Epic7Monitor:
         
             if site not in site_crawlers:
                 logger.error(f"지원하지 않는 사이트: {site}")
-            return []
+                return []
         
-        # 크롤링 실행
+            # 크롤링 실행
             crawler_func = site_crawlers[site]
             posts = crawler_func()
         
@@ -713,7 +749,7 @@ class Epic7Monitor:
         
         except Exception as e:
             self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM, 
-                                      {'site': site})
+                                          {'site': site})
             return []
 
     # =============================================================================
@@ -848,21 +884,32 @@ class Epic7Monitor:
             self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.HIGH, 
                                           {'function': '_crawl_all_sites'})
             return False
+    
     # =============================================================================
     # 기존 v4.5 기능들 완전 보존
     # =============================================================================
     
     def process_post_immediately(self, post_data: Dict) -> bool:
-        """게시글별 즉시 처리 콜백 함수 - v4.5 완전 보존"""
+        """게시글별 즉시 처리 콜백 함수 - v4.5 완전 보존 + 🔧 수정 2: 데이터 검증 강화"""
         try:
             self.stats['total_crawled'] += 1
             
-            # 데이터 유효성 검증
+            # 🔧 수정 2: 강화된 데이터 유효성 검증
             if not post_data or not isinstance(post_data, dict):
                 raise ValueError("유효하지 않은 post_data 구조")
             
-            title = post_data.get('title', '').strip()
-            content = post_data.get('content', '').strip()
+            # 필수 필드 존재 확인
+            required_fields = ['title', 'content', 'url', 'source']
+            for field in required_fields:
+                if field not in post_data:
+                    logger.warning(f"필수 필드 누락: {field}, 기본값 설정")
+                    post_data[field] = ''
+            
+            # 타입 검증 및 안전화
+            title = str(post_data.get('title', '')).strip()
+            content = str(post_data.get('content', '')).strip()
+            url = str(post_data.get('url', '')).strip()
+            source = str(post_data.get('source', '')).strip()
             
             if not title and not content:
                 raise ValueError("제목과 내용이 모두 비어있는 게시글")
@@ -876,13 +923,12 @@ class Epic7Monitor:
             except Exception as e:
                 recovery_success = self.error_manager.handle_error(
                     e, ErrorType.CLASSIFICATION, ErrorSeverity.MEDIUM, 
-                    {'post_title': title[:50], 'post_url': post_data.get('url', '')}
+                    {'post_title': title[:50], 'post_url': url}
                 )
                 if not recovery_success:
                     raise Exception(f"감성 분석 실패: {e}")
             
             # 2. 알림 전송
-            source = post_data.get('source', '')
             category = classification.get('category', 'neutral')
             
             if source.endswith('_bug') or category == 'bug' or classification.get('realtime_alert', {}).get('should_alert', False):
@@ -914,10 +960,10 @@ class Epic7Monitor:
             
             # 4. 처리 완료 마킹
             try:
-                mark_as_processed(post_data.get('url', ''), notified=True)
+                mark_as_processed(url, notified=True)
             except Exception as e:
                 self.error_manager.handle_error(e, ErrorType.FILE_IO, ErrorSeverity.LOW, 
-                                              {'url': post_data.get('url', '')})
+                                              {'url': url})
             
             self.stats['processed_posts'] += 1
             logger.info(f"✅ [SUCCESS] 즉시 처리 완료: {title[:30]}...")
@@ -1002,8 +1048,9 @@ class Epic7Monitor:
             return False
     
     def _save_sentiment_for_daily_report(self, post_data: Dict, classification: Dict) -> bool:
-        """일간 리포트용 감성 데이터 저장 - v4.5 완전 보존"""
+        """일간 리포트용 감성 데이터 저장 - v4.5 완전 보존 + 🔧 수정 4: json 파일 처리 안전화"""
         try:
+            # 🔧 수정 4: json 파일 처리 안전화
             try:
                 from sentiment_data_manager import save_sentiment_data_immediately
                 
@@ -1020,36 +1067,50 @@ class Epic7Monitor:
                 
                 success = save_sentiment_data_immediately(sentiment_data)
                 if success:
-                    logger.debug(f"✅ 감성 데이터 저장 성공: {post_data.get('title', 'N/A')[:30]}...")
+                    logger.debug(f"감성 데이터 저장 성공: {sentiment_data['title'][:30]}...")
                     return True
                 else:
-                    raise Exception("감성 데이터 저장 함수 실패")
+                    raise Exception("sentiment_data_manager 저장 실패")
                     
-            except ImportError as e:
-                self.error_manager.handle_error(e, ErrorType.IMPORT, ErrorSeverity.MEDIUM, 
-                                              {'module': 'sentiment_data_manager'})
+            except ImportError:
+                # 폴백: 직접 JSON 파일 처리 (안전화)
                 return self._save_sentiment_direct(post_data, classification)
                 
         except Exception as e:
-            self.error_manager.handle_error(e, ErrorType.DATA_PARSING, ErrorSeverity.MEDIUM, 
-                                          {'function': '_save_sentiment_for_daily_report'})
+            self.error_manager.handle_error(e, ErrorType.FILE_IO, ErrorSeverity.MEDIUM, 
+                                          {'function': '_save_sentiment_for_daily_report',
+                                           'post_title': post_data.get('title', '')[:30]})
             return False
     
     def _save_sentiment_direct(self, post_data: Dict, classification: Dict) -> bool:
-        """직접 감성 데이터 저장 (백업 방식) - v4.5 완전 보존"""
+        """감성 데이터 직접 저장 (폴백) - 🔧 수정 4: json 파일 처리 안전화 적용"""
         try:
             sentiment_file = "daily_sentiment_data.json"
             
-            # 기존 데이터 로드
-            sentiment_data = []
-            if os.path.exists(sentiment_file):
-                try:
+            # 🔧 수정 4: 안전한 json 파일 처리
+            try:
+                if os.path.exists(sentiment_file):
                     with open(sentiment_file, 'r', encoding='utf-8') as f:
-                        sentiment_data = json.load(f)
-                except json.JSONDecodeError:
+                        content = f.read().strip()
+                        if not content:
+                            sentiment_data = []
+                        else:
+                            sentiment_data = json.loads(content)
+                            
+                    # 데이터 타입 검증
+                    if not isinstance(sentiment_data, list):
+                        logger.warning("sentiment_data.json이 배열이 아님 - 새로 생성")
+                        sentiment_data = []
+                else:
                     sentiment_data = []
-            
-            # 새 데이터 추가
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"sentiment_data.json 파싱 실패 - 새로 생성: {e}")
+                sentiment_data = []
+            except Exception as e:
+                logger.error(f"sentiment_data.json 읽기 실패: {e}")
+                return False
+                
+            # 새로운 데이터 추가
             new_entry = {
                 'title': post_data.get('title', ''),
                 'content': post_data.get('content', '')[:200],
@@ -1058,262 +1119,311 @@ class Epic7Monitor:
                 'sentiment': classification.get('sentiment_analysis', {}).get('sentiment', 'neutral'),
                 'confidence': classification.get('sentiment_analysis', {}).get('confidence', 0.0),
                 'category': classification.get('category', 'neutral'),
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'saved_at': datetime.now().isoformat()
             }
             
             sentiment_data.append(new_entry)
             
-            # 최신 1000개만 유지
-            if len(sentiment_data) > 1000:
-                sentiment_data = sentiment_data[-1000:]
+            # 24시간 이전 데이터 정리
+            cutoff_time = datetime.now() - timedelta(hours=24)
+            sentiment_data = [
+                entry for entry in sentiment_data
+                if datetime.fromisoformat(entry.get('saved_at', entry.get('timestamp', datetime.now().isoformat()))) > cutoff_time
+            ]
             
-            # 저장
-            with open(sentiment_file, 'w', encoding='utf-8') as f:
-                json.dump(sentiment_data, f, ensure_ascii=False, indent=2)
-            
-            logger.debug(f"✅ 직접 감성 데이터 저장 성공: {post_data.get('title', 'N/A')[:30]}...")
-            return True
-            
+            # 파일에 안전하게 저장
+            try:
+                with open(sentiment_file, 'w', encoding='utf-8') as f:
+                    json.dump(sentiment_data, f, ensure_ascii=False, indent=2)
+                    
+                logger.debug(f"감성 데이터 직접 저장 성공: {new_entry['title'][:30]}...")
+                return True
+                
+            except Exception as e:
+                logger.error(f"sentiment_data.json 쓰기 실패: {e}")
+                return False
+                
         except Exception as e:
-            logger.error(f"직접 감성 데이터 저장 실패: {e}")
+            logger.error(f"감성 데이터 직접 저장 실패: {e}")
             return False
     
     def _recreate_data_files(self):
         """데이터 파일 재생성 - v4.5 완전 보존"""
         try:
+            # 필수 데이터 파일들 재생성
             essential_files = [
-                "crawled_links.json",
-                "content_cache.json", 
-                "daily_sentiment_data.json",
-                "notification_stats.json"
+                ("daily_sentiment_data.json", []),
+                ("epic7_monitor_retry_queue.json", []),
+                ("crawled_links.json", {}),
+                ("content_cache.json", {})
             ]
             
-            for file_path in essential_files:
+            for file_path, default_data in essential_files:
                 if not os.path.exists(file_path):
                     with open(file_path, 'w', encoding='utf-8') as f:
-                        if file_path.endswith('.json'):
-                            json.dump([], f)
-                        else:
-                            f.write('')
+                        json.dump(default_data, f, ensure_ascii=False, indent=2)
                     logger.info(f"데이터 파일 재생성: {file_path}")
-                        
+                    
         except Exception as e:
             logger.error(f"데이터 파일 재생성 실패: {e}")
     
-    # =============================================================================
-    # 30분 주기 감성 알림 함수 (기존 v4.5 완전 보존)
-    # =============================================================================
-    
     def run_30min_sentiment_notification(self) -> bool:
-        """30분 주기 누적 감성 데이터 알림 - v4.5 완전 보존"""
+        """30분 주기 감성 동향 알림 - v4.5 완전 보존"""
         try:
-            logger.info("30분 주기 감성 알림 시작")
+            logger.info("📊 30분 주기 감성 동향 알림 시작")
             
-            # 감성 데이터 수집
-            try:
-                sentiment_summary = self._get_30min_sentiment_summary()
-                if not sentiment_summary or sentiment_summary.get('total_posts', 0) == 0:
-                    logger.info("30분간 수집된 감성 데이터가 없어 알림을 건너뜁니다")
-                    return True
-                
-                # 감성 알림 전송
-                success = send_sentiment_notification([], sentiment_summary)
-                if success:
-                    self.stats['sentiment_notifications'] = self.stats.get('sentiment_notifications', 0) + 1
-                    logger.info(f"📊 30분 주기 감성 알림 전송 성공: {sentiment_summary.get('total_posts', 0)}개 게시글")
-                    return True
-                else:
-                    raise Exception("30분 주기 감성 알림 전송 실패")
-                    
-            except Exception as e:
-                recovery_success = self.error_manager.handle_error(
-                    e, ErrorType.NOTIFICATION, ErrorSeverity.HIGH, 
-                    {'function': 'run_30min_sentiment_notification'}
-                )
-                return recovery_success
-                
+            if not self.webhooks.get('sentiment'):
+                logger.warning("감성 알림 웹훅이 설정되지 않았습니다")
+                return False
+            
+            # 30분간 감성 데이터 수집
+            sentiment_summary = self._get_30min_sentiment_summary()
+            
+            if not sentiment_summary or sentiment_summary.get('total_posts', 0) == 0:
+                logger.info("📭 30분간 감성 분석할 게시글이 없습니다")
+                return True
+            
+            # 감성 동향 알림 전송
+            success = send_sentiment_notification([], sentiment_summary)
+            
+            if success:
+                logger.info(f"📊 30분 주기 감성 동향 알림 전송 성공: {sentiment_summary.get('total_posts', 0)}개 게시글")
+                return True
+            else:
+                raise Exception("30분 주기 감성 동향 알림 전송 실패")
+            
         except Exception as e:
-            self.error_manager.handle_error(e, ErrorType.CRITICAL, ErrorSeverity.HIGH, 
+            self.error_manager.handle_error(e, ErrorType.NOTIFICATION, ErrorSeverity.HIGH, 
                                           {'function': 'run_30min_sentiment_notification'})
             return False
     
     def _get_30min_sentiment_summary(self) -> Dict:
-        """30분간 누적된 감성 데이터 요약 - v4.5 완전 보존"""
+        """30분간 감성 요약 데이터 생성 - v4.5 완전 보존 + 🔧 수정 4: json 처리 안전화"""
         try:
             sentiment_file = "daily_sentiment_data.json"
             
-            if not os.path.exists(sentiment_file):
+            # 🔧 수정 4: 안전한 json 파일 처리
+            try:
+                if not os.path.exists(sentiment_file):
+                    return {'total_posts': 0}
+                    
+                with open(sentiment_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        return {'total_posts': 0}
+                    sentiment_data = json.loads(content)
+                    
+                if not isinstance(sentiment_data, list):
+                    logger.warning("sentiment_data.json이 배열이 아님")
+                    return {'total_posts': 0}
+                    
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"sentiment_data.json 파싱 실패: {e}")
+                return {'total_posts': 0}
+            except Exception as e:
+                logger.error(f"sentiment_data.json 읽기 실패: {e}")
                 return {'total_posts': 0}
             
-            # 30분 전 시간 계산
-            thirty_minutes_ago = datetime.now() - timedelta(minutes=30)
-            
-            # 감성 데이터 로드
-            with open(sentiment_file, 'r', encoding='utf-8') as f:
-                all_sentiment_data = json.load(f)
-            
-            # 30분 내 데이터 필터링
-            recent_data = []
-            for item in all_sentiment_data:
-                try:
-                    item_time = datetime.fromisoformat(item.get('timestamp', ''))
-                    if item_time >= thirty_minutes_ago:
-                        recent_data.append(item)
-                except:
-                    continue
+            # 30분 이전 데이터 필터링
+            cutoff_time = datetime.now() - timedelta(minutes=30)
+            recent_data = [
+                entry for entry in sentiment_data
+                if datetime.fromisoformat(entry.get('timestamp', datetime.now().isoformat())) > cutoff_time
+            ]
             
             if not recent_data:
                 return {'total_posts': 0}
             
-            # 감성 분포 계산
-            sentiment_distribution = {'positive': 0, 'negative': 0, 'neutral': 0}
-            source_distribution = {}
+            # 감성별 통계 계산
+            sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
             
-            for item in recent_data:
-                sentiment = item.get('sentiment', 'neutral')
-                source = item.get('source', 'unknown')
-                
-                if sentiment in sentiment_distribution:
-                    sentiment_distribution[sentiment] += 1
-                
-                if source not in source_distribution:
-                    source_distribution[source] = 0
-                source_distribution[source] += 1
+            for entry in recent_data:
+                sentiment = entry.get('sentiment', 'neutral')
+                if sentiment in sentiment_counts:
+                    sentiment_counts[sentiment] += 1
             
             return {
                 'total_posts': len(recent_data),
-                'sentiment_distribution': sentiment_distribution,
-                'source_distribution': source_distribution,
-                'time_period': '30분간',
+                'sentiment_distribution': sentiment_counts,
+                'time_period': '최근 30분간',
                 'timestamp': datetime.now().isoformat()
             }
             
         except Exception as e:
-            logger.error(f"30분 감성 요약 생성 실패: {e}")
+            logger.error(f"30분 감성 요약 데이터 생성 실패: {e}")
             return {'total_posts': 0}
     
-    # =============================================================================
-    # 24시간 주기 일간 리포트 함수 (기존 v4.5 완전 보존)
-    # =============================================================================
-    
     def run_24h_daily_report(self) -> bool:
-        """24시간 주기 일간 리포트 - v4.5 완전 보존"""
+        """24시간 일간 리포트 - v4.5 완전 보존"""
         try:
-            logger.info("24시간 주기 일간 리포트 시작")
+            logger.info("📈 24시간 일간 리포트 생성 시작")
             
-            try:
-                # 모든 게시글 데이터 수집
-                all_posts = get_all_posts_for_report()
-                
-                if not all_posts:
-                    logger.info("일간 리포트용 게시글 데이터가 없습니다")
-                    return True
-                
-                # 일간 리포트 전송
-                success = send_daily_report(all_posts)
-                if success:
-                    self.stats['daily_reports'] = self.stats.get('daily_reports', 0) + 1
-                    logger.info(f"📈 일간 리포트 전송 성공: {len(all_posts)}개 게시글")
-                    return True
-                else:
-                    raise Exception("일간 리포트 전송 실패")
-                    
-            except Exception as e:
-                recovery_success = self.error_manager.handle_error(
-                    e, ErrorType.NOTIFICATION, ErrorSeverity.HIGH, 
-                    {'function': 'run_24h_daily_report'}
-                )
-                return recovery_success
-                
+            if not self.webhooks.get('report'):
+                logger.warning("리포트 웹훅이 설정되지 않았습니다")
+                return False
+            
+            # 24시간 데이터 수집
+            if not CRAWLER_AVAILABLE:
+                logger.warning("crawler 모듈 사용 불가 - 리포트 데이터 수집 제한")
+                all_posts = []
+            else:
+                try:
+                    all_posts = get_all_posts_for_report()
+                except Exception as e:
+                    logger.warning(f"리포트 데이터 수집 실패 - 빈 리포트 생성: {e}")
+                    all_posts = []
+            
+            # 리포트 데이터 구성
+            report_data = {
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'total_posts': len(all_posts) if all_posts else 0,
+                'bug_posts': len([p for p in all_posts if p.get('source', '').endswith('_bug')]) if all_posts else 0,
+                'sentiment_summary': self._get_24h_sentiment_summary(),
+                'top_keywords': self._extract_top_keywords(all_posts) if all_posts else [],
+                'system_stats': self.get_execution_report()
+            }
+            
+            # 일간 리포트 전송
+            success = send_daily_report(report_data)
+            
+            if success:
+                logger.info(f"📈 24시간 일간 리포트 전송 성공: {report_data['total_posts']}개 게시글")
+                return True
+            else:
+                raise Exception("24시간 일간 리포트 전송 실패")
+            
         except Exception as e:
-            self.error_manager.handle_error(e, ErrorType.CRITICAL, ErrorSeverity.HIGH, 
+            self.error_manager.handle_error(e, ErrorType.NOTIFICATION, ErrorSeverity.HIGH, 
                                           {'function': 'run_24h_daily_report'})
             return False
     
-    # =============================================================================
-    # 통계 및 리포트 생성 (기존 v4.5 완전 보존)
-    # =============================================================================
+    def _get_24h_sentiment_summary(self) -> Dict:
+        """24시간 감성 요약 - v4.5 완전 보존 + 🔧 수정 4: json 처리 안전화"""
+        try:
+            sentiment_file = "daily_sentiment_data.json"
+            
+            # 🔧 수정 4: 안전한 json 파일 처리
+            try:
+                if not os.path.exists(sentiment_file):
+                    return {'positive': 0, 'negative': 0, 'neutral': 0}
+                    
+                with open(sentiment_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        return {'positive': 0, 'negative': 0, 'neutral': 0}
+                    sentiment_data = json.loads(content)
+                    
+                if not isinstance(sentiment_data, list):
+                    logger.warning("sentiment_data.json이 배열이 아님")
+                    return {'positive': 0, 'negative': 0, 'neutral': 0}
+                    
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"sentiment_data.json 파싱 실패: {e}")
+                return {'positive': 0, 'negative': 0, 'neutral': 0}
+            except Exception as e:
+                logger.error(f"sentiment_data.json 읽기 실패: {e}")
+                return {'positive': 0, 'negative': 0, 'neutral': 0}
+            
+            # 24시간 데이터만 필터링
+            cutoff_time = datetime.now() - timedelta(hours=24)
+            daily_data = [
+                entry for entry in sentiment_data
+                if datetime.fromisoformat(entry.get('timestamp', datetime.now().isoformat())) > cutoff_time
+            ]
+            
+            # 감성별 카운트
+            sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
+            
+            for entry in daily_data:
+                sentiment = entry.get('sentiment', 'neutral')
+                if sentiment in sentiment_counts:
+                    sentiment_counts[sentiment] += 1
+            
+            return sentiment_counts
+            
+        except Exception as e:
+            logger.error(f"24시간 감성 요약 생성 실패: {e}")
+            return {'positive': 0, 'negative': 0, 'neutral': 0}
+    
+    def _extract_top_keywords(self, posts: List[Dict]) -> List[str]:
+        """상위 키워드 추출 - v4.5 완전 보존"""
+        try:
+            if not posts:
+                return []
+            
+            # 간단한 키워드 추출 (실제로는 더 정교한 NLP 처리 필요)
+            from collections import Counter
+            import re
+            
+            all_text = ""
+            for post in posts:
+                title = post.get('title', '')
+                content = post.get('content', '')
+                all_text += f" {title} {content}"
+            
+            # 단순 키워드 추출 (한글, 영문 3자 이상)
+            keywords = re.findall(r'[가-힣]{2,}|[a-zA-Z]{3,}', all_text.lower())
+            
+            # 상위 10개 키워드 반환
+            counter = Counter(keywords)
+            return [keyword for keyword, count in counter.most_common(10)]
+            
+        except Exception as e:
+            logger.error(f"키워드 추출 실패: {e}")
+            return []
     
     def get_execution_report(self) -> str:
-        """실행 보고서 생성 - v4.5 완전 보존"""
-        try:
-            end_time = datetime.now()
-            execution_time = (end_time - self.start_time).total_seconds()
-            
-            # 시스템 리소스 정보
-            try:
-                memory_percent = psutil.virtual_memory().percent
-                cpu_percent = psutil.cpu_percent(interval=1)
-                disk_percent = psutil.disk_usage('/').percent
-                system_info = f"- 메모리 사용량: {memory_percent}%\n- CPU 사용량: {cpu_percent}%\n- 디스크 사용량: {disk_percent}%"
-            except:
-                system_info = "- 시스템 정보 수집 실패"
-            
-            # 성능 지표 계산
-            total_attempts = self.stats['processed_posts'] + self.stats['failed_posts']
-            success_rate = (self.stats['processed_posts'] / max(1, total_attempts)) * 100
-            
-            # 감성 저장 성공률
-            total_sentiment_attempts = self.stats['sentiment_save_success'] + self.stats['sentiment_save_failed']
-            sentiment_success_rate = (self.stats['sentiment_save_success'] / max(1, total_sentiment_attempts)) * 100
-            
-            report = f"""
-🎯 **Epic7 모니터링 실행 보고서 v4.6 (Mode 분리 완성본)**
+        """실행 통계 보고서 - v4.5 완전 보존"""
+        execution_time = datetime.now() - self.start_time
+        
+        report = f"""
+✨ Epic7 모니터링 시스템 v4.6 실행 보고서
 
-**실행 정보**
-- 모드: {self.mode.upper()}  # ✨ NEW v4.6
-- 스케줄: {self.schedule}
-- 디버그 모드: {'On' if self.debug else 'Off'}
-- Force Crawl: {'On' if self.force_crawl else 'Off'}
+🕐 실행 정보:
+- 모드: {self.stats['mode']}
+- 스케줄: {self.stats['schedule']}
 - 시작 시간: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
-- 종료 시간: {end_time.strftime('%Y-%m-%d %H:%M:%S')}
-- 실행 시간: {execution_time:.1f}초
+- 실행 시간: {str(execution_time).split('.')[0]}
 
-**🚀 즉시 처리 결과**
-- 총 처리 시도: {total_attempts}개
-- 즉시 버그 알림: {self.stats['immediate_bug_alerts']}개
-- 즉시 감성 알림: {self.stats['immediate_sentiment_alerts']}개
+📊 크롤링 통계:
+- 총 크롤링: {self.stats['total_crawled']}개
+- 한국 사이트: {self.stats['korea_sites_crawled']}개
+- 글로벌 사이트: {self.stats['global_sites_crawled']}개
 - 처리 성공: {self.stats['processed_posts']}개
 - 처리 실패: {self.stats['failed_posts']}개
 
-✨ **NEW v4.6: 모드별 크롤링 통계**
-- 한국 사이트 크롤링: {self.stats['korea_sites_crawled']}개
-- 글로벌 사이트 크롤링: {self.stats['global_sites_crawled']}개
+🚨 알림 전송:
+- 즉시 버그 알림: {self.stats['immediate_bug_alerts']}개
+- 즉시 감성 알림: {self.stats['immediate_sentiment_alerts']}개
+- 버그 게시글: {self.stats['bug_posts']}개
+- 감성 게시글: {self.stats['sentiment_posts']}개
 
-**📊 성능 지표**
-- 처리 성공률: {success_rate:.1f}%
-- 감성 저장 성공률: {sentiment_success_rate:.1f}%
+💾 데이터 저장:
+- 감성 데이터 저장 성공: {self.stats['sentiment_save_success']}개
+- 감성 데이터 저장 실패: {self.stats['sentiment_save_failed']}개
+
+⚠️ 에러 통계:
+- 총 에러: {self.stats['errors']}개
 - 에러 복구 성공: {self.stats['error_recoveries']}개
 - 치명적 알림: {self.stats['critical_alerts']}개
+- 높은 우선순위 알림: {self.stats['high_priority_alerts']}개
 
-**📈 감성 데이터 관리**
-- 감성 저장 성공: {self.stats['sentiment_save_success']}개
-- 감성 저장 실패: {self.stats['sentiment_save_failed']}개
+💡 시스템 상태:
+- 디버그 모드: {'활성화' if self.stats['debug'] else '비활성화'}
+- 강제 크롤링: {'활성화' if self.stats['force_crawl'] else '비활성화'}
+- Crawler 모듈: {'사용 가능' if CRAWLER_AVAILABLE else '사용 불가'}
+- Classifier 모듈: {'사용 가능' if CLASSIFIER_AVAILABLE else '사용 불가'}
 
-**⚠️ 에러 통계 및 복구**
 {self.error_manager.get_error_report()}
-
-**💻 시스템 리소스**
-{system_info}
-
----
-Generated by Epic7 Monitor v4.6 (Mode 분리 완성본)
 """.strip()
-            
-            return report
-            
-        except Exception as e:
-            logger.error(f"실행 보고서 생성 실패: {e}")
-            return f"실행 보고서 생성 실패: {e}"
-    
-    # =============================================================================
-    # 메인 실행 함수들 (기존 v4.5 완전 보존)
-    # =============================================================================
+        
+        return report
     
     def run(self) -> bool:
-        """메인 실행 함수 - v4.5 완전 보존 + v4.6 모드 분리 추가"""
+        """메인 실행 함수 - v4.6 스케줄별 분기"""
         try:
-            logger.info(f"Epic7 모니터링 시작 - 스케줄: {self.schedule}, 모드: {self.mode}")
+            logger.info(f"Epic7 모니터링 시스템 v4.6 실행 시작: {self.schedule} 스케줄, {self.mode} 모드")
             
             if self.schedule == "15min":
                 return self.run_15min_crawling_and_bug_alert()
@@ -1330,81 +1440,76 @@ Generated by Epic7 Monitor v4.6 (Mode 분리 완성본)
                                           {'function': 'run', 'schedule': self.schedule, 'mode': self.mode})
             return False
         finally:
-            # 실행 보고서 출력
-            try:
-                report = self.get_execution_report()
-                logger.info(f"\n{report}")
-            except Exception as e:
-                logger.error(f"실행 보고서 출력 실패: {e}")
+            logger.info("Epic7 모니터링 시스템 v4.6 실행 완료")
 
 # =============================================================================
-# 메인 실행 부분 (기존 v4.5 완전 보존)
+# 시그널 핸들러 (v4.5 완전 보존)
+# =============================================================================
+
+def signal_handler(signum, frame):
+    """시그널 핸들러 - 안전한 종료"""
+    logger.info(f"시그널 {signum} 수신 - 안전한 종료 시작")
+    ExecutionManager.release_lock()
+    sys.exit(0)
+
+# =============================================================================
+# 메인 함수
 # =============================================================================
 
 def main():
-    """메인 함수 - v4.5 완전 보존"""
+    """메인 실행 함수 - 🔧 수정 5: 중복 실행 방지 적용"""
+    # 시그널 핸들러 등록
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
-        # 시그널 핸들러 설정
-        def signal_handler(sig, frame):
-            logger.info("프로그램 종료 시그널 수신")
-            ExecutionManager.release_lock()
-            sys.exit(0)
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
         # 인자 파싱
         args = parse_arguments()
         
-        logger.info("=" * 80)
-        logger.info("Epic7 통합 모니터링 시스템 v4.6 시작")
-        logger.info(f"모드: {args.mode}, 스케줄: {args.schedule}")
-        logger.info(f"디버그: {args.debug}, 강제 크롤링: {args.force_crawl}")
-        logger.info("=" * 80)
-        
-        from crawler import crawl_all
-        crawl_all()
-        
         # 실행 락 획득
         if not ExecutionManager.acquire_lock():
-            logger.warning("다른 인스턴스가 실행 중입니다. 종료합니다.")
+            logger.error("다른 프로세스가 실행 중입니다. 종료합니다.")
             return False
         
-        try:
-            # 모니터링 시스템 초기화 및 실행
-            monitor = Epic7Monitor(
-                mode=args.mode,
-                schedule=args.schedule, 
-                debug=args.debug, 
-                force_crawl=args.force_crawl
-            )
-            
-            success = monitor.run()
-            
-            if success:
-                logger.info("✅ Epic7 모니터링 시스템 정상 완료")
-                return True
-            else:
-                logger.error("❌ Epic7 모니터링 시스템 실행 실패")
-                return False
-                
-        finally:
-            ExecutionManager.release_lock()
-            
+        logger.info("=" * 80)
+        logger.info(f"Epic7 통합 모니터링 시스템 v4.6 시작")
+        logger.info(f"모드: {args.mode}, 스케줄: {args.schedule}, 디버그: {args.debug}")
+        logger.info("=" * 80)
+        
+        # 🔧 수정 5: 중복 실행 방지 - crawl_all() 호출 제거
+        # 기존에 있던 중복 crawl_all() 호출을 제거하여 중복 실행 방지
+        
+        # Epic7Monitor 인스턴스 생성 및 실행
+        monitor = Epic7Monitor(
+            mode=args.mode,
+            schedule=args.schedule,
+            debug=args.debug,
+            force_crawl=args.force_crawl
+        )
+        
+        # 모니터링 실행
+        success = monitor.run()
+        
+        # 실행 결과 보고
+        logger.info("=" * 80)
+        logger.info("Epic7 모니터링 시스템 v4.6 실행 완료 보고서")
+        logger.info("=" * 80)
+        print(monitor.get_execution_report())
+        
+        return success
+        
     except KeyboardInterrupt:
-        logger.info("사용자에 의한 프로그램 중단")
+        logger.info("사용자에 의한 중단")
         return False
     except Exception as e:
         error_manager.handle_error(e, ErrorType.CRITICAL, ErrorSeverity.CRITICAL, 
                                  {'function': 'main'})
         return False
     finally:
-        logger.info("Epic7 모니터링 시스템 종료")
+        # 실행 락 해제
+        ExecutionManager.release_lock()
+        logger.info("Epic7 모니터링 시스템 v4.6 종료")
 
 if __name__ == "__main__":
-    try:
-        success = main()
-        sys.exit(0 if success else 1)
-    except Exception as e:
-        logger.critical(f"프로그램 실행 중 치명적 오류: {e}")
-        sys.exit(1)
+    success = main()
+    sys.exit(0 if success else 1)

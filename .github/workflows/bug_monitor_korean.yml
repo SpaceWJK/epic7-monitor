@@ -62,7 +62,7 @@ jobs:
 
       - name: 🐍 Setup Python 3.11
         if: steps.status_check.outputs.can_execute == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5  # Global과 통일
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -117,8 +117,10 @@ jobs:
       - name: 📦 Install Dependencies
         if: steps.status_check.outputs.can_execute == 'true'
         run: |
+          echo "📦 Python 의존성 설치 중..."
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          echo "✅ 의존성 설치 완료"
 
       - name: 🇰🇷 Execute Korea Sites Monitoring
         if: steps.status_check.outputs.can_execute == 'true'
@@ -131,6 +133,9 @@ jobs:
           echo "🇰🇷 한국 사이트 모니터링 시작..."
           echo "⏰ 실행 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🎯 대상: STOVE 한국, 루리웹"
+          
+          # 실행 시작 시간 저장
+          export START_TIME=$(date '+%Y-%m-%d %H:%M:%S %Z')
           
           # 플래그 설정
           debug_flag=""
@@ -153,23 +158,35 @@ jobs:
         if: always() && steps.status_check.outputs.can_execute == 'true'
         run: |
           echo "📊 한국 모니터 실행 요약:"
+          echo "════════════════════════════════════════"
+          echo "⏰ 시작 시간: $START_TIME"
           echo "⏰ 완료 시간: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "🎯 모드: 한국 사이트 전담 (15분 주기)"
+          echo "🎯 대상 사이트: STOVE 한국, 루리웹"
           echo "🖥️ 시스템 리소스:"
           echo "   메모리: $(free -h | grep Mem | awk '{print $3/$2}')"
           echo "   디스크: $(df -h . | tail -1 | awk '{print $5}') 사용"
+          echo "════════════════════════════════════════"
+          
+          # 실행 결과 파일이 있다면 표시
+          if [ -f "execution_summary.txt" ]; then
+            echo "📋 상세 실행 결과:"
+            cat execution_summary.txt
+          fi
 
       - name: 🔄 Commit Changes
         if: success() && steps.status_check.outputs.can_execute == 'true'
         run: |
           git config --local user.email "action@github.com"
-          git config --local user.name "Epic7 Korea Monitor v6.0"
+          git config --local user.name "Epic7 Korea Monitor v6.0"  # 커밋 메시지 통일
           
           if [[ -n $(git status --porcelain) ]]; then
             git add *.json *.html *.log 2>/dev/null || true
             git commit -m "🇰🇷 Korea Monitor v6.0: $(date '+%Y-%m-%d %H:%M:%S')" || true
             git push || echo "⚠️ Push failed - continuing..."
             echo "✅ 변경사항 커밋 완료"
+          else
+            echo "📝 커밋할 변경사항이 없습니다."
           fi
 
       - name: 🔓 Release Lock
@@ -194,6 +211,8 @@ jobs:
             curl -H "Content-Type: application/json" \
                  -X POST \
                  -d "{
+                   \"username\": \"Epic7 Korea Monitor Alert\",
+                   \"avatar_url\": \"https://cdn.discordapp.com/emojis/🚨.png\",
                    \"embeds\": [{
                      \"title\": \"🚨 한국 사이트 모니터링 실패\",
                      \"description\": \"Epic7 한국 모니터링 시스템 실행 중 오류 발생\",
