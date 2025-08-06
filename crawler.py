@@ -137,7 +137,9 @@ class ImmediateProcessor:
                 return {"sentiment": "neutral", "confidence": 0.5}
                 
             result = self.classifier.classify_post(post_data)
-            print(f"[SENTIMENT] 분석 결과: {result.get('sentiment', 'unknown')}")
+            sentiment_analysis = result.get('sentiment_analysis', {})
+            sentiment = sentiment_analysis.get('sentiment', 'unknown')
+            print(f"[SENTIMENT] 분석 결과: {sentiment}")            
             return result
             
         except Exception as e:
@@ -1221,8 +1223,8 @@ def crawl_reddit_epic7(force_crawl: bool = False, schedule_type: str = "frequent
         client_secret = os.environ.get('REDDIT_CLIENT_SECRET')
         user_agent = os.environ.get('REDDIT_USER_AGENT', 'Epic7Monitor/1.0')
         
-        if not client_id or not client_secret:
-            print("[ERROR] Reddit API 환경변수가 설정되지 않았습니다.")
+        if not client_id or not client_secret or client_id.strip() == '' or client_secret.strip() == '':
+            print("[ERROR] Reddit API 환경변수가 설정되지 않았거나 비어있습니다.")
             return posts
         
         # Reddit 인스턴스 생성
@@ -1231,6 +1233,7 @@ def crawl_reddit_epic7(force_crawl: bool = False, schedule_type: str = "frequent
             client_secret=client_secret,
             user_agent=user_agent
         )
+        reddit.read_only = True
         
         # r/EpicSeven 서브레딧
         subreddit = reddit.subreddit('EpicSeven')
@@ -1299,6 +1302,12 @@ def crawl_reddit_epic7(force_crawl: bool = False, schedule_type: str = "frequent
         
         print(f"[INFO] Reddit 크롤링 완료: {len(posts)}개 게시글")
         
+    except praw.exceptions.ResponseException as e:
+        if e.response.status_code == 401:
+        print(f"[ERROR] Reddit API 인증 실패 (401): client_id/client_secret 확인 필요")
+        else:
+        print(f"[ERROR] Reddit API 응답 오류 ({e.response.status_code}): {e}")
+
     except Exception as e:
         print(f"[ERROR] Reddit 크롤링 실패: {e}")
     

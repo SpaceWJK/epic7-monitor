@@ -117,8 +117,7 @@ class NotificationConfig:
     WEBHOOKS = {
         'bug': os.environ.get('DISCORD_WEBHOOK_BUG'),
         'sentiment': os.environ.get('DISCORD_WEBHOOK_SENTIMENT'),
-        'report': os.environ.get('DISCORD_WEBHOOK_REPORT'),
-        'health': os.environ.get('DISCORD_WEBHOOK_HEALTH')
+        'report': os.environ.get('DISCORD_WEBHOOK_REPORT')        
     }
 
 # =============================================================================
@@ -446,7 +445,7 @@ class Epic7Notifier:
         self.webhooks = valid_webhooks
         
         if not self.webhooks:
-            logger.error("유효한 Discord 웹훅이 없습니다! 다음 환경변수를 설정하세요: DISCORD_WEBHOOK_BUG, DISCORD_WEBHOOK_SENTIMENT, DISCORD_WEBHOOK_REPORT, DISCORD_WEBHOOK_HEALTH")
+            logger.error("유효한 Discord 웹훅이 없습니다! 다음 환경변수를 설정하세요: DISCORD_WEBHOOK_BUG, DISCORD_WEBHOOK_SENTIMENT, DISCORD_WEBHOOK_REPORT")
     
     def _sanitize_payload(self, payload: Dict) -> Dict:
         """
