@@ -1306,11 +1306,10 @@ def crawl_reddit_epic7(force_crawl: bool = False, schedule_type: str = "frequent
         if e.response.status_code == 401:
         print(f"[ERROR] Reddit API 인증 실패 (401): client_id/client_secret 확인 필요")
         else:
-        print(f"[ERROR] Reddit API 응답 오류 ({e.response.status_code}): {e}")
-
+        print(f"[ERROR] Reddit API 응답 오류: {e}")
     except Exception as e:
-        print(f"[ERROR] Reddit 크롤링 실패: {e}")
-    
+        print(f"[ERROR] Reddit 크롤링 실패: {e}")    
+        
     return posts
 
 # =============================================================================
