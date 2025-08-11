@@ -174,7 +174,7 @@ class ImmediateProcessor:
     def _send_bug_alert(self, post_data: Dict) -> bool:
         """버그 알림 전송"""
         try:
-            success = send_bug_alert(post_data)
+            success = send_bug_alert([post_data])  # List[Dict] 전달
             if success:
                 print("[SUCCESS] 버그 알림 전송 완료")
             else:
@@ -191,7 +191,7 @@ class ImmediateProcessor:
             save_success = save_sentiment_data(post_data)
             
             # 즉시 감성 알림 전송
-            alert_success = send_sentiment_notification(post_data, sentiment_result)
+            alert_success = send_sentiment_notification([post_data], sentiment_result)  # List[Dict] 전달
             
             if save_success and alert_success:
                 print("[SUCCESS] 감성 알림 전송 및 데이터 저장 완료")
