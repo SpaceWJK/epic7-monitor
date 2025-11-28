@@ -767,13 +767,24 @@ class Epic7Classifier:
             return 'low'
 
 # =============================================================================
-# 독립 함수들 (monitor_bugs.py 호환성)
+# 독립 함수들 (monitor_bugs.py 호환성) - 전역 classifier 사용
 # =============================================================================
+
+# 전역 classifier 인스턴스 (성능 최적화)
+_global_classifier = None
+
+def get_classifier():
+    """전역 classifier 인스턴스 반환 (싱글톤 패턴)"""
+    global _global_classifier
+    if _global_classifier is None:
+        _global_classifier = Epic7Classifier()
+        logger.info("전역 Epic7Classifier 인스턴스 생성 완료")
+    return _global_classifier
 
 def is_bug_post(post_data: Dict) -> bool:
     """버그 게시글 여부 판별"""
     try:
-        classifier = Epic7Classifier()
+        classifier = get_classifier()
         result = classifier.classify_post(post_data)
         return result.get('bug_analysis', {}).get('is_bug', False)
     except Exception as e:
@@ -783,7 +794,7 @@ def is_bug_post(post_data: Dict) -> bool:
 def is_high_priority_bug(post_data: Dict) -> bool:
     """고우선순위 버그 여부 판별"""
     try:
-        classifier = Epic7Classifier()
+        classifier = get_classifier()
         result = classifier.classify_post(post_data)
         priority = result.get('bug_analysis', {}).get('priority', 'low')
         return priority in ['critical', 'high']
@@ -794,7 +805,7 @@ def is_high_priority_bug(post_data: Dict) -> bool:
 def extract_bug_severity(post_data: Dict) -> str:
     """버그 심각도 추출"""
     try:
-        classifier = Epic7Classifier()
+        classifier = get_classifier()
         result = classifier.classify_post(post_data)
         return result.get('bug_analysis', {}).get('priority', 'low')
     except Exception as e:
@@ -804,7 +815,7 @@ def extract_bug_severity(post_data: Dict) -> str:
 def should_send_realtime_alert(post_data: Dict) -> bool:
     """실시간 알림 전송 여부 판별"""
     try:
-        classifier = Epic7Classifier()
+        classifier = get_classifier()
         result = classifier.classify_post(post_data)
         return result.get('realtime_alert', {}).get('should_alert', False)
     except Exception as e:
