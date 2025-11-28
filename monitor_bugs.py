@@ -33,7 +33,6 @@ import asyncio
 import concurrent.futures
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Callable
-import logging
 from pathlib import Path
 import signal
 import fcntl
@@ -41,7 +40,18 @@ import traceback
 import psutil
 import requests
 
-# 🔧 수정 3: crawler 의존성 안전화 (try-except import 보호)
+# 로깅 먼저 설정 (import 전)
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# 🔧 수정: crawler 의존성 안전화 (logger 초기화 후 import)
 try:
     from crawler import (
         crawl_by_schedule,
@@ -92,16 +102,6 @@ from notifier import (
     send_daily_report,
     send_health_check
 )
-
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # =============================================================================
 # v4.5 에러 관리 시스템 완전 보존
@@ -502,7 +502,8 @@ error_manager = ErrorManager()
 # 실행 상태 관리 (v4.5 완전 보존)
 # =============================================================================
 
-EXECUTION_LOCK_FILE = "epic7_monitor_execution.lock"
+# 환경변수에서 락 파일 이름 가져오기 (GitHub Actions 호환)
+EXECUTION_LOCK_FILE = os.environ.get('EXECUTION_LOCK_FILE', 'epic7_monitor_execution.lock')
 RETRY_QUEUE_FILE = "epic7_monitor_retry_queue.json"
 
 MAX_RETRY_QUEUE_SIZE = 1000
@@ -720,37 +721,7 @@ class Epic7Monitor:
                                           {'function': '_check_discord_webhooks'})
             return {}
 
-    def _crawl_site(self, site: str) -> List[Dict]:
-        """✨ v4.6: 개별 사이트 크롤링 (사이트별 함수 호출)"""
-        try:
-            if not CRAWLER_AVAILABLE:
-                logger.warning(f"crawler 모듈 사용 불가 - {site} 건너뛰기")
-                return []
-                
-            # 사이트별 크롤링 함수 매핑
-            site_crawlers = {
-                'stove_korea_bug': lambda: crawl_by_schedule('stove_korea_bug', False, 'korea'),
-                'stove_korea_general': lambda: crawl_by_schedule('stove_korea_general', False, 'korea'),
-                'stove_global_bug': lambda: crawl_by_schedule('stove_global_bug', False, 'global'),
-                'stove_global_general': lambda: crawl_by_schedule('stove_global_general', False, 'global'),
-                'ruliweb_epic7': lambda: crawl_by_schedule('ruliweb_epic7', False, 'korea'),
-                'reddit_epicseven': lambda: crawl_by_schedule('reddit_epicseven', False, 'global')
-            }
-        
-            if site not in site_crawlers:
-                logger.error(f"지원하지 않는 사이트: {site}")
-                return []
-        
-            # 크롤링 실행
-            crawler_func = site_crawlers[site]
-            posts = crawler_func()
-        
-            return posts if posts else []
-        
-        except Exception as e:
-            self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM, 
-                                          {'site': site})
-            return []
+    # ❌ _crawl_site() 함수 삭제 - crawler.py의 crawl_frequent_sites/crawl_regular_sites 사용
 
     # =============================================================================
     # ✨ NEW v4.6: 15분 주기 모드별 분리 로직
@@ -777,44 +748,22 @@ class Epic7Monitor:
             return False
     
     def _crawl_korea_sites_only(self) -> bool:
-        """✨ v4.6: 한국 사이트만 크롤링"""
+        """✨ v4.6: 한국 사이트만 크롤링 - crawl_frequent_sites 사용"""
         try:
             logger.info("🇰🇷 한국 사이트 전용 크롤링 시작")
             
-            # 한국 사이트 목록
-            korea_sites = [
-                'stove_korea_bug',      # 스토브 한국 버그 게시판
-                'stove_korea_general',  # 스토브 한국 자유 게시판
-                'ruliweb_epic7'         # 루리웹 에픽세븐
-            ]
+            if not CRAWLER_AVAILABLE:
+                logger.error("crawler 모듈을 사용할 수 없습니다")
+                return False
             
-            total_success = True
+            # crawl_frequent_sites를 region='korea'로 호출
+            posts = crawl_frequent_sites(force_crawl=self.force_crawl, schedule_type='frequent', region='korea')
             
-            for site in korea_sites:
-                try:
-                    logger.info(f"🕷️ {site} 크롤링 시작")
-                    
-                    # 사이트별 크롤링 실행
-                    posts = self._crawl_site(site)
-                    
-                    if posts:
-                        # 게시글별 즉시 처리
-                        for post in posts:
-                            self.process_post_immediately(post)
-                        
-                        self.stats['korea_sites_crawled'] += len(posts)
-                        logger.info(f"✅ {site} 크롤링 완료: {len(posts)}개 게시글")
-                    else:
-                        logger.info(f"📭 {site} 새로운 게시글 없음")
-                        
-                except Exception as e:
-                    self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM, 
-                                                  {'site': site, 'mode': 'korea'})
-                    total_success = False
-                    continue
+            self.stats['korea_sites_crawled'] = len(posts)
+            self.stats['total_crawled'] += len(posts)
             
-            logger.info(f"🇰🇷 한국 사이트 크롤링 완료 - 총 {self.stats['korea_sites_crawled']}개 게시글")
-            return total_success
+            logger.info(f"🇰🇷 한국 사이트 크롤링 완료 - 총 {len(posts)}개 게시글")
+            return True
             
         except Exception as e:
             self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.HIGH, 
@@ -822,44 +771,22 @@ class Epic7Monitor:
             return False
     
     def _crawl_global_sites_only(self) -> bool:
-        """✨ v4.6: 글로벌 사이트만 크롤링"""
+        """✨ v4.6: 글로벌 사이트만 크롤링 - crawl_frequent_sites 사용"""
         try:
             logger.info("🌐 글로벌 사이트 전용 크롤링 시작")
             
-            # 글로벌 사이트 목록
-            global_sites = [
-                'stove_global_bug',      # 스토브 글로벌 버그 게시판
-                'stove_global_general',  # 스토브 글로벌 자유 게시판
-                'reddit_epicseven'       # Reddit r/EpicSeven
-            ]
+            if not CRAWLER_AVAILABLE:
+                logger.error("crawler 모듈을 사용할 수 없습니다")
+                return False
             
-            total_success = True
+            # crawl_frequent_sites를 region='global'로 호출
+            posts = crawl_frequent_sites(force_crawl=self.force_crawl, schedule_type='frequent', region='global')
             
-            for site in global_sites:
-                try:
-                    logger.info(f"🕷️ {site} 크롤링 시작")
-                    
-                    # 사이트별 크롤링 실행
-                    posts = self._crawl_site(site)
-                    
-                    if posts:
-                        # 게시글별 즉시 처리
-                        for post in posts:
-                            self.process_post_immediately(post)
-                        
-                        self.stats['global_sites_crawled'] += len(posts)
-                        logger.info(f"✅ {site} 크롤링 완료: {len(posts)}개 게시글")
-                    else:
-                        logger.info(f"📭 {site} 새로운 게시글 없음")
-                        
-                except Exception as e:
-                    self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM, 
-                                                  {'site': site, 'mode': 'global'})
-                    total_success = False
-                    continue
+            self.stats['global_sites_crawled'] = len(posts)
+            self.stats['total_crawled'] += len(posts)
             
-            logger.info(f"🌐 글로벌 사이트 크롤링 완료 - 총 {self.stats['global_sites_crawled']}개 게시글")
-            return total_success
+            logger.info(f"🌐 글로벌 사이트 크롤링 완료 - 총 {len(posts)}개 게시글")
+            return True
             
         except Exception as e:
             self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.HIGH, 
@@ -867,18 +794,21 @@ class Epic7Monitor:
             return False
     
     def _crawl_all_sites(self) -> bool:
-        """✨ v4.6: 모든 사이트 크롤링 (기존 방식 유지)"""
+        """✨ v4.6: 모든 사이트 크롤링 - crawl_frequent_sites 사용"""
         try:
             logger.info("🌏 전체 사이트 통합 크롤링 시작")
             
-            # 한국 + 글로벌 사이트 순차 실행
-            korea_success = self._crawl_korea_sites_only()
-            global_success = self._crawl_global_sites_only()
+            if not CRAWLER_AVAILABLE:
+                logger.error("crawler 모듈을 사용할 수 없습니다")
+                return False
             
-            total_posts = self.stats['korea_sites_crawled'] + self.stats['global_sites_crawled']
-            logger.info(f"🌏 전체 사이트 크롤링 완료 - 총 {total_posts}개 게시글")
+            # crawl_frequent_sites를 region='all'로 호출
+            posts = crawl_frequent_sites(force_crawl=self.force_crawl, schedule_type='frequent', region='all')
             
-            return korea_success and global_success
+            self.stats['total_crawled'] = len(posts)
+            
+            logger.info(f"🌏 전체 사이트 크롤링 완료 - 총 {len(posts)}개 게시글")
+            return True
             
         except Exception as e:
             self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.HIGH, 
