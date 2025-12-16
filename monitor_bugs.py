@@ -41,6 +41,17 @@ import traceback
 import psutil
 import requests
 
+# 🔧 FIX #1: Logger 초기화를 가장 먼저 수행 (import 전)
+# 이렇게 해야 try-except import 블록에서 logger를 안전하게 사용할 수 있음
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # 🔧 수정 3: crawler 의존성 안전화 (try-except import 보호)
 try:
     from crawler import (
@@ -52,7 +63,7 @@ try:
     )
     CRAWLER_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"crawler 모듈 로드 실패: {e}")
+    logger.warning(f"crawler 모듈 로드 실패: {e}")  # ✅ 이제 logger 사용 가능!
     CRAWLER_AVAILABLE = False
     # 폴백 함수들 정의
     def crawl_by_schedule(*args, **kwargs):
@@ -76,7 +87,7 @@ try:
     )
     CLASSIFIER_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"classifier 모듈 로드 실패: {e}")
+    logger.warning(f"classifier 모듈 로드 실패: {e}")  # ✅ 이제 logger 사용 가능!
     CLASSIFIER_AVAILABLE = False
     # 폴백 클래스 정의
     class Epic7Classifier:
@@ -92,16 +103,6 @@ from notifier import (
     send_daily_report,
     send_health_check
 )
-
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # =============================================================================
 # v4.5 에러 관리 시스템 완전 보존
@@ -1453,6 +1454,71 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 # =============================================================================
+# 🔧 FIX #2: 환경변수 검증 함수 추가
+# =============================================================================
+
+def validate_environment() -> Tuple[bool, List[str]]:
+    """
+    환경변수 검증 - Silent Fail 방지
+
+    Returns:
+        Tuple[bool, List[str]]: (검증 성공 여부, 누락된 변수 목록)
+    """
+    # 필수 환경변수 (없으면 시스템 종료)
+    required_vars = [
+        'DISCORD_WEBHOOK_BUG',
+        'DISCORD_WEBHOOK_SENTIMENT',
+        'DISCORD_WEBHOOK_REPORT',
+    ]
+
+    # 선택적 환경변수 (없어도 경고만)
+    optional_vars = [
+        'REDDIT_CLIENT_ID',
+        'REDDIT_CLIENT_SECRET',
+        'REDDIT_USER_AGENT',
+    ]
+
+    missing_required = []
+    for var in required_vars:
+        value = os.environ.get(var)
+        if not value:
+            missing_required.append(var)
+        elif not value.startswith('https://discord.com/api/webhooks/'):
+            logger.warning(f"⚠️ {var} 형식이 올바르지 않습니다: {value[:50]}...")
+
+    # 필수 변수 누락 시 치명적 에러
+    if missing_required:
+        logger.critical("=" * 80)
+        logger.critical("🚨 환경변수 검증 실패 - 필수 변수 미설정")
+        logger.critical("=" * 80)
+        logger.critical(f"누락된 필수 환경변수: {', '.join(missing_required)}")
+        logger.critical("")
+        logger.critical("시스템을 종료합니다. 다음 환경변수를 설정하세요:")
+        logger.critical("")
+        for var in missing_required:
+            logger.critical(f"  export {var}='https://discord.com/api/webhooks/your_webhook_id/your_token'")
+        logger.critical("")
+        logger.critical("GitHub Actions에서는 Secrets로 설정하세요:")
+        logger.critical("  Settings > Secrets and variables > Actions > New repository secret")
+        logger.critical("=" * 80)
+        return False, missing_required
+
+    # 선택적 변수 누락 확인
+    missing_optional = [var for var in optional_vars if not os.environ.get(var)]
+    if missing_optional:
+        logger.warning("=" * 80)
+        logger.warning("⚠️ 선택 환경변수 미설정 - 일부 기능이 제한됩니다")
+        logger.warning("=" * 80)
+        logger.warning(f"누락된 선택 환경변수: {', '.join(missing_optional)}")
+        if 'REDDIT_CLIENT_ID' in missing_optional or 'REDDIT_CLIENT_SECRET' in missing_optional:
+            logger.warning("  → Reddit 크롤링이 비활성화됩니다")
+        logger.warning("=" * 80)
+    else:
+        logger.info("✅ 모든 환경변수 검증 완료 (필수 + 선택)")
+
+    return True, []
+
+# =============================================================================
 # 메인 함수
 # =============================================================================
 
@@ -1461,16 +1527,22 @@ def main():
     # 시그널 핸들러 등록
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     try:
+        # 🔧 FIX #2: 환경변수 검증 (가장 먼저 수행)
+        env_valid, missing_vars = validate_environment()
+        if not env_valid:
+            logger.critical("환경변수 검증 실패로 시스템을 종료합니다.")
+            return False
+
         # 인자 파싱
         args = parse_arguments()
-        
+
         # 실행 락 획득
         if not ExecutionManager.acquire_lock():
             logger.error("다른 프로세스가 실행 중입니다. 종료합니다.")
             return False
-        
+
         logger.info("=" * 80)
         logger.info(f"Epic7 통합 모니터링 시스템 v4.6 시작")
         logger.info(f"모드: {args.mode}, 스케줄: {args.schedule}, 디버그: {args.debug}")

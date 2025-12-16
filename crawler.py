@@ -74,6 +74,67 @@ except ImportError:
     REDDIT_AVAILABLE = False
 
 # =============================================================================
+# 🔧 FIX #3: Chrome/ChromeDriver 설치 검증
+# =============================================================================
+
+def validate_chrome_installation(verbose: bool = True) -> bool:
+    """
+    Chrome/ChromeDriver 설치 검증
+
+    Args:
+        verbose: 상세 로그 출력 여부
+
+    Returns:
+        bool: Chrome 사용 가능 여부
+    """
+    try:
+        # Chrome 설정
+        options = Options()
+        options.add_argument('--headless')  # 헤드리스 모드
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+
+        # Chrome 실행 테스트
+        driver = webdriver.Chrome(options=options)
+        driver.quit()
+
+        if verbose:
+            print("[SUCCESS] ✅ Chrome/ChromeDriver 검증 성공")
+        return True
+
+    except WebDriverException as e:
+        if verbose:
+            print("=" * 80)
+            print("[ERROR] ❌ Chrome/ChromeDriver 검증 실패")
+            print("=" * 80)
+            print(f"오류 상세: {str(e)[:200]}...")
+            print("")
+            print("STOVE 크롤링이 불가능합니다. (루리웹/Reddit은 가능)")
+            print("")
+            print("해결 방법:")
+            print("  1. Chrome 설치:")
+            print("     Ubuntu/Debian: sudo apt-get install google-chrome-stable")
+            print("     macOS: brew install --cask google-chrome")
+            print("")
+            print("  2. ChromeDriver 설치:")
+            print("     pip install webdriver-manager")
+            print("     또는 수동 설치: https://chromedriver.chromium.org/")
+            print("")
+            print("  3. GitHub Actions의 경우:")
+            print("     workflow 파일에 Chrome 설치 스텝이 있는지 확인하세요")
+            print("=" * 80)
+        return False
+
+    except Exception as e:
+        if verbose:
+            print(f"[ERROR] Chrome 검증 중 예상치 못한 오류: {e}")
+        return False
+
+# 전역 Chrome 상태 변수
+CHROME_AVAILABLE = validate_chrome_installation(verbose=False)
+
+# =============================================================================
 # 🚀 Master 요구사항: 즉시 처리 시스템 구현
 # =============================================================================
 
@@ -790,13 +851,19 @@ def get_stove_post_content(post_url: str, driver: webdriver.Chrome,
 # 🚀 Master 요구사항: Stove 게시판 크롤링 + 즉시 처리 통합
 # =============================================================================
 
-def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False, 
+def crawl_stove_board(board_url: str, source: str, force_crawl: bool = False,
                      schedule_type: str = "frequent", region: str = "korea",
                      on_post_process: Optional[Callable[[Dict], None]] = None) -> List[Dict]:
     """
     Stove 게시판 크롤링 + 즉시 처리 통합
     Master 요구사항: 게시글별 즉시 처리 (크롤링→감성분석→알림→마킹)
     """
+
+    # 🔧 FIX #3: Chrome 설치 확인
+    if not CHROME_AVAILABLE:
+        print(f"[WARNING] {source} 크롤링 건너뜀 - Chrome/ChromeDriver 미설치")
+        print(f"[INFO] STOVE 크롤링을 사용하려면 Chrome을 설치하세요")
+        return []
 
     posts = []
     link_data = load_crawled_links()
