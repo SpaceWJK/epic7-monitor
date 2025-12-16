@@ -722,34 +722,88 @@ class Epic7Monitor:
             return {}
 
     def _crawl_site(self, site: str) -> List[Dict]:
-        """✨ v4.6: 개별 사이트 크롤링 (사이트별 함수 호출)"""
+        """
+        🔧 FIX #4: 개별 사이트 크롤링 (즉시 처리 콜백 포함)
+
+        수정 내용:
+        - crawl_by_schedule() 중개 제거
+        - 실제 크롤링 함수 직접 호출
+        - on_post_process 콜백으로 self.process_post_immediately 전달
+
+        이로써 15분 주기 korea/global 모드에서도 즉시 처리가 정상 작동
+        """
         try:
             if not CRAWLER_AVAILABLE:
                 logger.warning(f"crawler 모듈 사용 불가 - {site} 건너뛰기")
                 return []
-                
-            # 사이트별 크롤링 함수 매핑
-            site_crawlers = {
-                'stove_korea_bug': lambda: crawl_by_schedule('stove_korea_bug', False, 'korea'),
-                'stove_korea_general': lambda: crawl_by_schedule('stove_korea_general', False, 'korea'),
-                'stove_global_bug': lambda: crawl_by_schedule('stove_global_bug', False, 'global'),
-                'stove_global_general': lambda: crawl_by_schedule('stove_global_general', False, 'global'),
-                'ruliweb_epic7': lambda: crawl_by_schedule('ruliweb_epic7', False, 'korea'),
-                'reddit_epicseven': lambda: crawl_by_schedule('reddit_epicseven', False, 'global')
-            }
-        
-            if site not in site_crawlers:
+
+            # 🔧 FIX #4: 사이트별 크롤링 함수 직접 호출 + 즉시 처리 콜백 전달
+            if site == 'stove_korea_bug':
+                from crawler import crawl_stove_board
+                return crawl_stove_board(
+                    "https://page.onstove.com/epicseven/kr/list/1012?page=1&direction=LATEST",
+                    "stove_korea_bug",
+                    force_crawl=self.force_crawl,
+                    schedule_type="frequent",
+                    region="korea",
+                    on_post_process=self.process_post_immediately  # ✅ 즉시 처리 콜백!
+                )
+
+            elif site == 'stove_korea_general':
+                from crawler import crawl_stove_board
+                return crawl_stove_board(
+                    "https://page.onstove.com/epicseven/kr/list/1005?page=1&direction=LATEST",
+                    "stove_korea_general",
+                    force_crawl=self.force_crawl,
+                    schedule_type="frequent",
+                    region="korea",
+                    on_post_process=self.process_post_immediately  # ✅ 즉시 처리 콜백!
+                )
+
+            elif site == 'stove_global_bug':
+                from crawler import crawl_stove_board
+                return crawl_stove_board(
+                    "https://page.onstove.com/epicseven/global/list/998?page=1&direction=LATEST",
+                    "stove_global_bug",
+                    force_crawl=self.force_crawl,
+                    schedule_type="frequent",
+                    region="global",
+                    on_post_process=self.process_post_immediately  # ✅ 즉시 처리 콜백!
+                )
+
+            elif site == 'stove_global_general':
+                from crawler import crawl_stove_board
+                return crawl_stove_board(
+                    "https://page.onstove.com/epicseven/global/list/989?page=1&direction=LATEST",
+                    "stove_global_general",
+                    force_crawl=self.force_crawl,
+                    schedule_type="frequent",
+                    region="global",
+                    on_post_process=self.process_post_immediately  # ✅ 즉시 처리 콜백!
+                )
+
+            elif site == 'ruliweb_epic7':
+                from crawler import crawl_ruliweb_epic7
+                return crawl_ruliweb_epic7(
+                    force_crawl=self.force_crawl,
+                    schedule_type="frequent",
+                    on_post_process=self.process_post_immediately  # ✅ 즉시 처리 콜백!
+                )
+
+            elif site == 'reddit_epicseven':
+                from crawler import crawl_reddit_epic7
+                return crawl_reddit_epic7(
+                    force_crawl=self.force_crawl,
+                    schedule_type="frequent",
+                    on_post_process=self.process_post_immediately  # ✅ 즉시 처리 콜백!
+                )
+
+            else:
                 logger.error(f"지원하지 않는 사이트: {site}")
                 return []
-        
-            # 크롤링 실행
-            crawler_func = site_crawlers[site]
-            posts = crawler_func()
-        
-            return posts if posts else []
-        
+
         except Exception as e:
-            self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM, 
+            self.error_manager.handle_error(e, ErrorType.CRAWLING, ErrorSeverity.MEDIUM,
                                           {'site': site})
             return []
 
@@ -794,15 +848,14 @@ class Epic7Monitor:
             for site in korea_sites:
                 try:
                     logger.info(f"🕷️ {site} 크롤링 시작")
-                    
-                    # 사이트별 크롤링 실행
+
+                    # 🔧 FIX #4: 사이트별 크롤링 실행 (on_post_process 콜백으로 이미 즉시 처리됨)
                     posts = self._crawl_site(site)
-                    
+
                     if posts:
-                        # 게시글별 즉시 처리
-                        for post in posts:
-                            self.process_post_immediately(post)
-                        
+                        # ✅ _crawl_site()에서 이미 즉시 처리 완료됨 (on_post_process 콜백)
+                        # 중복 처리 제거: for post in posts: self.process_post_immediately(post)
+
                         self.stats['korea_sites_crawled'] += len(posts)
                         logger.info(f"✅ {site} 크롤링 완료: {len(posts)}개 게시글")
                     else:
@@ -839,15 +892,14 @@ class Epic7Monitor:
             for site in global_sites:
                 try:
                     logger.info(f"🕷️ {site} 크롤링 시작")
-                    
-                    # 사이트별 크롤링 실행
+
+                    # 🔧 FIX #4: 사이트별 크롤링 실행 (on_post_process 콜백으로 이미 즉시 처리됨)
                     posts = self._crawl_site(site)
-                    
+
                     if posts:
-                        # 게시글별 즉시 처리
-                        for post in posts:
-                            self.process_post_immediately(post)
-                        
+                        # ✅ _crawl_site()에서 이미 즉시 처리 완료됨 (on_post_process 콜백)
+                        # 중복 처리 제거: for post in posts: self.process_post_immediately(post)
+
                         self.stats['global_sites_crawled'] += len(posts)
                         logger.info(f"✅ {site} 크롤링 완료: {len(posts)}개 게시글")
                     else:
